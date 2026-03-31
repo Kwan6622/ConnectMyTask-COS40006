@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { useNavigate, Routes, Route } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth.store';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';

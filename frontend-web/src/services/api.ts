@@ -46,7 +46,7 @@ class ApiService {
           storage.remove('auth_token');
           localStorage.removeItem('accessToken');
           localStorage.removeItem('auth-storage');
-          window.location.href = '/login';
+          window.location.href = '/';
         }
         return Promise.reject(error);
       }
@@ -68,19 +68,52 @@ class ApiService {
     getAll: (filters?: any) => this.api.get('/tasks', { params: filters }),
     getById: (id: string) => this.api.get(`/tasks/${id}`),
     create: (data: any) => this.api.post('/tasks', data),
-    update: (id: string, data: any) => this.api.put(`/tasks/${id}`, data),
+    update: (id: string, data: any) => this.api.patch(`/tasks/${id}`, data),
     delete: (id: string) => this.api.delete(`/tasks/${id}`),
     getByUser: (userId: string) => this.api.get(`/users/${userId}/tasks`),
+    getRequesterMe: () => this.api.get('/tasks/requester/me'),
+    getProviderAssignedMe: () => this.api.get('/tasks/provider/assigned/me'),
+    updateStatus: (id: string, status: string) => this.api.patch(`/tasks/${id}/status`, { status }),
+    assignProvider: (id: string, bidId: number) => this.api.patch(`/tasks/${id}/assign-provider`, { bidId }),
+    getProgress: (id: string) => this.api.get(`/tasks/${id}/progress`),
+    addProgressUpdate: (
+      id: string,
+      data: {
+        progressPercent: number;
+        note: string;
+        attachments?: string[];
+        milestoneStatus?: string;
+        estimatedCompletionDate?: string;
+        markAsCompleted?: boolean;
+      }
+    ) => this.api.post(`/tasks/${id}/progress`, data),
+    updateSubtaskStatus: (
+      id: string,
+      subtaskId: string | number,
+      status: 'PENDING' | 'IN_PROGRESS' | 'DONE'
+    ) => this.api.patch(`/tasks/${id}/subtasks/${subtaskId}`, { status }),
+    confirmCompletion: (id: string) => this.api.post(`/tasks/${id}/confirm-completion`),
+    getActivity: (id: string) => this.api.get(`/tasks/${id}/activity`),
+    getDisputes: (id: string) => this.api.get(`/tasks/${id}/disputes`),
+    openDispute: (
+      id: string,
+      data: {
+        reason: 'PROVIDER_NOT_DELIVERING' | 'REQUESTER_NOT_CONFIRMING' | 'QUALITY_ISSUE' | 'PAYMENT_ISSUE' | 'OTHER';
+        description: string;
+        evidenceUrls?: string[];
+      }
+    ) => this.api.post(`/tasks/${id}/disputes`, data),
+    cancel: (id: string, reason: string) => this.api.post(`/tasks/${id}/cancel`, { reason }),
+    save: (id: string) => this.api.post(`/tasks/${id}/save`),
+    unsave: (id: string) => this.api.delete(`/tasks/${id}/save`),
+    getSavedMe: () => this.api.get('/tasks/saved/me'),
   };
 
   // Bid APIs
   bids = {
     getAll: (taskId: string) => this.api.get(`/tasks/${taskId}/bids`),
     create: (taskId: string, data: any) => this.api.post(`/tasks/${taskId}/bids`, data),
-    accept: (taskId: string, bidId: string) =>
-      this.api.put(`/tasks/${taskId}/bids/${bidId}/accept`),
-    reject: (taskId: string, bidId: string) =>
-      this.api.put(`/tasks/${taskId}/bids/${bidId}/reject`),
+    getProviderMe: () => this.api.get('/bids/provider/me'),
   };
 
   // User APIs
@@ -107,17 +140,43 @@ class ApiService {
     analyzeSentiment: (text: string) => this.api.post('/ai/analyze-sentiment', { text }),
   };
 
+  // Chat assistant API
+  chat = {
+    send: (data: {
+      message: string;
+      history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+    }) => this.api.post('/chat', data),
+  };
+
   // Payment APIs
   payment = {
-    createPaymentIntent: (data: any) => this.api.post('/payments/intent', data),
-    confirmPayment: (paymentId: string) => this.api.post(`/payments/${paymentId}/confirm`),
-    getTransactionHistory: () => this.api.get('/payments/history'),
+    create: (data: { taskId: number; method?: 'STRIPE'; flow?: 'ESCROW_DEPOSIT' | 'DIRECT_PAYMENT' }) =>
+      this.api.post('/payments/create', data),
+    confirmSession: (sessionId: string) => this.api.post('/payments/confirm-session', { sessionId }),
+    getMine: () => this.api.get('/payments/me'),
+    getTask: (taskId: string | number) => this.api.get(`/payments/task/${taskId}`),
   };
 
   // Review APIs
   reviews = {
     create: (taskId: string, data: any) => this.api.post(`/tasks/${taskId}/reviews`, data),
     getByTask: (taskId: string) => this.api.get(`/tasks/${taskId}/reviews`),
+  };
+
+  // Notification APIs
+  notifications = {
+    contactClient: (data: { taskId: number }) =>
+      this.api.post('/notifications/contact', data),
+    getMine: () => this.api.get('/notifications/me'),
+    markRead: (id: string) => this.api.patch(`/notifications/${id}/read`),
+  };
+
+  // Rating APIs
+  ratings = {
+    create: (data: { taskId: number; toUserId?: number; rating: number; comment?: string }) =>
+      this.api.post('/ratings', data),
+    getUserRatings: (userId: string | number) => this.api.get(`/users/${userId}/ratings`),
+    getMyTaskRatingStatus: (taskId: string | number) => this.api.get(`/tasks/${taskId}/ratings/me`),
   };
 }
 

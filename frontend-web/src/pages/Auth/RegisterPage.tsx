@@ -29,6 +29,25 @@ export const RegisterPage: React.FC = () => {
 
   const password = watch('password');
 
+  const getSignupErrorMessage = (error: any) => {
+    const backendMessage =
+      error?.response?.data?.message ||
+      error?.response?.data?.error ||
+      error?.message ||
+      'Registration failed. Please try again.';
+    const normalized = String(backendMessage).toLowerCase();
+
+    if (
+      normalized.includes('email already') ||
+      normalized.includes('already registered') ||
+      normalized.includes('already exists')
+    ) {
+      return 'This email is already registered. Please use a different email.';
+    }
+
+    return backendMessage;
+  };
+
   const onSubmit = async (data: SignupFormData) => {
     if (data.password !== data.confirmPassword) {
       toast.error('Passwords do not match');
@@ -46,7 +65,7 @@ export const RegisterPage: React.FC = () => {
       toast.success('Registration successful!');
       navigate('/');
     } catch (error: any) {
-      toast.error(error.message || 'Registration failed');
+      toast.error(getSignupErrorMessage(error));
     }
   };
 

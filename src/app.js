@@ -13,10 +13,16 @@ const reviewRoutes = require('./modules/reviews/routes');
 const trackingRoutes = require('./modules/tracking/routes');
 const aiRoutes = require('./modules/ai-integration/routes');
 const userRoutes = require('./modules/users/routes');
+const notificationRoutes = require('./modules/notifications/routes');
+const paymentRoutes = require('./modules/payments/routes');
+const chatRoutes = require('./modules/chat/routes');
+const ratingRoutes = require('./modules/ratings/routes');
 
 const app = express();
 
 app.use(cors());
+// Stripe webhook needs raw request body for signature verification.
+app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
 
 // HTTP request logging
@@ -31,6 +37,10 @@ app.use(requestLogger);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/tasks', taskRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api', ratingRoutes);
 app.use('/api', bidRoutes); // includes /bids and /tasks/:id/bids
 app.use('/api', reviewRoutes); // includes /reviews and /providers/:id/reviews
 app.use('/api/tracking', trackingRoutes);

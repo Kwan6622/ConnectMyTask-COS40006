@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { useAuthStore } from '../stores/auth.store';
 import { Button } from '../components/common/Button';
 import { Input } from '../components/common/Input';
 import { Card } from '../components/common/Card';
+import { uploadImageToCloudinary } from '../utils/cloudinaryUpload';
+import { api } from '../services/api';
 import toast from 'react-hot-toast';
 import {
   EnvelopeIcon,
@@ -31,8 +33,12 @@ export const ProfilePage: React.FC = () => {
   const { user, logout, updateProfilePhoto } = useAuthStore();
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [photoUrlInput, setPhotoUrlInput] = useState(user?.profilePhotoUrl || '');
+  const [selectedPhotoFile, setSelectedPhotoFile] = useState<File | null>(null);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
+  const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
   const [isSavingPhoto, setIsSavingPhoto] = useState(false);
+  const [ratingSummary, setRatingSummary] = useState<{ averageRating: number; totalReviews: number } | null>(null);
+  const [recentFeedback, setRecentFeedback] = useState<Array<{ id: string | number; comment?: string | null; fromUser?: { name?: string } }>>([]);
 
   const { register, handleSubmit, formState: { errors }, reset } = useForm<ProfileFormData>({
     defaultValues: {
@@ -50,31 +56,65 @@ export const ProfilePage: React.FC = () => {
     navigate('/login');
   };
 
+  const handlePhotoFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setSelectedPhotoFile(file);
+    setPhotoPreviewUrl(URL.createObjectURL(file));
+    setPhotoUploadError(null);
+  };
+
   const handleSavePhoto = async () => {
-    if (!photoUrlInput.trim()) {
-      toast.error('Please enter an image URL');
+    if (!selectedPhotoFile) {
+      toast.error('Please choose a profile image');
       return;
     }
-    const nextUrl = photoUrlInput.trim();
-    const looksLikeDirectImage =
-      /^https?:\/\//i.test(nextUrl) &&
-      /\.(png|jpe?g|gif|webp|avif|svg)(\?.*)?$/i.test(nextUrl);
-    if (!looksLikeDirectImage) {
-      toast.error('Please use a direct image URL (ends with .jpg/.png/...)');
-      return;
-    }
+
     setIsSavingPhoto(true);
+    setPhotoUploadError(null);
     try {
-      await updateProfilePhoto(nextUrl);
+      // Upload to Cloudinary first, then save secure URL to backend profile.
+      const secureUrl = await uploadImageToCloudinary(selectedPhotoFile);
+      await updateProfilePhoto(secureUrl);
+      setSelectedPhotoFile(null);
+      setPhotoPreviewUrl(null);
       toast.success('Profile photo updated');
     } catch (error: any) {
-      toast.error(error.message || 'Failed to update profile photo');
+      const message = error?.message || 'Failed to update profile photo';
+      setPhotoUploadError(message);
+      toast.error(message);
     } finally {
       setIsSavingPhoto(false);
     }
   };
 
-  const onSubmit = async (data: ProfileFormData) => {
+  useEffect(() => {
+    return () => {
+      if (photoPreviewUrl) {
+        URL.revokeObjectURL(photoPreviewUrl);
+      }
+    };
+  }, [photoPreviewUrl]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    api.ratings
+      .getUserRatings(user.id)
+      .then((response) => {
+        const payload = response.data || {};
+        setRatingSummary({
+          averageRating: Number(payload.averageRating || 0),
+          totalReviews: Number(payload.totalReviews || 0),
+        });
+        setRecentFeedback((payload.ratings || []).filter((item: any) => item.comment).slice(0, 5));
+      })
+      .catch(() => {
+        setRatingSummary(null);
+        setRecentFeedback([]);
+      });
+  }, [user?.id]);
+
+  const onSubmit = async (_data: ProfileFormData) => {
     setIsLoading(true);
     try {
       // Simulate API call
@@ -117,7 +157,13 @@ export const ProfilePage: React.FC = () => {
             {/* Profile Card */}
             <Card className="text-center">
               <div className="relative inline-block mb-4">
-                {user.profilePhotoUrl ? (
+                {photoPreviewUrl ? (
+                  <img
+                    src={photoPreviewUrl}
+                    alt="Profile preview"
+                    className="w-24 h-24 mx-auto rounded-2xl object-cover shadow-xl"
+                  />
+                ) : user.profilePhotoUrl ? (
                   <img
                     src={user.profilePhotoUrl}
                     alt={user.fullName}
@@ -135,43 +181,48 @@ export const ProfilePage: React.FC = () => {
                 )}
               </div>
               <div className="text-left mt-4 space-y-3">
-                <label className="text-xs font-semibold text-dark-500">Profile Photo URL</label>
+                <label className="text-xs font-semibold text-dark-500">Profile Photo</label>
                 <input
-                  value={photoUrlInput}
-                  onChange={(event) => setPhotoUrlInput(event.target.value)}
-                  placeholder="https://res.cloudinary.com/..."
-                  className="w-full px-3 py-2 border border-dark-200 rounded-lg text-sm"
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoFileChange}
+                  className="w-full text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-blue-600 file:px-3 file:py-1.5 file:text-white hover:file:bg-blue-700"
                 />
                 <Button
                   onClick={handleSavePhoto}
-                  disabled={isSavingPhoto}
+                  disabled={isSavingPhoto || !selectedPhotoFile}
                   className="w-full"
                 >
-                  {isSavingPhoto ? 'Saving...' : 'Save Photo URL'}
+                  {isSavingPhoto ? 'Uploading...' : 'Upload Profile Photo'}
                 </Button>
+                {photoUploadError && (
+                  <p className="text-xs text-red-600">{photoUploadError}</p>
+                )}
                 <p className="text-xs text-dark-400">
-                  Upload is disabled for now. Paste a direct image URL.
+                  Select an image to preview it, then upload.
                 </p>
               </div>
               <h2 className="text-xl font-bold text-dark-900 mb-1">{user.fullName}</h2>
               <p className="text-sm text-dark-600 mb-4">
                 {user.role === 'CLIENT' ? 'Task Poster' : 'Service Provider'}
               </p>
-              {user.rating && (
+              {(ratingSummary?.totalReviews || 0) > 0 && (
                 <div className="flex items-center justify-center gap-2 mb-4">
                   <div className="flex items-center">
                     {[...Array(5)].map((_, i) => (
                       <StarIcon
                         key={i}
                         className={`w-5 h-5 ${
-                          i < Math.floor(user.rating!)
+                          i < Math.floor(ratingSummary?.averageRating || 0)
                             ? 'fill-yellow-400 text-yellow-400'
                             : 'text-dark-300'
                         }`}
                       />
                     ))}
                   </div>
-                  <span className="text-dark-600 font-medium">{user.rating.toFixed(1)}</span>
+                  <span className="text-dark-600 font-medium">
+                    {(ratingSummary?.averageRating || 0).toFixed(1)} ({ratingSummary?.totalReviews || 0} reviews)
+                  </span>
                 </div>
               )}
 
@@ -185,11 +236,25 @@ export const ProfilePage: React.FC = () => {
                   <p className="text-xs text-dark-500">Success</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-2xl font-bold text-accent-600">{user.completedTasks || 0}</p>
+                  <p className="text-2xl font-bold text-accent-600">{ratingSummary?.totalReviews || 0}</p>
                   <p className="text-xs text-dark-500">Reviews</p>
                 </div>
               </div>
             </Card>
+
+            {(recentFeedback.length > 0) && (
+              <Card>
+                <h3 className="text-sm font-semibold text-dark-700 mb-3">Recent Feedback</h3>
+                <div className="space-y-3">
+                  {recentFeedback.map((item) => (
+                    <div key={String(item.id)} className="rounded-lg border border-dark-100 bg-dark-50 p-3">
+                      <p className="text-sm text-dark-700">"{item.comment}"</p>
+                      <p className="text-xs text-dark-500 mt-1">- {item.fromUser?.name || 'User'}</p>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
 
             {/* Contact Info */}
             <Card>

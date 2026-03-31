@@ -18,6 +18,23 @@ function authenticate(req, res, next) {
   }
 }
 
+function requireRoles(...allowedRoles) {
+  const normalizedAllowedRoles = allowedRoles.map((role) => String(role).toUpperCase());
+  return (req, res, next) => {
+    const role = String(req.user?.role || '').toUpperCase();
+    if (!role) {
+      return res.status(401).json({ error: 'Unauthorized', message: 'Missing user role' });
+    }
+    if (!normalizedAllowedRoles.includes(role)) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: `Only ${normalizedAllowedRoles.join(' or ')} can access this resource`,
+      });
+    }
+    return next();
+  };
+}
+
 function signToken(user) {
   const payload = {
     id: user.id,
@@ -34,6 +51,7 @@ function signToken(user) {
 
 module.exports = {
   authenticate,
+  requireRoles,
   signToken,
 };
 
