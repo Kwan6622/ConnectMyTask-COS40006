@@ -27,8 +27,18 @@ async function getMyTaskRatingStatus(req, res, next) {
   }
 }
 
+async function getProviderRatingSummary(req, res, next) {
+  try {
+    const result = await ratingsService.getProviderRatingSummary(req.params.id);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   createRating,
   getUserRatings,
   getMyTaskRatingStatus,
+  getProviderRatingSummary,
 };

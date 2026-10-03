@@ -12,6 +12,7 @@ import {
   formatTaskStatusLabel,
   getDisplayEmail,
   getDisplayName,
+  isAdmin,
   isProvider,
   isRequester,
 } from "@/utils/taskUtils";
@@ -26,7 +27,10 @@ export type MarketplaceRouteKey =
   | "requesterDashboard"
   | "providerDashboard"
   | "myBids"
-  | "tracking";
+  | "tracking"
+  | "suggested"
+  | "notifications"
+  | "admin";
 
 export function MarketplaceHeader({
   activeRoute,
@@ -79,12 +83,17 @@ export function MarketplaceHeader({
   const navItems = useMemo(
     () => [
       { key: "browse" as const, label: "Browse Tasks", route: "/browse-tasks", visible: true },
+      { key: "suggested" as const, label: "Suggested Tasks", route: "/suggested-tasks", visible: isProvider(user) },
       { key: "requesterDashboard" as const, label: "Requester Dashboard", route: "/requester-dashboard", visible: isRequester(user) },
       { key: "providerDashboard" as const, label: "Provider Dashboard", route: "/provider-dashboard", visible: isProvider(user) },
       { key: "post" as const, label: "Post Task", route: "/post-task", visible: isRequester(user) },
       { key: "posted" as const, label: "My Posted Tasks", route: "/my-posted-tasks", visible: isRequester(user) },
+      { key: "tracking" as const, label: "My Assigned Tasks", route: "/task-progress", visible: isProvider(user) },
+      { key: "saved" as const, label: "Saved Tasks", route: "/saved-tasks", visible: isProvider(user) },
       { key: "myBids" as const, label: "My Bids", route: "/my-bids", visible: isProvider(user) },
+      { key: "notifications" as const, label: "Notifications", route: "/notifications", visible: isRequester(user) || isProvider(user) },
       { key: "progress" as const, label: "Task Progress", route: "/task-progress", visible: isRequester(user) || isProvider(user) },
+      { key: "admin" as const, label: "Admin Dashboard", route: "/admin-dashboard", visible: isAdmin(user) },
     ],
     [user]
   );
@@ -116,7 +125,15 @@ export function MarketplaceHeader({
   };
 
   const handleProtectedOpen = (
-    target: "/saved-tasks" | "/profile" | "/my-posted-tasks" | "/requester-dashboard" | "/provider-dashboard" | "/my-bids"
+    target:
+      | "/saved-tasks"
+      | "/profile"
+      | "/my-posted-tasks"
+      | "/requester-dashboard"
+      | "/provider-dashboard"
+      | "/my-bids"
+      | "/notifications"
+      | "/admin-dashboard"
   ): void => {
     if (!isAuthenticated) {
       router.push("/sign-in");
@@ -290,8 +307,10 @@ export function MarketplaceHeader({
           <PanelAction label="Profile" onPress={() => handleProtectedOpen("/profile")} />
           {isRequester(user) ? <PanelAction label="Requester Dashboard" onPress={() => handleProtectedOpen("/requester-dashboard")} /> : null}
           {isProvider(user) ? <PanelAction label="Provider Dashboard" onPress={() => handleProtectedOpen("/provider-dashboard")} /> : null}
-          <PanelAction label="My Posted Tasks" onPress={() => handleProtectedOpen("/my-posted-tasks")} />
+          {isAdmin(user) ? <PanelAction label="Admin Dashboard" onPress={() => handleProtectedOpen("/admin-dashboard")} /> : null}
+          {isRequester(user) ? <PanelAction label="My Posted Tasks" onPress={() => handleProtectedOpen("/my-posted-tasks")} /> : null}
           {isProvider(user) ? <PanelAction label="My Bids" onPress={() => handleProtectedOpen("/my-bids")} /> : null}
+          <PanelAction label="Notifications" onPress={() => handleProtectedOpen("/notifications")} />
           <PanelAction label="Saved Tasks" onPress={() => handleProtectedOpen("/saved-tasks")} />
           <Pressable
             onPress={() => {

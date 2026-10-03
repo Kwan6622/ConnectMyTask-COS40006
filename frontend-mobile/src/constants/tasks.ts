@@ -26,8 +26,8 @@ export const TASK_STATUSES: TaskStatus[] = [
 
 export const SORT_OPTIONS: Array<{ label: string; value: TaskSortBy }> = [
   { label: "Most Recent", value: "most_recent" },
-  { label: "Price: Low to High", value: "price_low_to_high" },
-  { label: "Price: High to Low", value: "price_high_to_low" },
+  { label: "Budget: Low to High", value: "budget_low_to_high" },
+  { label: "Budget: High to Low", value: "budget_high_to_low" },
   { label: "Deadline", value: "deadline" },
 ];
 

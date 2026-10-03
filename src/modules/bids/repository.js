@@ -84,10 +84,22 @@ async function updateTaskStatus(taskId, status) {
   });
 }
 
+async function markTaskAsBidding(taskId, biddingStartedAt, biddingEndsAt) {
+  return prisma.task.update({
+    where: { id: taskId },
+    data: {
+      status: 'BIDDING',
+      biddingStartedAt,
+      biddingEndsAt,
+    },
+  });
+}
+
 module.exports = {
   createBid,
   getTaskById,
   listBidsForTask,
   listBidsForProvider,
   updateTaskStatus,
+  markTaskAsBidding,
 };

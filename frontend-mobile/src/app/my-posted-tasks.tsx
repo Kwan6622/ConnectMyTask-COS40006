@@ -1,9 +1,11 @@
-import React, { useEffect, useMemo } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { Alert, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { MarketplaceShell } from "@/components/MarketplaceShell";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
+import { Input } from "@/components/Input";
+import { api } from "@/services/api";
 import { useAuthStore } from "@/store/authStore";
 import { useTaskStore } from "@/store/taskStore";
 import { colors, radius } from "@/theme/tokens";
@@ -18,6 +20,10 @@ export default function MyPostedTasksPage(): React.ReactElement {
     fetchRequesterTasks: state.fetchRequesterTasks,
     isLoading: state.isLoading,
   }));
+  const [ratingTaskId, setRatingTaskId] = useState<string | number | null>(null);
+  const [ratingScore, setRatingScore] = useState("5");
+  const [ratingComment, setRatingComment] = useState("");
+  const [ratingTargetUserId, setRatingTargetUserId] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated || !isRequester(user)) return;
@@ -54,6 +60,45 @@ export default function MyPostedTasksPage(): React.ReactElement {
       </MarketplaceShell>
     );
   }
+
+  const openRating = async (taskId: string | number): Promise<void> => {
+    try {
+      const response = await api.ratings.getMyTaskRatingStatus(taskId);
+      const data = response.data || {};
+      if (!data.canRate || data.hasRated) {
+        Alert.alert("Not available", data.reason || "You can rate provider only once after completion.");
+        return;
+      }
+      setRatingTaskId(taskId);
+      setRatingTargetUserId(data.toUserId ? Number(data.toUserId) : null);
+    } catch (error: any) {
+      Alert.alert("Cannot rate", error?.response?.data?.message || "Rating is not available for this task.");
+    }
+  };
+
+  const submitRating = async (): Promise<void> => {
+    if (!ratingTaskId || !ratingTargetUserId) return;
+    const score = Number(ratingScore);
+    if (!Number.isInteger(score) || score < 1 || score > 5) {
+      Alert.alert("Invalid rating", "Rating must be an integer from 1 to 5.");
+      return;
+    }
+    try {
+      await api.ratings.create({
+        taskId: Number(ratingTaskId),
+        toUserId: ratingTargetUserId,
+        rating: score,
+        comment: ratingComment.trim() || undefined,
+      });
+      Alert.alert("Thank you", "Provider review submitted successfully.");
+      setRatingTaskId(null);
+      setRatingTargetUserId(null);
+      setRatingComment("");
+      setRatingScore("5");
+    } catch (error: any) {
+      Alert.alert("Review failed", error?.response?.data?.message || "Cannot submit review right now.");
+    }
+  };
 
   return (
     <MarketplaceShell activeRoute="posted">
@@ -121,11 +166,39 @@ export default function MyPostedTasksPage(): React.ReactElement {
                     router.push({ pathname: "/task-progress", params: { taskId: String(task.id) } })
                   }
                 />
+                {["COMPLETED", "AWAITING_PAYMENT", "PAID"].includes(String(task.status || "")) &&
+                task.assignedProviderId ? (
+                  <Button title="Rate Provider" size="sm" variant="outline" onPress={() => void openRating(task.id)} />
+                ) : null}
               </View>
             </View>
           </Card>
         ))
       )}
+
+      {ratingTaskId ? (
+        <Card title="Leave a review">
+          <View style={styles.ratingForm}>
+            <Input
+              label="Stars (1-5)"
+              keyboardType="numeric"
+              value={ratingScore}
+              onChangeText={setRatingScore}
+            />
+            <Input
+              label="Comment (optional)"
+              value={ratingComment}
+              onChangeText={setRatingComment}
+              multiline
+              numberOfLines={3}
+            />
+            <View style={styles.ratingActions}>
+              <Button title="Cancel" variant="outline" onPress={() => setRatingTaskId(null)} style={styles.actionFill} />
+              <Button title="Submit Review" onPress={() => void submitRating()} style={styles.actionFill} />
+            </View>
+          </View>
+        </Card>
+      ) : null}
     </MarketplaceShell>
   );
 }
@@ -231,6 +304,16 @@ const styles = StyleSheet.create({
   },
   taskActionColumn: {
     gap: 8,
+  },
+  ratingForm: {
+    gap: 10,
+  },
+  ratingActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  actionFill: {
+    flex: 1,
   },
   emptyBox: {
     alignItems: "center",

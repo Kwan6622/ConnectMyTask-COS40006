@@ -16,6 +16,24 @@ const providerSelect = {
   phone: true,
   profilePhotoUrl: true,
   skills: true,
+  providerProfile: {
+    select: {
+      district: true,
+      city: true,
+      specialties: true,
+      safetyComplianceAgreed: true,
+      certificates: {
+        select: {
+          id: true,
+          title: true,
+          fileUrl: true,
+          certificateType: true,
+          verificationStatus: true,
+        },
+        orderBy: [{ uploadedAt: 'desc' }, { id: 'desc' }],
+      },
+    },
+  },
 };
 
 const activityActorSelect = {
@@ -31,9 +49,13 @@ async function createTask(data) {
 }
 
 async function listTasks(filters) {
-  const where = {};
+  const where = { isDeleted: false };
   if (filters.status) {
     where.status = filters.status;
+  } else {
+    where.status = {
+      notIn: ['COMPLETED', 'PAID', 'CANCELLED'],
+    };
   }
   if (filters.category) {
     where.category = filters.category;
@@ -69,9 +91,22 @@ async function listTasks(filters) {
   });
 }
 
+async function getProviderProfileByUserId(userId) {
+  return prisma.providerProfile.findUnique({
+    where: { userId },
+    select: {
+      userId: true,
+      district: true,
+      city: true,
+      specialties: true,
+      safetyComplianceAgreed: true,
+    },
+  });
+}
+
 async function getTaskById(id) {
-  return prisma.task.findUnique({
-    where: { id },
+  return prisma.task.findFirst({
+    where: { id, isDeleted: false },
     include: {
       createdBy: { select: requesterSelect },
       assignedProvider: { select: providerSelect },
@@ -186,7 +221,7 @@ async function listSavedTasksForUser(userId) {
 
 async function listTasksByRequester(userId) {
   return prisma.task.findMany({
-    where: { createdById: userId },
+    where: { createdById: userId, isDeleted: false },
     include: {
       assignedProvider: { select: providerSelect },
       _count: {
@@ -216,7 +251,7 @@ async function listTasksByRequester(userId) {
 
 async function listAssignedTasksForProvider(providerId) {
   return prisma.task.findMany({
-    where: { assignedProviderId: providerId },
+    where: { assignedProviderId: providerId, isDeleted: false },
     include: {
       createdBy: { select: requesterSelect },
       _count: {
@@ -342,6 +377,92 @@ async function assignProviderFromBid(taskId, bidId) {
       data: {
         assignedProviderId: acceptedBid.providerId,
         status: 'ASSIGNED',
+        biddingEndsAt: new Date(),
+        escrowStatus: 'PENDING_DEPOSIT',
+        paymentStatus: 'ESCROW_PENDING',
+        escrowAmount: task.budget,
+        escrowHeldAt: null,
+        escrowReleasedAt: null,
+      },
+    });
+
+    return acceptedBid;
+  });
+}
+
+async function listExpiredBiddingTasks(now) {
+  return prisma.task.findMany({
+    where: {
+      isDeleted: false,
+      status: 'BIDDING',
+      assignedProviderId: null,
+      biddingEndsAt: {
+        not: null,
+        lte: now,
+      },
+    },
+    include: {
+      bids: {
+        where: { status: 'PENDING' },
+        include: {
+          provider: {
+            select: {
+              id: true,
+              rating: true,
+            },
+          },
+        },
+        orderBy: [{ price: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      },
+    },
+  });
+}
+
+async function getProviderRatingStats(providerIds) {
+  if (!providerIds.length) return [];
+  return prisma.rating.groupBy({
+    by: ['toUserId'],
+    where: {
+      toUserId: { in: providerIds },
+    },
+    _avg: {
+      rating: true,
+    },
+    _count: {
+      rating: true,
+    },
+  });
+}
+
+async function autoAssignProviderFromBid(taskId, bidId) {
+  return prisma.$transaction(async (tx) => {
+    const task = await tx.task.findUnique({ where: { id: taskId } });
+    if (!task) return null;
+    if (task.assignedProviderId || task.status !== 'BIDDING') return null;
+
+    const bid = await tx.bid.findUnique({ where: { id: bidId } });
+    if (!bid || bid.taskId !== taskId) return null;
+
+    const acceptedBid = await tx.bid.update({
+      where: { id: bidId },
+      data: { status: 'ACCEPTED' },
+    });
+
+    await tx.bid.updateMany({
+      where: {
+        taskId,
+        id: { not: bidId },
+        status: 'PENDING',
+      },
+      data: { status: 'REJECTED' },
+    });
+
+    await tx.task.update({
+      where: { id: taskId },
+      data: {
+        assignedProviderId: acceptedBid.providerId,
+        status: 'ASSIGNED',
+        biddingEndsAt: new Date(),
         escrowStatus: 'PENDING_DEPOSIT',
         paymentStatus: 'ESCROW_PENDING',
         escrowAmount: task.budget,
@@ -482,6 +603,7 @@ async function listTaskActivity(taskId, limit = 100) {
 module.exports = {
   createTask,
   listTasks,
+  getProviderProfileByUserId,
   getTaskById,
   updateTaskStatus,
   updateTask,
@@ -498,6 +620,9 @@ module.exports = {
   updateSubtaskStatus,
   getSubtaskById,
   assignProviderFromBid,
+  listExpiredBiddingTasks,
+  getProviderRatingStats,
+  autoAssignProviderFromBid,
   listPaymentTransactionsForTask,
   getLatestSuccessfulEscrowDeposit,
   createDispute,

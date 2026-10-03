@@ -16,6 +16,44 @@ export interface User {
   isVerified: boolean;
   bio?: string;
   createdAt: string;
+  providerProfile?: ProviderProfile;
+  providerRatingSummary?: ProviderRatingSummary;
+}
+
+export interface ProviderCertificate {
+  id: string | number;
+  providerId: string | number;
+  providerProfileId?: string | number | null;
+  title: string;
+  fileUrl: string;
+  certificateType: string;
+  verificationStatus: 'PENDING' | 'VERIFIED' | 'REJECTED';
+  rejectionReason?: string | null;
+  uploadedAt: string;
+  verifiedAt?: string | null;
+  verifiedByAdminId?: string | number | null;
+}
+
+export interface ProviderProfile {
+  id: string | number;
+  userId: string | number;
+  address?: string | null;
+  district?: string | null;
+  city?: string | null;
+  specialties: string[];
+  safetyComplianceAgreed: boolean;
+  shortBio?: string | null;
+  certificates?: ProviderCertificate[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ProviderRatingSummary {
+  providerId: string | number;
+  averageRating: number;
+  totalReviews: number;
+  latestCommentsCount?: number;
+  latestComments?: RatingItem[];
 }
 
 // Task Types

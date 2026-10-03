@@ -7,6 +7,7 @@ import { Card } from '../components/common/Card';
 import { PlusIcon, TrashIcon, PencilIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { formatVnd } from '../utils';
+import { api } from '../services/api';
 
 export const MyTasksPage: React.FC = () => {
   const navigate = useNavigate();
@@ -35,6 +36,27 @@ export const MyTasksPage: React.FC = () => {
 
   const handleEdit = (taskId: string) => {
     navigate(`/post-task?id=${taskId}`);
+  };
+
+  const handleRateProvider = async (taskId: string | number) => {
+    const starsRaw = window.prompt('Rate provider from 1 to 5 stars');
+    if (!starsRaw) return;
+    const rating = Number(starsRaw);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      toast.error('Please enter a valid star rating from 1 to 5');
+      return;
+    }
+    const comment = window.prompt('Optional feedback comment') || undefined;
+    try {
+      await api.ratings.create({
+        taskId: Number(taskId),
+        rating,
+        comment,
+      });
+      toast.success('Provider rated successfully');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Could not submit provider rating');
+    }
   };
 
   const myTasks = tasks.filter(
@@ -167,6 +189,16 @@ export const MyTasksPage: React.FC = () => {
                       >
                         <TrashIcon className="w-5 h-5" />
                       </button>
+                      {['COMPLETED'].includes(String(task.status || '').toUpperCase())
+                        && task.assignedProviderId && (
+                          <Button
+                            variant="outline"
+                            className="ml-2"
+                            onClick={() => handleRateProvider(task.id)}
+                          >
+                            Rate Provider
+                          </Button>
+                        )}
                     </div>
                   </div>
                 </div>

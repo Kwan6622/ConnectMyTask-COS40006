@@ -17,6 +17,8 @@ const notificationRoutes = require('./modules/notifications/routes');
 const paymentRoutes = require('./modules/payments/routes');
 const chatRoutes = require('./modules/chat/routes');
 const ratingRoutes = require('./modules/ratings/routes');
+const adminRoutes = require('./modules/admin/routes');
+const platformRoutes = require('./modules/platform/routes');
 
 const app = express();
 
@@ -45,6 +47,8 @@ app.use('/api', bidRoutes); // includes /bids and /tasks/:id/bids
 app.use('/api', reviewRoutes); // includes /reviews and /providers/:id/reviews
 app.use('/api/tracking', trackingRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/platform', platformRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

@@ -41,7 +41,10 @@ A React Native mobile application for task management built with Expo, TypeScrip
    - **iOS**: Press `i` in the terminal or run `npm run ios`
    - **iOS via LAN (physical iPhone/iPad)**: run `npm run ios:lan`
    - **Real iPad from Windows/macOS (Expo Go, recommended)**: run `npm run ipad`
-   - **Android Emulator (recommended)**: Press `a` in the terminal or run `npm run android`
+- **Android Emulator (recommended)**: Press `a` in the terminal or run `npm run android`
+  - `npm run android` now auto-detects `adb`:
+    - if `adb` is available, it opens Android emulator directly
+    - if `adb` is missing, it falls back to Expo LAN mode for QR testing on Android device
    - **Android via LAN (physical device)**: run `npm run android:lan`
    - **Web**: Press `w` in the terminal or run `npm run web`
 
@@ -148,6 +151,10 @@ Create a `.env.local` file in the project root:
 ```env
 EXPO_PUBLIC_API_URL=http://localhost:4000/api
 ```
+
+Notes:
+- Android emulator automatically maps `localhost` API host to `10.0.2.2`
+- Real device on same Wi-Fi uses Expo LAN host rewrite automatically
 
 ### API Configuration
 

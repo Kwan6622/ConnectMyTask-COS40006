@@ -73,6 +73,7 @@ class ApiService {
     getByUser: (userId: string) => this.api.get(`/users/${userId}/tasks`),
     getRequesterMe: () => this.api.get('/tasks/requester/me'),
     getProviderAssignedMe: () => this.api.get('/tasks/provider/assigned/me'),
+    getSuggestedMe: () => this.api.get('/tasks/suggested/me'),
     updateStatus: (id: string, status: string) => this.api.patch(`/tasks/${id}/status`, { status }),
     assignProvider: (id: string, bidId: number) => this.api.patch(`/tasks/${id}/assign-provider`, { bidId }),
     getProgress: (id: string) => this.api.get(`/tasks/${id}/progress`),
@@ -124,6 +125,25 @@ class ApiService {
     getReviews: (id: string) => this.api.get(`/users/${id}/reviews`),
     updateProfilePhoto: (profilePhotoUrl: string) =>
       this.api.patch('/users/me', { profilePhotoUrl }),
+    updateProviderProfile: (data: {
+      address?: string;
+      district?: string;
+      city?: string;
+      specialties?: string[];
+      safetyComplianceAgreed?: boolean;
+      shortBio?: string;
+    }) => this.api.patch('/users/me/provider-profile', data),
+    uploadProviderCertificate: (data: {
+      title: string;
+      certificateType: string;
+      fileUrl: string;
+    }) => this.api.post('/users/me/provider-certificates', data),
+    verifyProviderCertificate: (
+      certificateId: string | number,
+      data: { verificationStatus: 'VERIFIED' | 'REJECTED'; rejectionReason?: string }
+    ) => this.api.patch(`/users/provider-certificates/${certificateId}/verification`, data),
+    getProviderRatingSummary: (providerId: string | number) =>
+      this.api.get(`/users/providers/${providerId}/rating-summary`),
   };
 
   // Tracking APIs
@@ -176,7 +196,28 @@ class ApiService {
     create: (data: { taskId: number; toUserId?: number; rating: number; comment?: string }) =>
       this.api.post('/ratings', data),
     getUserRatings: (userId: string | number) => this.api.get(`/users/${userId}/ratings`),
+    getProviderRatings: (providerId: string | number) => this.api.get(`/providers/${providerId}/ratings`),
     getMyTaskRatingStatus: (taskId: string | number) => this.api.get(`/tasks/${taskId}/ratings/me`),
+  };
+
+  // Admin APIs
+  admin = {
+    getStats: () => this.api.get('/admin/stats'),
+    getTasks: () => this.api.get('/admin/tasks'),
+    getSuspiciousTasks: () => this.api.get('/admin/tasks/suspicious'),
+    deleteTask: (taskId: string | number) => this.api.delete(`/admin/tasks/${taskId}`),
+    reviewTask: (taskId: string | number) => this.api.patch(`/admin/tasks/${taskId}/reviewed`),
+    getCertificates: () => this.api.get('/admin/certificates'),
+    verifyCertificate: (certificateId: string | number) => this.api.patch(`/admin/certificates/${certificateId}/verify`),
+    rejectCertificate: (certificateId: string | number) => this.api.patch(`/admin/certificates/${certificateId}/reject`),
+    getPayments: () => this.api.get('/admin/payments'),
+    getEscrowPayments: () => this.api.get('/admin/payments/escrow'),
+    releasePayment: (paymentId: string | number) => this.api.patch(`/admin/payments/${paymentId}/release`),
+  };
+
+  // Platform public stats APIs
+  platform = {
+    getStats: () => this.api.get('/platform/stats'),
   };
 }
 

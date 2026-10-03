@@ -3,9 +3,13 @@ const notificationRepository = require('../notifications/repository');
 const paymentService = require('../payments/service');
 const { evaluateTaskRisk } = require('./riskEvaluator');
 const { generateSuggestedSubtasks } = require('./subtaskTemplates');
+const { isSameDistrict, isNearbyDistrict } = require('./districtAdjacency');
 
 const GLOBAL_MAX_BIDS = 100;
 const DEFAULT_MAX_BIDS = 30;
+const BIDDING_WINDOW_HOURS = 24;
+let autoAssignRunning = false;
+let lastAutoAssignRunAt = 0;
 const TASK_PRIORITY_ORDER = {
   OPEN: 1,
   BIDDING: 2,
@@ -18,6 +22,16 @@ const TASK_PRIORITY_ORDER = {
   PAID: 9,
   CANCELLED: 10,
   PENDING: 11,
+};
+
+const SPECIALTY_CATEGORY_KEYWORDS = {
+  ELECTRICIAN: ['HOME_REPAIR', 'IT_SUPPORT'],
+  CLEANING: ['CLEANING'],
+  DELIVERY: ['DELIVERY'],
+  'HOME REPAIR': ['HOME_REPAIR'],
+  MOVING: ['MOVING'],
+  'TECH SUPPORT': ['IT_SUPPORT'],
+  IT_SUPPORT: ['IT_SUPPORT'],
 };
 
 function normalizeRole(role) {
@@ -64,6 +78,11 @@ function parseDueDate(value) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
     const err = new Error('Invalid due date');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (parsed.getTime() < Date.now()) {
+    const err = new Error('Due date cannot be in the past');
     err.statusCode = 400;
     throw err;
   }
@@ -164,6 +183,44 @@ function assertProviderRole(user) {
     err.statusCode = 403;
     throw err;
   }
+}
+
+function scoreSpecialtyMatch(taskCategory, specialties) {
+  const normalizedTaskCategory = String(taskCategory || '').toUpperCase();
+  const normalizedSpecialties = (Array.isArray(specialties) ? specialties : [])
+    .map((item) => String(item || '').trim().toUpperCase())
+    .filter(Boolean);
+
+  for (const specialty of normalizedSpecialties) {
+    const mappedCategories = SPECIALTY_CATEGORY_KEYWORDS[specialty] || SPECIALTY_CATEGORY_KEYWORDS[specialty.replace(/_/g, ' ')] || [];
+    if (mappedCategories.includes(normalizedTaskCategory)) {
+      return 100;
+    }
+    if (specialty.includes(normalizedTaskCategory)) {
+      return 80;
+    }
+  }
+  return 0;
+}
+
+function scoreDistrictMatch(providerDistrict, taskLocation) {
+  if (!providerDistrict || !taskLocation) return 0;
+  if (isSameDistrict(providerDistrict, taskLocation)) {
+    return 50;
+  }
+  if (isNearbyDistrict(providerDistrict, taskLocation)) {
+    return 25;
+  }
+  return 0;
+}
+
+function scoreStatusPriority(task) {
+  const status = String(task?.status || '').toUpperCase();
+  if (status === 'OPEN') return 20;
+  if (status === 'BIDDING') return 16;
+  if (status === 'ASSIGNED') return 6;
+  if (status === 'IN_PROGRESS') return 3;
+  return 0;
 }
 
 function assertAdminRole(user) {
@@ -268,7 +325,97 @@ async function hydrateTaskListWithOverdue(tasks) {
   return enriched;
 }
 
+function buildProviderTrustMap(ratingStats) {
+  const trustMap = new Map();
+  for (const stat of ratingStats) {
+    trustMap.set(stat.toUserId, {
+      averageRating: Number(stat?._avg?.rating || 0),
+      reviewCount: Number(stat?._count?.rating || 0),
+    });
+  }
+  return trustMap;
+}
+
+function pickBestBidWithTrust(bids, providerTrustMap) {
+  if (!Array.isArray(bids) || bids.length === 0) return null;
+  const sortedByPrice = [...bids].sort((a, b) => a.price - b.price);
+  const lowestPrice = sortedByPrice[0].price;
+  const closeBand = sortedByPrice.filter((bid) => bid.price <= lowestPrice + 50000);
+
+  const ranked = closeBand.sort((a, b) => {
+    const trustA = providerTrustMap.get(a.providerId) || { averageRating: Number(a?.provider?.rating || 0), reviewCount: 0 };
+    const trustB = providerTrustMap.get(b.providerId) || { averageRating: Number(b?.provider?.rating || 0), reviewCount: 0 };
+
+    if (a.price !== b.price) return a.price - b.price;
+    if (trustB.averageRating !== trustA.averageRating) return trustB.averageRating - trustA.averageRating;
+    if (trustB.reviewCount !== trustA.reviewCount) return trustB.reviewCount - trustA.reviewCount;
+    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+  });
+
+  return ranked[0] || sortedByPrice[0];
+}
+
+async function autoAssignExpiredBiddingTasks() {
+  const nowTs = Date.now();
+  if (autoAssignRunning) return;
+  if (nowTs - lastAutoAssignRunAt < 30000) return;
+
+  autoAssignRunning = true;
+  lastAutoAssignRunAt = nowTs;
+
+  try {
+  const expiredTasks = await taskRepository.listExpiredBiddingTasks(new Date());
+  if (!expiredTasks.length) return;
+
+  const allProviderIds = Array.from(
+    new Set(expiredTasks.flatMap((task) => task.bids.map((bid) => bid.providerId)))
+  );
+  const ratingStats = await taskRepository.getProviderRatingStats(allProviderIds);
+  const trustMap = buildProviderTrustMap(ratingStats);
+
+  for (const task of expiredTasks) {
+    const bestBid = pickBestBidWithTrust(task.bids, trustMap);
+    if (!bestBid) continue;
+
+    // eslint-disable-next-line no-await-in-loop
+    const acceptedBid = await taskRepository.autoAssignProviderFromBid(task.id, bestBid.id);
+    if (!acceptedBid) continue;
+
+    // eslint-disable-next-line no-await-in-loop
+    await notificationRepository.createNotification({
+      recipientId: acceptedBid.providerId,
+      senderId: null,
+      taskId: task.id,
+      message: `Your bid was auto-selected after bidding deadline for task "${task.title}".`,
+    });
+    // eslint-disable-next-line no-await-in-loop
+    await notificationRepository.createNotification({
+      recipientId: task.createdById,
+      senderId: acceptedBid.providerId,
+      taskId: task.id,
+      message: `Task "${task.title}" was auto-assigned after 24h bidding window. Please deposit escrow to start work.`,
+    });
+    // eslint-disable-next-line no-await-in-loop
+    await logActivity(task.id, null, 'AUTO_ASSIGNED_AFTER_BIDDING_WINDOW', 'System auto-assigned provider after 24h bidding window.', {
+      bidId: acceptedBid.id,
+      providerId: acceptedBid.providerId,
+      selectedBidPrice: acceptedBid.price,
+      ranking: 'lowest-bid first, then higher rating/review-count as tie-break in close bids',
+    });
+  }
+  } finally {
+    autoAssignRunning = false;
+  }
+}
+
+function triggerAutoAssignExpiredBiddingTasks() {
+  autoAssignExpiredBiddingTasks().catch(() => {
+    // Background best-effort routine: never block user-facing requests.
+  });
+}
+
 async function getTaskById(id) {
+  triggerAutoAssignExpiredBiddingTasks();
   const task = await taskRepository.getTaskById(id);
   if (!task) {
     const err = new Error('Task not found');
@@ -278,11 +425,18 @@ async function getTaskById(id) {
   const hydratedTask = await hydrateTaskWithOverdue(task);
   const bidCount = hydratedTask?._count?.bids || 0;
   const taskMaxBids = Math.min(Number(hydratedTask?.maxBids || DEFAULT_MAX_BIDS), GLOBAL_MAX_BIDS);
+  const biddingEndsAt = hydratedTask?.biddingEndsAt ? new Date(hydratedTask.biddingEndsAt) : null;
+  const biddingOpenByTime = !biddingEndsAt || Date.now() <= biddingEndsAt.getTime();
   return {
     ...hydratedTask,
     bidCount,
     maxBids: taskMaxBids,
-    isBiddingClosed: bidCount >= taskMaxBids || bidCount >= GLOBAL_MAX_BIDS,
+    isBiddingClosed:
+      !biddingOpenByTime ||
+      hydratedTask.status === 'ASSIGNED' ||
+      bidCount >= taskMaxBids ||
+      bidCount >= GLOBAL_MAX_BIDS,
+    biddingWindowHours: BIDDING_WINDOW_HOURS,
   };
 }
 
@@ -333,9 +487,16 @@ async function createTask(payload, currentUser) {
 }
 
 async function listTasks(filters) {
+  triggerAutoAssignExpiredBiddingTasks();
   const tasks = await taskRepository.listTasks(filters);
   const hydratedTasks = await hydrateTaskListWithOverdue(tasks);
-  return [...hydratedTasks].sort(compareTasksForBrowse);
+  const browseEligibleTasks = hydratedTasks.filter((task) => {
+    const status = String(task?.status || '').toUpperCase();
+    const isAssigned = status === 'ASSIGNED';
+    const isOverdueUnassigned = Boolean(task?.isOverdue) && !task?.assignedProviderId;
+    return !isAssigned && !isOverdueUnassigned;
+  });
+  return [...browseEligibleTasks].sort(compareTasksForBrowse);
 }
 
 async function updateTaskStatus(id, status, currentUser) {
@@ -505,6 +666,12 @@ async function assignProvider(taskId, bidId, currentUser) {
     throw err;
   }
 
+  if (!['OPEN', 'BIDDING'].includes(task.status)) {
+    const err = new Error('Provider can only be assigned while task is OPEN or BIDDING');
+    err.statusCode = 400;
+    throw err;
+  }
+
   const acceptedBid = await taskRepository.assignProviderFromBid(taskId, bidId);
 
   await notificationRepository.createNotification({
@@ -531,6 +698,7 @@ async function assignProvider(taskId, bidId, currentUser) {
 }
 
 async function listRequesterTasks(userId, currentUser) {
+  triggerAutoAssignExpiredBiddingTasks();
   if (userId !== currentUser.id) {
     const err = new Error('Forbidden');
     err.statusCode = 403;
@@ -541,6 +709,7 @@ async function listRequesterTasks(userId, currentUser) {
 }
 
 async function listAssignedTasks(userId, currentUser) {
+  triggerAutoAssignExpiredBiddingTasks();
   if (userId !== currentUser.id) {
     const err = new Error('Forbidden');
     err.statusCode = 403;
@@ -549,6 +718,41 @@ async function listAssignedTasks(userId, currentUser) {
   assertProviderRole(currentUser);
   const tasks = await taskRepository.listAssignedTasksForProvider(userId);
   return hydrateTaskListWithOverdue(tasks);
+}
+
+async function listSuggestedTasksForProvider(currentUser) {
+  triggerAutoAssignExpiredBiddingTasks();
+  assertProviderRole(currentUser);
+  const profile = await taskRepository.getProviderProfileByUserId(currentUser.id);
+  const specialties = profile?.specialties || (currentUser?.skills ? [currentUser.skills] : []);
+  const providerDistrict = profile?.district || null;
+
+  const tasks = await taskRepository.listTasks({});
+  const hydratedTasks = await hydrateTaskListWithOverdue(tasks);
+  const candidateTasks = hydratedTasks.filter((task) => {
+    if (task.createdById === currentUser.id) return false;
+    if (task.assignedProviderId && task.assignedProviderId !== currentUser.id) return false;
+    const status = String(task.status || '').toUpperCase();
+    return ['OPEN', 'BIDDING', 'ASSIGNED', 'IN_PROGRESS'].includes(status);
+  });
+
+  return candidateTasks
+    .map((task) => {
+      const specialtyScore = scoreSpecialtyMatch(task.category, specialties);
+      const districtScore = scoreDistrictMatch(providerDistrict, task.location);
+      const statusScore = scoreStatusPriority(task);
+      const total = specialtyScore + districtScore + statusScore;
+      return {
+        ...task,
+        suggestionScore: total,
+      };
+    })
+    .sort((a, b) => {
+      if (b.suggestionScore !== a.suggestionScore) {
+        return b.suggestionScore - a.suggestionScore;
+      }
+      return compareTasksForBrowse(a, b);
+    });
 }
 
 async function getTaskProgress(taskId, currentUser) {
@@ -1013,6 +1217,7 @@ module.exports = {
   assignProvider,
   listRequesterTasks,
   listAssignedTasks,
+  listSuggestedTasksForProvider,
   getTaskProgress,
   updateTaskSubtaskStatus,
   createTaskProgressUpdate,

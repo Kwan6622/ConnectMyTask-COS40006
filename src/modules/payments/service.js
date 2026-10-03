@@ -6,6 +6,7 @@ const { env } = require('../../config/env');
 const stripe = env.STRIPE_SECRET_KEY
   ? new Stripe(env.STRIPE_SECRET_KEY)
   : null;
+const PLATFORM_FEE_RATE = 0.2;
 
 function ensureStripeConfigured() {
   if (!stripe) {
@@ -32,6 +33,18 @@ function toStripeAmount(amount, currency) {
   // VND is a zero-decimal currency in Stripe.
   if (currency.toLowerCase() === 'vnd') return Math.round(amount);
   return Math.round(amount * 100);
+}
+
+function computeSettlementBreakdown(totalAmount) {
+  const normalized = Number(totalAmount || 0);
+  const platformFeeAmount = Math.round(normalized * PLATFORM_FEE_RATE);
+  const providerPayoutAmount = Math.max(0, normalized - platformFeeAmount);
+  return {
+    totalAmount: normalized,
+    escrowHeldAmount: normalized,
+    platformFeeAmount,
+    providerPayoutAmount,
+  };
 }
 
 async function createActivity(taskId, actorId, action, message, metadata) {
@@ -140,6 +153,7 @@ async function createCheckoutPayment(payload, currentUser) {
     }
 
     const amount = Number(task.escrowAmount || task.budget || 0);
+    const settlement = computeSettlementBreakdown(amount);
     if (!amount || amount <= 0) {
       const err = new Error('Task escrow amount is invalid');
       err.statusCode = 400;
@@ -179,9 +193,14 @@ async function createCheckoutPayment(payload, currentUser) {
       payerId: currentUser.id,
       providerId: task.assignedProviderId || null,
       amount,
+      totalAmount: settlement.totalAmount,
+      escrowHeldAmount: settlement.escrowHeldAmount,
+      platformFeeAmount: settlement.platformFeeAmount,
+      providerPayoutAmount: settlement.providerPayoutAmount,
       method: 'STRIPE',
       type: 'ESCROW_DEPOSIT',
       escrowStatus: 'PENDING_DEPOSIT',
+      lifecycleStatus: 'PENDING',
       checkoutSessionId: session.id,
       providerTransactionId: null,
       status: 'PENDING',
@@ -218,6 +237,7 @@ async function createCheckoutPayment(payload, currentUser) {
   }
 
   const amount = Number(task.budget || 0);
+  const settlement = computeSettlementBreakdown(amount);
   if (!amount || amount <= 0) {
     const err = new Error('Task budget is invalid for payment');
     err.statusCode = 400;
@@ -261,9 +281,14 @@ async function createCheckoutPayment(payload, currentUser) {
     payerId: currentUser.id,
     providerId: task.assignedProviderId || null,
     amount,
+    totalAmount: settlement.totalAmount,
+    escrowHeldAmount: settlement.escrowHeldAmount,
+    platformFeeAmount: settlement.platformFeeAmount,
+    providerPayoutAmount: settlement.providerPayoutAmount,
     method: 'STRIPE',
     type: 'DIRECT_PAYMENT',
     escrowStatus: 'NONE',
+    lifecycleStatus: 'RELEASED',
     checkoutSessionId: session.id,
     providerTransactionId: null,
     status: 'PENDING',
@@ -319,6 +344,10 @@ async function confirmStripeSession(sessionId, currentUser) {
         escrowStatus: 'HELD',
         paymentStatus: 'ESCROW_HELD',
         escrowHeldAt: new Date(),
+      });
+      await paymentsRepository.updatePaymentStatus(payment.id, {
+        lifecycleStatus: 'ESCROW_HELD',
+        heldAt: new Date(),
       });
 
       await createActivity(updatedTask.id, currentUser.id, 'ESCROW_DEPOSIT_CONFIRMED', 'Escrow deposit payment confirmed.', {
@@ -398,6 +427,7 @@ async function releaseEscrowForTask(taskId, currentUser, options = {}) {
   }
 
   const amount = Number(task.escrowAmount || task.budget || 0);
+  const settlement = computeSettlementBreakdown(amount);
   if (!amount || amount <= 0) {
     const err = new Error('Invalid escrow amount for release');
     err.statusCode = 400;
@@ -408,11 +438,18 @@ async function releaseEscrowForTask(taskId, currentUser, options = {}) {
     taskId: task.id,
     payerId: task.createdById,
     providerId: task.assignedProviderId,
-    amount,
+    amount: settlement.providerPayoutAmount,
+    totalAmount: settlement.totalAmount,
+    escrowHeldAmount: settlement.escrowHeldAmount,
+    platformFeeAmount: settlement.platformFeeAmount,
+    providerPayoutAmount: settlement.providerPayoutAmount,
     method: 'STRIPE',
     type: 'ESCROW_RELEASE',
     escrowStatus: 'RELEASED',
+    lifecycleStatus: 'RELEASED',
     status: 'SUCCESS',
+    heldAt: task.escrowHeldAt || null,
+    releasedAt: new Date(),
     paidAt: new Date(),
     note: options.reason || 'Escrow released to provider',
     metadata: {
@@ -465,6 +502,7 @@ async function refundEscrowForTask(taskId, currentUser, options = {}) {
   }
 
   const amount = Number(task.escrowAmount || task.budget || 0);
+  const settlement = computeSettlementBreakdown(amount);
   if (!amount || amount <= 0) {
     const err = new Error('Invalid escrow amount for refund');
     err.statusCode = 400;
@@ -491,10 +529,15 @@ async function refundEscrowForTask(taskId, currentUser, options = {}) {
     taskId: task.id,
     payerId: task.createdById,
     providerId: task.assignedProviderId,
-    amount,
+    amount: settlement.totalAmount,
+    totalAmount: settlement.totalAmount,
+    escrowHeldAmount: settlement.escrowHeldAmount,
+    platformFeeAmount: settlement.platformFeeAmount,
+    providerPayoutAmount: settlement.providerPayoutAmount,
     method: 'STRIPE',
     type: 'ESCROW_REFUND',
     escrowStatus: 'REFUNDED',
+    lifecycleStatus: 'REFUNDED',
     status: 'REFUNDED',
     paidAt: new Date(),
     note: options.reason || 'Escrow refunded',
@@ -555,6 +598,10 @@ async function handleWebhook(signature, rawBody) {
           escrowStatus: 'HELD',
           paymentStatus: 'ESCROW_HELD',
           escrowHeldAt: new Date(),
+        });
+        await paymentsRepository.updatePaymentStatus(payment.id, {
+          lifecycleStatus: 'ESCROW_HELD',
+          heldAt: new Date(),
         });
       } else if (payment.type === 'DIRECT_PAYMENT') {
         await paymentsRepository.updateTaskState(payment.taskId, {
@@ -618,4 +665,5 @@ module.exports = {
   handleWebhook,
   listMyPayments,
   getTaskPaymentHistory,
+  computeSettlementBreakdown,
 };

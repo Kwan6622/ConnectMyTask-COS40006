@@ -7,27 +7,22 @@ import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { Input } from "@/components/Input";
+import { api } from "@/services/api";
 import { useAuthStore } from "@/store/authStore";
 import { useTaskStore } from "@/store/taskStore";
+import { ProviderCertificate, ProviderProfile, UserRatingSummary } from "@/types";
 import { colors, radius } from "@/theme/tokens";
 import { uploadImageToCloudinary } from "@/utils/cloudinaryUpload";
-import {
-  getDisplayName,
-  getSuccessTone,
-  isProvider,
-  isRequester,
-} from "@/utils/taskUtils";
+import { getDisplayName, getSuccessTone, isProvider, isRequester } from "@/utils/taskUtils";
+
+const emptyProviderProfile: ProviderProfile = {
+  specialties: [],
+  safetyComplianceAgreed: false,
+};
 
 export default function ProfilePage(): React.ReactElement {
   const router = useRouter();
-  const {
-    user,
-    isAuthenticated,
-    logout,
-    updateProfile,
-    updateProfilePhoto,
-    isLoading,
-  } = useAuthStore((state) => ({
+  const { user, isAuthenticated, logout, updateProfile, updateProfilePhoto, isLoading } = useAuthStore((state) => ({
     user: state.user,
     isAuthenticated: state.isAuthenticated,
     logout: state.logout,
@@ -35,12 +30,7 @@ export default function ProfilePage(): React.ReactElement {
     updateProfilePhoto: state.updateProfilePhoto,
     isLoading: state.isLoading,
   }));
-  const {
-    requesterTasks,
-    assignedTasks,
-    fetchRequesterTasks,
-    fetchAssignedTasks,
-  } = useTaskStore((state) => ({
+  const { requesterTasks, assignedTasks, fetchRequesterTasks, fetchAssignedTasks } = useTaskStore((state) => ({
     requesterTasks: state.requesterTasks,
     assignedTasks: state.assignedTasks,
     fetchRequesterTasks: state.fetchRequesterTasks,
@@ -56,14 +46,18 @@ export default function ProfilePage(): React.ReactElement {
   const [location, setLocation] = useState("");
   const [bio, setBio] = useState("");
 
+  const [providerProfile, setProviderProfile] = useState<ProviderProfile>(emptyProviderProfile);
+  const [providerCertificates, setProviderCertificates] = useState<ProviderCertificate[]>([]);
+  const [ratingSummary, setRatingSummary] = useState<UserRatingSummary | null>(null);
+  const [certificateTitle, setCertificateTitle] = useState("");
+  const [certificateType, setCertificateType] = useState("");
+  const [certificateFileUrl, setCertificateFileUrl] = useState("");
+  const userId = user?.id;
+
   useEffect(() => {
     if (!isAuthenticated || !user) return;
-    if (isRequester(user)) {
-      void fetchRequesterTasks();
-    }
-    if (isProvider(user)) {
-      void fetchAssignedTasks();
-    }
+    if (isRequester(user)) void fetchRequesterTasks();
+    if (isProvider(user)) void fetchAssignedTasks();
   }, [fetchAssignedTasks, fetchRequesterTasks, isAuthenticated, user]);
 
   useEffect(() => {
@@ -74,6 +68,57 @@ export default function ProfilePage(): React.ReactElement {
     setBio(user?.bio || "");
   }, [user]);
 
+  useEffect(() => {
+    if (!isAuthenticated || !userId) return;
+    const resolvedUserId = userId;
+    let mounted = true;
+
+    async function loadProfileData() {
+      try {
+        const response = await api.users.getProfile(resolvedUserId);
+        const payload = response.data || {};
+        const profile = payload.providerProfile || emptyProviderProfile;
+
+        if (!mounted) return;
+        setProviderProfile({
+          ...emptyProviderProfile,
+          ...profile,
+          specialties: Array.isArray(profile.specialties) ? profile.specialties : [],
+          safetyComplianceAgreed: Boolean(profile.safetyComplianceAgreed),
+        });
+        setProviderCertificates(Array.isArray(profile.certificates) ? profile.certificates : []);
+
+        if (payload.providerRatingSummary) {
+          setRatingSummary({
+            averageRating: Number(payload.providerRatingSummary.averageRating || 0),
+            totalReviews: Number(payload.providerRatingSummary.totalReviews || 0),
+            latestComments: Array.isArray(payload.providerRatingSummary.latestComments)
+              ? payload.providerRatingSummary.latestComments.slice(0, 5)
+              : [],
+          });
+        } else {
+          const ratingResponse = await api.ratings.getUserRatings(resolvedUserId);
+          const data = ratingResponse.data || {};
+          setRatingSummary({
+            averageRating: Number(data.averageRating || 0),
+            totalReviews: Number(data.totalReviews || 0),
+            latestComments: Array.isArray(data.latestRatings) ? data.latestRatings.slice(0, 5) : [],
+          });
+        }
+      } catch {
+        if (!mounted) return;
+        setProviderProfile(emptyProviderProfile);
+        setProviderCertificates([]);
+        setRatingSummary(null);
+      }
+    }
+
+    void loadProfileData();
+    return () => {
+      mounted = false;
+    };
+  }, [isAuthenticated, userId]);
+
   const taskSet = isProvider(user) ? assignedTasks : requesterTasks;
   const completedTasks = useMemo(
     () => taskSet.filter((task) => ["COMPLETED", "PAID"].includes(String(task.status))).length,
@@ -83,7 +128,7 @@ export default function ProfilePage(): React.ReactElement {
     if (taskSet.length === 0) return 100;
     return Math.round((completedTasks / taskSet.length) * 100);
   }, [completedTasks, taskSet.length]);
-  const reviewCount = Math.max(completedTasks, Math.round(Number(user?.rating || 0) * 2));
+  const reviewCount = ratingSummary?.totalReviews || Math.max(completedTasks, Math.round(Number(user?.rating || 0) * 2));
   const successTone = getSuccessTone(successRate);
 
   const chooseImage = async (): Promise<void> => {
@@ -133,7 +178,55 @@ export default function ProfilePage(): React.ReactElement {
       bio: bio.trim(),
     });
     setIsEditing(false);
-    Alert.alert("Profile saved", "Your profile information was updated locally for the mobile workspace.");
+    Alert.alert("Profile saved", "Your profile information was updated.");
+  };
+
+  const handleSaveProviderTrust = async (): Promise<void> => {
+    try {
+      const response = await api.users.updateProviderProfile({
+        address: providerProfile.address || "",
+        district: providerProfile.district || "",
+        city: providerProfile.city || "",
+        specialties: providerProfile.specialties || [],
+        safetyComplianceAgreed: Boolean(providerProfile.safetyComplianceAgreed),
+        shortBio: providerProfile.shortBio || "",
+      });
+      const profile = response.data || {};
+      setProviderProfile((prev) => ({
+        ...prev,
+        ...profile,
+        specialties: Array.isArray(profile.specialties) ? profile.specialties : prev.specialties,
+        safetyComplianceAgreed: Boolean(profile.safetyComplianceAgreed),
+      }));
+      setProviderCertificates(Array.isArray(profile.certificates) ? profile.certificates : providerCertificates);
+      Alert.alert("Updated", "Provider trust profile has been saved.");
+    } catch (error: any) {
+      Alert.alert("Update failed", error?.response?.data?.message || "Cannot save provider profile.");
+    }
+  };
+
+  const handleUploadCertificate = async (): Promise<void> => {
+    if (!certificateTitle.trim() || !certificateType.trim() || !certificateFileUrl.trim()) {
+      Alert.alert("Missing fields", "Enter title, certificate type, and file URL before upload.");
+      return;
+    }
+
+    try {
+      await api.users.uploadProviderCertificate({
+        title: certificateTitle.trim(),
+        certificateType: certificateType.trim(),
+        fileUrl: certificateFileUrl.trim(),
+      });
+      const refreshed = await api.users.getProfile(user?.id || "");
+      const profile = refreshed.data?.providerProfile || emptyProviderProfile;
+      setProviderCertificates(Array.isArray(profile.certificates) ? profile.certificates : []);
+      setCertificateTitle("");
+      setCertificateType("");
+      setCertificateFileUrl("");
+      Alert.alert("Uploaded", "Certificate uploaded. Waiting admin verification.");
+    } catch (error: any) {
+      Alert.alert("Upload failed", error?.response?.data?.message || "Cannot upload certificate.");
+    }
   };
 
   if (!isAuthenticated || !user) {
@@ -156,7 +249,7 @@ export default function ProfilePage(): React.ReactElement {
     <MarketplaceShell activeRoute="profile">
       <View style={styles.headerCopy}>
         <Text style={styles.pageTitle}>My Profile</Text>
-        <Text style={styles.pageSubtitle}>Manage your account and preferences</Text>
+        <Text style={styles.pageSubtitle}>Manage your account, trust data, and reviews</Text>
       </View>
 
       <Card>
@@ -178,24 +271,119 @@ export default function ProfilePage(): React.ReactElement {
               onPress={() => void handleUploadProfilePhoto()}
               disabled={!selectedAsset}
             />
-            <Text style={styles.photoTip}>Select an image to preview it, then upload</Text>
           </View>
 
-          <Badge label={isProvider(user) ? "Service Provider" : "Client"} variant="primary" />
+          <Badge label={isProvider(user) ? "Service Provider" : "Requester"} variant="primary" />
 
           <View style={styles.statsRow}>
             <StatBox label="Tasks Done" value={String(completedTasks)} accentColor={colors.primary[700]} />
             <StatBox label="Success" value={`${successRate}%`} accentColor={successToneColor(successTone)} />
-            <StatBox label="Reviews" value={String(reviewCount)} accentColor={colors.accent[600]} />
+            <StatBox
+              label="Reviews"
+              value={ratingSummary ? `${ratingSummary.averageRating.toFixed(1)} (${reviewCount})` : String(reviewCount)}
+              accentColor={colors.accent[600]}
+            />
           </View>
         </View>
       </Card>
+
+      {ratingSummary && ratingSummary.totalReviews > 0 ? (
+        <Card title="Ratings & Feedback">
+          <Text style={styles.ratingHeadline}>⭐ {ratingSummary.averageRating.toFixed(1)} ({ratingSummary.totalReviews} reviews)</Text>
+          <View style={styles.feedbackList}>
+            {ratingSummary.latestComments.slice(0, 5).map((item) => (
+              <View key={String(item.id)} style={styles.feedbackItem}>
+                <Text style={styles.feedbackText}>{item.comment || "No comment"}</Text>
+                <Text style={styles.feedbackMeta}>- {item.fromUser?.name || item.fromUser?.fullName || "User"}</Text>
+              </View>
+            ))}
+          </View>
+        </Card>
+      ) : null}
+
+      {isProvider(user) ? (
+        <Card title="Provider Trust Profile">
+          <View style={styles.form}>
+            <Input
+              label="Specialties (comma separated)"
+              placeholder="Cleaning, Delivery, Home Repair"
+              value={(providerProfile.specialties || []).join(", ")}
+              onChangeText={(value) =>
+                setProviderProfile((prev) => ({
+                  ...prev,
+                  specialties: value
+                    .split(",")
+                    .map((item) => item.trim())
+                    .filter(Boolean),
+                }))
+              }
+            />
+            <Input
+              label="Address"
+              value={providerProfile.address || ""}
+              onChangeText={(value) => setProviderProfile((prev) => ({ ...prev, address: value }))}
+            />
+            <Input
+              label="District"
+              value={providerProfile.district || ""}
+              onChangeText={(value) => setProviderProfile((prev) => ({ ...prev, district: value }))}
+            />
+            <Input
+              label="City"
+              value={providerProfile.city || ""}
+              onChangeText={(value) => setProviderProfile((prev) => ({ ...prev, city: value }))}
+            />
+            <Input
+              label="Short Bio"
+              value={providerProfile.shortBio || ""}
+              onChangeText={(value) => setProviderProfile((prev) => ({ ...prev, shortBio: value }))}
+              multiline
+              numberOfLines={3}
+            />
+            <Button
+              title={providerProfile.safetyComplianceAgreed ? "Safety compliance agreed" : "Agree workplace safety"}
+              variant={providerProfile.safetyComplianceAgreed ? "primary" : "outline"}
+              onPress={() =>
+                setProviderProfile((prev) => ({
+                  ...prev,
+                  safetyComplianceAgreed: !prev.safetyComplianceAgreed,
+                }))
+              }
+            />
+            <Button title="Save Trust Profile" onPress={() => void handleSaveProviderTrust()} />
+          </View>
+        </Card>
+      ) : null}
+
+      {isProvider(user) ? (
+        <Card title="Certificates / Documents">
+          <View style={styles.form}>
+            <Input label="Certificate title" value={certificateTitle} onChangeText={setCertificateTitle} />
+            <Input label="Certificate type" value={certificateType} onChangeText={setCertificateType} />
+            <Input label="File URL" value={certificateFileUrl} onChangeText={setCertificateFileUrl} />
+            <Button title="Upload Certificate" onPress={() => void handleUploadCertificate()} />
+          </View>
+          <View style={styles.certList}>
+            {providerCertificates.length === 0 ? (
+              <Text style={styles.promptBody}>No certificates uploaded yet.</Text>
+            ) : (
+              providerCertificates.map((cert) => (
+                <View key={String(cert.id)} style={styles.certItem}>
+                  <Text style={styles.certTitle}>{cert.title}</Text>
+                  <Text style={styles.certMeta}>{cert.certificateType}</Text>
+                  <Badge label={cert.verificationStatus} variant={cert.verificationStatus === "VERIFIED" ? "success" : cert.verificationStatus === "REJECTED" ? "danger" : "warning"} />
+                </View>
+              ))
+            )}
+          </View>
+        </Card>
+      ) : null}
 
       <Card>
         <View style={styles.contactCard}>
           <Text style={styles.contactText}>{email}</Text>
           {String(user.role || "").toUpperCase() === "ADMIN" ? (
-            <Text style={styles.webOnlyNote}>Admin operations are currently available on web-only.</Text>
+            <Button title="Open Admin Dashboard" variant="outline" onPress={() => router.push("/admin-dashboard")} />
           ) : null}
           <Button
             title="Logout"
@@ -225,14 +413,7 @@ export default function ProfilePage(): React.ReactElement {
             <Input label="Email" value={email} onChangeText={setEmail} />
             <Input label="Phone Number" value={phoneNumber} onChangeText={setPhoneNumber} />
             <Input label="Location" value={location} onChangeText={setLocation} />
-            <Input
-              label="Bio"
-              value={bio}
-              onChangeText={setBio}
-              multiline
-              numberOfLines={4}
-              helperText="Tell people a bit more about how you work."
-            />
+            <Input label="Bio" value={bio} onChangeText={setBio} multiline numberOfLines={4} />
             <Button title="Save Changes" onPress={() => void handleSaveProfile()} />
           </View>
         ) : (
@@ -241,11 +422,7 @@ export default function ProfilePage(): React.ReactElement {
             <InfoRow label="Email" value={email || "-"} />
             <InfoRow label="Phone Number" value={phoneNumber || "-"} />
             <InfoRow label="Location" value={location || "-"} />
-            <InfoRow
-              label="Bio"
-              value={bio || "No bio added yet. Click Edit to add a bio."}
-              multiline
-            />
+            <InfoRow label="Bio" value={bio || "No bio added yet."} multiline />
           </View>
         )}
       </Card>
@@ -253,15 +430,7 @@ export default function ProfilePage(): React.ReactElement {
   );
 }
 
-function StatBox({
-  label,
-  value,
-  accentColor,
-}: {
-  label: string;
-  value: string;
-  accentColor: string;
-}): React.ReactElement {
+function StatBox({ label, value, accentColor }: { label: string; value: string; accentColor: string }): React.ReactElement {
   return (
     <View style={styles.statBox}>
       <Text style={[styles.statValue, { color: accentColor }]}>{value}</Text>
@@ -270,15 +439,7 @@ function StatBox({
   );
 }
 
-function InfoRow({
-  label,
-  value,
-  multiline = false,
-}: {
-  label: string;
-  value: string;
-  multiline?: boolean;
-}): React.ReactElement {
+function InfoRow({ label, value, multiline = false }: { label: string; value: string; multiline?: boolean }): React.ReactElement {
   return (
     <View style={styles.infoRow}>
       <Text style={styles.infoLabel}>{label}</Text>
@@ -294,9 +455,7 @@ function successToneColor(tone: "success" | "warning" | "danger"): string {
 }
 
 const styles = StyleSheet.create({
-  headerCopy: {
-    gap: 2,
-  },
+  headerCopy: { gap: 2 },
   pageTitle: {
     color: colors.dark[900],
     fontSize: 30,
@@ -341,12 +500,6 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     textAlign: "center",
   },
-  photoTip: {
-    color: colors.dark[500],
-    fontSize: 12,
-    lineHeight: 16,
-    textAlign: "center",
-  },
   statsRow: {
     width: "100%",
     flexDirection: "row",
@@ -358,12 +511,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.dark[50],
     padding: 12,
     alignItems: "center",
-    gap: 3,
   },
   statValue: {
-    fontSize: 22,
-    lineHeight: 26,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: "800",
+    textAlign: "center",
   },
   statLabel: {
     color: colors.dark[500],
@@ -371,48 +524,92 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     fontWeight: "700",
   },
-  contactCard: {
-    gap: 12,
+  ratingHeadline: {
+    color: colors.dark[900],
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "800",
+    marginBottom: 8,
   },
-  contactText: {
+  feedbackList: { gap: 8 },
+  feedbackItem: {
+    borderWidth: 1,
+    borderColor: colors.dark[200],
+    borderRadius: radius.lg,
+    backgroundColor: colors.dark[50],
+    padding: 10,
+    gap: 3,
+  },
+  feedbackText: {
     color: colors.dark[800],
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  feedbackMeta: {
+    color: colors.dark[500],
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  certList: {
+    marginTop: 12,
+    gap: 8,
+  },
+  certItem: {
+    borderWidth: 1,
+    borderColor: colors.dark[200],
+    borderRadius: radius.lg,
+    backgroundColor: colors.dark[50],
+    padding: 10,
+    gap: 4,
+  },
+  certTitle: {
+    color: colors.dark[900],
     fontSize: 14,
     lineHeight: 20,
     fontWeight: "700",
   },
-  webOnlyNote: {
-    color: colors.warning[600],
+  certMeta: {
+    color: colors.dark[600],
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "600",
+  },
+  contactCard: {
+    gap: 8,
+    alignItems: "center",
+  },
+  contactText: {
+    color: colors.dark[700],
+    fontSize: 14,
+    lineHeight: 20,
   },
   form: {
-    gap: 12,
+    gap: 10,
   },
   infoList: {
-    gap: 12,
+    gap: 10,
   },
   infoRow: {
+    borderWidth: 1,
+    borderColor: colors.dark[200],
     borderRadius: radius.lg,
     backgroundColor: colors.dark[50],
-    padding: 12,
-    gap: 4,
+    padding: 10,
+    gap: 3,
   },
   infoLabel: {
     color: colors.dark[500],
     fontSize: 11,
     lineHeight: 15,
     fontWeight: "700",
-    textTransform: "uppercase",
   },
   infoValue: {
-    color: colors.dark[900],
+    color: colors.dark[800],
     fontSize: 14,
     lineHeight: 20,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   infoValueMultiline: {
-    fontWeight: "600",
+    minHeight: 44,
   },
   promptBox: {
     alignItems: "center",

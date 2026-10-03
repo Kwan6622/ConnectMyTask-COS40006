@@ -1,5 +1,7 @@
 import { create } from "zustand";
+import axios from "axios";
 import { api } from "@/services/api";
+import { useAuthStore } from "@/store/authStore";
 import {
   Dispute,
   Notification,
@@ -9,6 +11,7 @@ import {
   TaskActivityLog,
   TaskProgressSummary,
   TaskProgressUpdate,
+  TaskSubtask,
   User,
 } from "@/types";
 import { normalizeTaskStatus } from "@/utils/taskUtils";
@@ -18,10 +21,12 @@ interface TaskStore {
   currentTask: Task | null;
   requesterTasks: Task[];
   assignedTasks: Task[];
+  suggestedTasks: Task[];
   savedTaskIds: Array<string | number>;
   savedTasks: SavedTask[];
   notifications: Notification[];
   taskProgressUpdates: TaskProgressUpdate[];
+  taskSubtasks: TaskSubtask[];
   taskProgressSummary: TaskProgressSummary | null;
   taskDisputes: Dispute[];
   taskActivityLogs: TaskActivityLog[];
@@ -36,12 +41,15 @@ interface TaskStore {
   isLoading: boolean;
   error: string | null;
   fetchTasks: () => Promise<void>;
+  fetchSuggestedTasks: () => Promise<void>;
   fetchTaskById: (taskId: string | number) => Promise<void>;
   createTask: (payload: {
     title: string;
     description: string;
     category: string;
     budget: number;
+    maxBids?: number;
+    aiSuggestedPrice?: number;
     location: string;
     createdById: number;
     imageUrls?: string[];
@@ -55,6 +63,11 @@ interface TaskStore {
   fetchNotifications: () => Promise<void>;
   markNotificationRead: (notificationId: string | number) => Promise<void>;
   fetchTaskProgress: (taskId: string | number) => Promise<void>;
+  updateTaskSubtaskStatus: (
+    taskId: string | number,
+    subtaskId: string | number,
+    status: "PENDING" | "IN_PROGRESS" | "DONE"
+  ) => Promise<void>;
   addTaskProgressUpdate: (
     taskId: string | number,
     payload: {
@@ -88,6 +101,23 @@ function toNumber(value: unknown, fallback = 0): number {
     if (Number.isFinite(parsed)) return parsed;
   }
   return fallback;
+}
+
+function hasAuthToken(): boolean {
+  const token = useAuthStore.getState().token;
+  return typeof token === "string" && token.trim().length > 0;
+}
+
+function isUnauthorizedError(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.status === 401;
+}
+
+function resetAuthSessionOnUnauthorized(error: unknown): void {
+  if (!isUnauthorizedError(error)) return;
+  const auth = useAuthStore.getState();
+  if (auth.isAuthenticated) {
+    auth.logout();
+  }
 }
 
 function normalizeUser(raw: any): User | undefined {
@@ -142,6 +172,7 @@ function normalizeTask(raw: any): Task {
     suspiciousReason: raw?.suspiciousReason || undefined,
     riskLevel: raw?.riskLevel || undefined,
     aiSuggestedPrice,
+    maxBids: raw?.maxBids != null ? toNumber(raw.maxBids, 30) : 30,
     clientId: raw?.clientId ?? raw?.createdById ?? createdBy?.id,
     providerId: raw?.providerId ?? raw?.assignedProviderId ?? assignedProvider?.id,
     createdById: raw?.createdById ?? raw?.clientId ?? createdBy?.id,
@@ -172,10 +203,12 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   currentTask: null,
   requesterTasks: [],
   assignedTasks: [],
+  suggestedTasks: [],
   savedTaskIds: [],
   savedTasks: [],
   notifications: [],
   taskProgressUpdates: [],
+  taskSubtasks: [],
   taskProgressSummary: null,
   taskDisputes: [],
   taskActivityLogs: [],
@@ -202,6 +235,26 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       set({
         isLoading: false,
         error: "Cannot load tasks from server.",
+      });
+    }
+  },
+
+  fetchSuggestedTasks: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await api.tasks.getSuggestedMe();
+      const list = getTaskList(response.data);
+      set({
+        suggestedTasks: list.map(normalizeTask),
+        isLoading: false,
+        error: null,
+      });
+    } catch (error) {
+      console.error("Failed to fetch suggested tasks", error);
+      set({
+        suggestedTasks: [],
+        isLoading: false,
+        error: "Cannot load suggested tasks from server.",
       });
     }
   },
@@ -274,6 +327,14 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   fetchSavedTasks: async () => {
+    if (!hasAuthToken()) {
+      set({
+        savedTasks: [],
+        savedTaskIds: [],
+      });
+      return;
+    }
+
     try {
       const response = await api.tasks.getSavedMe();
       const list = getTaskList(response.data);
@@ -288,7 +349,10 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         savedTaskIds: savedTasks.map((item) => item.task.id),
       });
     } catch (error) {
-      console.error("Failed to fetch saved tasks", error);
+      resetAuthSessionOnUnauthorized(error);
+      if (!isUnauthorizedError(error)) {
+        console.warn("Failed to fetch saved tasks", error);
+      }
       set({
         savedTasks: [],
         savedTaskIds: [],
@@ -315,6 +379,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   fetchNotifications: async () => {
+    if (!hasAuthToken()) {
+      set({ notifications: [] });
+      return;
+    }
+
     try {
       const response = await api.notifications.getMine();
       const list = getTaskList(response.data);
@@ -330,7 +399,10 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         })),
       });
     } catch (error) {
-      console.error("Failed to fetch notifications", error);
+      resetAuthSessionOnUnauthorized(error);
+      if (!isUnauthorizedError(error)) {
+        console.warn("Failed to fetch notifications", error);
+      }
       set({ notifications: [] });
     }
   },
@@ -356,6 +428,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       set({
         currentTask: payload.task ? normalizeTask(payload.task) : null,
         taskProgressUpdates: Array.isArray(payload.updates) ? payload.updates : [],
+        taskSubtasks: Array.isArray(payload.subtasks) ? payload.subtasks : [],
         taskProgressSummary: payload.summary || null,
         taskDisputes: Array.isArray(payload.disputes) ? payload.disputes : [],
         taskActivityLogs: Array.isArray(payload.activities) ? payload.activities : [],
@@ -375,6 +448,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   addTaskProgressUpdate: async (taskId, payload) => {
     await api.tasks.addProgressUpdate(taskId, payload);
+    await get().fetchTaskProgress(taskId);
+  },
+
+  updateTaskSubtaskStatus: async (taskId, subtaskId, status) => {
+    await api.tasks.updateSubtaskStatus(taskId, subtaskId, status);
     await get().fetchTaskProgress(taskId);
   },
 
@@ -401,6 +479,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     set({
       currentTask: null,
       taskProgressUpdates: [],
+      taskSubtasks: [],
       taskProgressSummary: null,
       taskDisputes: [],
       taskActivityLogs: [],

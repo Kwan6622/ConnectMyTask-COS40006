@@ -2,6 +2,7 @@ const bidsRepository = require('./repository');
 const notificationRepository = require('../notifications/repository');
 const GLOBAL_MAX_BIDS = 100;
 const DEFAULT_MAX_BIDS = 30;
+const BIDDING_WINDOW_HOURS = 24;
 
 function normalizeRole(role) {
   return String(role || '').toUpperCase();
@@ -33,6 +34,15 @@ async function createBid(taskId, payload, currentUser) {
     throw err;
   }
 
+  if (task.status === 'BIDDING' && task.biddingEndsAt) {
+    const endsAt = new Date(task.biddingEndsAt).getTime();
+    if (!Number.isNaN(endsAt) && Date.now() > endsAt) {
+      const err = new Error('Bidding deadline has passed for this task.');
+      err.statusCode = 400;
+      throw err;
+    }
+  }
+
   const currentBidCount = Number(task?._count?.bids || 0);
   const taskMaxBids = Math.min(Number(task?.maxBids || DEFAULT_MAX_BIDS), GLOBAL_MAX_BIDS);
   if (currentBidCount >= taskMaxBids || currentBidCount >= GLOBAL_MAX_BIDS) {
@@ -51,7 +61,9 @@ async function createBid(taskId, payload, currentUser) {
   });
 
   if (task.status === 'OPEN') {
-    await bidsRepository.updateTaskStatus(taskId, 'BIDDING');
+    const biddingStartedAt = new Date();
+    const biddingEndsAt = new Date(biddingStartedAt.getTime() + BIDDING_WINDOW_HOURS * 60 * 60 * 1000);
+    await bidsRepository.markTaskAsBidding(taskId, biddingStartedAt, biddingEndsAt);
   }
 
   await notificationRepository.createNotification({

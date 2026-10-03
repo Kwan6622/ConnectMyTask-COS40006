@@ -156,6 +156,7 @@ export const ProviderDashboardPage: React.FC = () => {
               <div className="space-y-3">
                 {assignedTasks.map((task) => {
                   const style = badgeStyles[task.status] || 'bg-slate-100 text-slate-700 border-slate-300';
+                  const isFinishedTask = ['COMPLETED', 'PAID'].includes(String(task.status || '').toUpperCase());
                   return (
                     <div key={task.id} className="rounded-xl border border-slate-200 p-4 hover:border-indigo-200 transition-colors">
                       <div className="flex items-start justify-between gap-3">
@@ -176,9 +177,11 @@ export const ProviderDashboardPage: React.FC = () => {
                         <Button variant="outline" size="sm" onClick={() => navigate(`/tasks/${task.id}`)}>
                           View Task
                         </Button>
-                        <Button size="sm" onClick={() => navigate(`/tasks/${task.id}/progress`)}>
-                          Update Progress
-                        </Button>
+                        {!isFinishedTask ? (
+                          <Button size="sm" onClick={() => navigate(`/tasks/${task.id}/progress`)}>
+                            Update Progress
+                          </Button>
+                        ) : null}
                       </div>
                     </div>
                   );

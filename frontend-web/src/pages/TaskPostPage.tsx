@@ -50,15 +50,30 @@ function parseVndInput(rawValue: string): number | undefined {
   return parsed;
 }
 
+function getDateTimeLocalNow(): string {
+  const now = new Date();
+  const tzOffsetMs = now.getTimezoneOffset() * 60 * 1000;
+  const localNow = new Date(now.getTime() - tzOffsetMs);
+  return localNow.toISOString().slice(0, 16);
+}
+
 export const TaskPostPage: React.FC = () => {
   const navigate = useNavigate();
   const { createTask, tasks } = useTaskStore();
   const user = useAuthStore((state) => state.user);
-  const [aiBudgetSuggestion, setAiBudgetSuggestion] = useState<number | null>(null);
+  const [aiBudgetSuggestion, setAiBudgetSuggestion] = useState<{
+    suggestedBudget: number;
+    suggestedMin?: number;
+    suggestedMax?: number;
+    currency?: string;
+    explanation?: string;
+    factorsUsed?: string[];
+  } | null>(null);
   const [isGettingAiBudgetSuggestion, setIsGettingAiBudgetSuggestion] = useState(false);
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [isUploadingImages, setIsUploadingImages] = useState(false);
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+  const minDeadlineValue = getDateTimeLocalNow();
   const districtOptions = [
     'District 1',
     'District 2',
@@ -118,14 +133,25 @@ export const TaskPostPage: React.FC = () => {
 
     setIsGettingAiBudgetSuggestion(true);
     try {
+      const title = String(formData.title || '').trim();
+      const description = String(formData.description || '').trim();
       const response = await api.ai.predictPrice({
+        title,
         category: formData.category,
         location: formData.location,
         budget: formData.budget,
+        description: [title, description].filter(Boolean).join('. '),
         complexity: 'MEDIUM',
         urgency: 'NORMAL',
       });
-      setAiBudgetSuggestion(response.data.aiSuggestedPrice);
+      setAiBudgetSuggestion({
+        suggestedBudget: Number(response.data?.suggestedBudget || response.data?.aiSuggestedPrice || 0),
+        suggestedMin: response.data?.suggestedMin != null ? Number(response.data.suggestedMin) : undefined,
+        suggestedMax: response.data?.suggestedMax != null ? Number(response.data.suggestedMax) : undefined,
+        currency: response.data?.currency || 'VND',
+        explanation: response.data?.explanation || response.data?.rationale || '',
+        factorsUsed: Array.isArray(response.data?.factorsUsed) ? response.data.factorsUsed : [],
+      });
       toast.success('AI budget suggestion generated');
     } catch (error) {
       toast.error('Failed to get AI budget suggestion');
@@ -150,7 +176,7 @@ export const TaskPostPage: React.FC = () => {
         budget: data.budget ? Number(data.budget) : undefined,
         maxBids: data.maxBids ? Number(data.maxBids) : undefined,
         // Backend schema accepts number or undefined. Do not send null.
-        aiSuggestedPrice: aiBudgetSuggestion ?? undefined,
+        aiSuggestedPrice: aiBudgetSuggestion?.suggestedBudget ?? undefined,
         imageUrls,
       };
 
@@ -438,10 +464,23 @@ export const TaskPostPage: React.FC = () => {
                     </label>
                     <Input
                       type="datetime-local"
-                      {...register('deadline')}
+                      min={minDeadlineValue}
+                      {...register('deadline', {
+                        validate: (value) => {
+                          if (!value) return true;
+                          const selected = new Date(value);
+                          if (Number.isNaN(selected.getTime())) return 'Invalid deadline';
+                          return selected.getTime() >= Date.now() || 'Deadline cannot be in the past';
+                        },
+                      })}
                       className="h-12 text-lg border-gray-200 focus:ring-2 focus:ring-blue-500"
                       leftIcon={<CalendarIcon className="w-5 h-5 text-gray-400" />}
                     />
+                    {errors.deadline && (
+                      <p className="text-sm text-red-600 flex items-center gap-1">
+                        <span>⚠️</span> {errors.deadline.message}
+                      </p>
+                    )}
                     <div className="bg-orange-50 rounded-lg p-3 border border-orange-100">
                       <p className="text-sm text-orange-700 flex items-center gap-2">
                         <ClockIcon className="w-4 h-4" />
@@ -491,10 +530,22 @@ export const TaskPostPage: React.FC = () => {
                             <SparklesIcon className="w-4 h-4" />
                             Suggested Budget
                           </p>
-                          <p className="text-4xl font-bold text-green-600">{aiBudgetSuggestion.toLocaleString()} đ</p>
-                          <p className="text-sm text-gray-600 mt-2">
-                            Based on market rates, task complexity, and location
+                          <p className="text-4xl font-bold text-green-600">
+                            {aiBudgetSuggestion.suggestedBudget.toLocaleString('en-US')} VND
                           </p>
+                          {aiBudgetSuggestion.suggestedMin != null && aiBudgetSuggestion.suggestedMax != null ? (
+                            <p className="text-sm text-gray-700 mt-1">
+                              Estimated Budget Range: {aiBudgetSuggestion.suggestedMin.toLocaleString('en-US')} - {aiBudgetSuggestion.suggestedMax.toLocaleString('en-US')} VND
+                            </p>
+                          ) : null}
+                          <p className="text-sm text-gray-600 mt-2">
+                            {aiBudgetSuggestion.explanation || 'Based on category, title details, and task scope.'}
+                          </p>
+                          {aiBudgetSuggestion.factorsUsed?.length ? (
+                            <p className="text-xs text-gray-500 mt-2">
+                              Factors: {aiBudgetSuggestion.factorsUsed.slice(0, 4).join(' · ')}
+                            </p>
+                          ) : null}
                         </div>
                         <div className="flex items-center gap-2 bg-green-50 px-4 py-2 rounded-lg">
                           <CheckCircleIcon className="w-6 h-6 text-green-500" />
@@ -632,41 +683,6 @@ export const TaskPostPage: React.FC = () => {
                     <p className="text-sm text-gray-700">Set realistic deadlines for quality work</p>
                   </div>
                 </div>
-              </div>
-            </Card>
-            
-            {/* Stats Card */}
-            <Card className="bg-white shadow-lg border-0">
-              <div className="p-6">
-                <h3 className="text-lg font-bold text-gray-900 mb-4">Platform Stats</h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Active Providers</span>
-                    <span className="text-lg font-bold text-blue-600">300+</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Avg. Response Time</span>
-                    <span className="text-lg font-bold text-green-600">15 min</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Success Rate</span>
-                    <span className="text-lg font-bold text-purple-600">98%</span>
-                  </div>
-                </div>
-              </div>
-            </Card>
-            
-            {/* Support Card */}
-            <Card className="bg-gradient-to-br from-yellow-50 to-orange-50 border-yellow-100 shadow-lg">
-              <div className="p-6 text-center">
-                <div className="w-12 h-12 bg-yellow-500 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <UserGroupIcon className="w-6 h-6 text-white" />
-                </div>
-                <h3 className="text-lg font-bold text-gray-900 mb-2">Need Help?</h3>
-                <p className="text-sm text-gray-600 mb-4">Our support team is available 24/7 to assist you</p>
-                <Button variant="outline" className="w-full border-yellow-200 text-yellow-700 hover:bg-yellow-50">
-                  Contact Support
-                </Button>
               </div>
             </Card>
           </div>

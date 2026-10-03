@@ -67,6 +67,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, showActions = true, on
   const isBiddingClosed = bidCount >= maxBids || Boolean(task.isBiddingClosed);
   const role = String(user?.role || '').toUpperCase();
   const isProvider = role === 'PROVIDER';
+  const canSeeSuspiciousRisk = role === 'PROVIDER' || role === 'ADMIN';
   const ownerId = String(task.createdById ?? task.clientId ?? requester?.id ?? '');
   const isOwner = String(user?.id ?? '') === ownerId;
   const canBid = Boolean(
@@ -111,7 +112,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, showActions = true, on
                 <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}`}>
                   {statusLabel}
                 </span>
-                {task.isSuspicious && (
+                {task.isSuspicious && canSeeSuspiciousRisk && (
                   <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border bg-amber-50 text-amber-700 border-amber-200">
                     <ExclamationTriangleIcon className="w-3.5 h-3.5" />
                     Potential scam risk
@@ -145,7 +146,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, showActions = true, on
           {task.description}
         </p>
 
-        {task.isSuspicious && (
+        {task.isSuspicious && canSeeSuspiciousRisk && (
           <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
             <p className="text-xs font-semibold text-amber-800">Potential scam risk</p>
             <p className="text-xs text-amber-700 mt-1">

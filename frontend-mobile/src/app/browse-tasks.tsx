@@ -25,6 +25,7 @@ import {
   getTaskDisplayBudget,
   getVisiblePages,
   isTaskActive,
+  isTaskBrowsable,
 } from "@/utils/taskUtils";
 
 export default function BrowseTasksScreen(): React.ReactElement {
@@ -32,24 +33,30 @@ export default function BrowseTasksScreen(): React.ReactElement {
   const { width } = useWindowDimensions();
   const columns = width >= 720 ? 2 : 1;
   const itemsPerPage = columns * 4;
-  const params = useLocalSearchParams<{ q?: string }>();
+  const params = useLocalSearchParams<{ q?: string; mode?: string }>();
   const user = useAuthStore((state) => state.user);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const {
     tasks,
+    suggestedTasks,
     savedTaskIds,
     isLoading,
     fetchTasks,
+    fetchSuggestedTasks,
     saveTask,
     unsaveTask,
   } = useTaskStore((state) => ({
     tasks: state.tasks,
+    suggestedTasks: state.suggestedTasks,
     savedTaskIds: state.savedTaskIds,
     isLoading: state.isLoading,
     fetchTasks: state.fetchTasks,
+    fetchSuggestedTasks: state.fetchSuggestedTasks,
     saveTask: state.saveTask,
     unsaveTask: state.unsaveTask,
   }));
+  const isProviderUser = String(user?.role || "").toUpperCase() === "PROVIDER";
+  const browseMode = isProviderUser && params.mode === "suggested" ? "suggested" : "all";
 
   const [draftSearch, setDraftSearch] = useState(typeof params.q === "string" ? params.q : "");
   const [draftStatus, setDraftStatus] = useState<"ALL" | TaskStatus>("ALL");
@@ -62,8 +69,12 @@ export default function BrowseTasksScreen(): React.ReactElement {
   const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
+    if (browseMode === "suggested") {
+      void fetchSuggestedTasks();
+      return;
+    }
     void fetchTasks();
-  }, [fetchTasks]);
+  }, [browseMode, fetchSuggestedTasks, fetchTasks]);
 
   useEffect(() => {
     if (typeof params.q === "string") {
@@ -73,21 +84,24 @@ export default function BrowseTasksScreen(): React.ReactElement {
     }
   }, [params.q]);
 
+  const sourceTasks = browseMode === "suggested" ? suggestedTasks : tasks;
+  const browseVisibleTasks = useMemo(() => sourceTasks.filter((task) => isTaskBrowsable(task)), [sourceTasks]);
+
   const categories = useMemo(
     () =>
       TASK_CATEGORIES.map((category) => ({
         value: category,
         label: formatCategoryLabel(category),
-        count: tasks.filter((task) => String(task.category) === category && isTaskActive(task.status)).length,
+        count: browseVisibleTasks.filter((task) => String(task.category) === category && isTaskActive(task.status)).length,
       })),
-    [tasks]
+    [browseVisibleTasks]
   );
 
   const filteredTasks = useMemo(() => {
     const query = appliedSearch.trim().toLowerCase();
     const ceiling = appliedBudget ? Number(appliedBudget) : undefined;
 
-    return tasks.filter((task) => {
+    return browseVisibleTasks.filter((task) => {
       const budget = getTaskDisplayBudget(task);
       const normalizedTitle = String(task.title || "").toLowerCase();
       const normalizedDescription = String(task.description || "").toLowerCase();
@@ -99,13 +113,13 @@ export default function BrowseTasksScreen(): React.ReactElement {
 
       return matchesSearch && matchesStatus && matchesCategory && matchesBudget;
     });
-  }, [appliedBudget, appliedSearch, appliedStatus, categoryFilter, tasks]);
+  }, [appliedBudget, appliedSearch, appliedStatus, browseVisibleTasks, categoryFilter]);
 
   const pageCount = Math.max(1, Math.ceil(filteredTasks.length / itemsPerPage));
   const safePage = Math.min(currentPage, pageCount);
   const paginatedTasks = filteredTasks.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
   const visiblePages = getVisiblePages(safePage, pageCount);
-  const activeTasks = useMemo(() => tasks.filter((task) => isTaskActive(task.status)).length, [tasks]);
+  const activeTasks = useMemo(() => browseVisibleTasks.filter((task) => isTaskActive(task.status)).length, [browseVisibleTasks]);
 
   const applyFilters = (): void => {
     setAppliedSearch(draftSearch);
@@ -130,24 +144,29 @@ export default function BrowseTasksScreen(): React.ReactElement {
   const adjustBudget = (delta: number): void => {
     const currentValue = Number(draftBudget || 0);
     const nextValue = Math.max(0, currentValue + delta);
-    setDraftBudget(nextValue === 0 ? "" : nextValue.toFixed(2));
+    setDraftBudget(nextValue === 0 ? "" : String(Math.round(nextValue)));
   };
 
   return (
     <MarketplaceShell
-      activeRoute="browse"
-      refreshControl={<RefreshControl refreshing={isLoading} onRefresh={() => void fetchTasks()} />}
+      activeRoute={browseMode === "suggested" ? "suggested" : "browse"}
+      refreshControl={
+        <RefreshControl
+          refreshing={isLoading}
+          onRefresh={() => (browseMode === "suggested" ? void fetchSuggestedTasks() : void fetchTasks())}
+        />
+      }
     >
       <View style={styles.heroCard}>
         <Text style={styles.heroEyebrow}>Trusted marketplace for daily tasks</Text>
-        <Text style={styles.heroTitle}>Find skilled helpers fast, with clear pricing and verified task flow</Text>
+        <Text style={styles.heroTitle}>Find skilled helpers fast, with clear budgets and verified task flow</Text>
         <Text style={styles.heroBody}>
           Browse available tasks, filter by status and budget, and connect with trusted providers in Ho Chi Minh City.
         </Text>
 
         <View style={styles.heroStatsRow}>
           <HeroStat value={`${activeTasks} live`} label="Real-time updates" />
-          <HeroStat value={`${tasks.length}`} label="Total listed tasks" />
+          <HeroStat value={`${browseVisibleTasks.length}`} label={browseMode === "suggested" ? "Suggested tasks" : "Total listed tasks"} />
           <HeroStat value={`${filteredTasks.length}`} label="Matching your filters" />
           <HeroStat
             value={columns === 1 ? "Mobile-first layout" : "Large-screen layout"}
@@ -209,13 +228,13 @@ export default function BrowseTasksScreen(): React.ReactElement {
           </View>
 
           <View style={styles.filterBlock}>
-            <Text style={styles.filterLabel}>Money</Text>
+            <Text style={styles.filterLabel}>Budget</Text>
             <View style={styles.moneyRow}>
               <Pressable style={styles.moneyButton} onPress={() => adjustBudget(-10)}>
                 <Text style={styles.moneyButtonText}>-</Text>
               </Pressable>
               <TextInput
-                placeholder="0.00"
+                placeholder="Max budget"
                 placeholderTextColor={colors.dark[400]}
                 keyboardType="numeric"
                 value={draftBudget}
@@ -300,7 +319,7 @@ export default function BrowseTasksScreen(): React.ReactElement {
                   }
                   onBid={
                     user && String(user.role).toUpperCase() === "PROVIDER"
-                      ? () => Alert.alert("Bid flow", `You can continue the provider flow for "${task.title}" on the shared backend.`)
+                      ? () => router.push({ pathname: "/task-detail", params: { taskId: String(task.id) } })
                       : undefined
                   }
                 />

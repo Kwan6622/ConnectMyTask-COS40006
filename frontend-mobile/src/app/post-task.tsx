@@ -14,31 +14,71 @@ import { useResponsiveLayout } from "@/theme/responsive";
 import { colors, radius } from "@/theme/tokens";
 import { TaskCategory } from "@/types";
 import { uploadImageToCloudinary } from "@/utils/cloudinaryUpload";
-import { formatCategoryLabel, isRequester } from "@/utils/taskUtils";
+import { formatCategoryLabel, formatCurrency, isRequester } from "@/utils/taskUtils";
+import { api } from "@/services/api";
 
-type FieldErrors = Partial<Record<"title" | "description" | "location" | "budget", string>>;
+type FieldErrors = Partial<Record<"title" | "description" | "location" | "budget" | "maxBids" | "dueDate", string>>;
+
+type AiBudgetSuggestion = {
+  suggestedBudget: number;
+  suggestedMin?: number;
+  suggestedMax?: number;
+  explanation?: string;
+  currency?: string;
+  factorsUsed?: string[];
+};
+
+function formatVndInput(raw: string): string {
+  const digits = String(raw || "").replace(/[^\d]/g, "");
+  if (!digits) return "";
+  return Number(digits).toLocaleString("en-US");
+}
+
+function parseVndInput(value: string): number {
+  return Number(String(value || "").replace(/[^\d]/g, ""));
+}
 
 function validateForm({
   title,
   description,
   location,
   budget,
+  maxBids,
+  dueDate,
 }: {
   title: string;
   description: string;
   location: string;
   budget: string;
+  maxBids: string;
+  dueDate: string;
 }): FieldErrors {
   const next: FieldErrors = {};
   if (!title.trim()) next.title = "Task title is required.";
   if (!description.trim()) next.description = "Description is required.";
   if (!location.trim()) next.location = "Location is required.";
 
-  const budgetValue = Number(budget);
+  const budgetValue = parseVndInput(budget);
   if (!budget.trim()) {
     next.budget = "Budget is required.";
   } else if (Number.isNaN(budgetValue) || budgetValue <= 0) {
     next.budget = "Budget must be greater than 0.";
+  }
+
+  if (maxBids.trim()) {
+    const maxBidsValue = Number(maxBids);
+    if (!Number.isInteger(maxBidsValue) || maxBidsValue < 1 || maxBidsValue > 100) {
+      next.maxBids = "Maximum bids must be an integer between 1 and 100.";
+    }
+  }
+
+  if (dueDate.trim()) {
+    const parsedDueDate = new Date(dueDate.trim());
+    if (Number.isNaN(parsedDueDate.getTime())) {
+      next.dueDate = "Due date must be a valid ISO date.";
+    } else if (parsedDueDate.getTime() < Date.now()) {
+      next.dueDate = "Due date cannot be in the past.";
+    }
   }
 
   return next;
@@ -61,6 +101,9 @@ export default function PostTaskScreen(): React.ReactElement {
   const [location, setLocation] = useState("");
   const [budget, setBudget] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [maxBids, setMaxBids] = useState("30");
+  const [aiSuggestion, setAiSuggestion] = useState<AiBudgetSuggestion | null>(null);
+  const [isGettingAiBudgetSuggestion, setIsGettingAiBudgetSuggestion] = useState(false);
   const [selectedImages, setSelectedImages] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState("");
@@ -86,13 +129,57 @@ export default function PostTaskScreen(): React.ReactElement {
     setSelectedImages((current) => [...current, result.assets[0]].slice(0, 3));
   };
 
+  const handleGetAiBudgetSuggestion = async (): Promise<void> => {
+    if (!category || !location.trim()) {
+      Alert.alert("Missing fields", "Please select category and location first.");
+      return;
+    }
+    setIsGettingAiBudgetSuggestion(true);
+    try {
+      const titleValue = title.trim();
+      const descriptionValue = description.trim();
+      const response = await api.ai.predictPrice({
+        title: titleValue || undefined,
+        category,
+        location: location.trim(),
+        budget: parseVndInput(budget) || undefined,
+        description: [titleValue, descriptionValue].filter(Boolean).join(". "),
+        complexity: "MEDIUM",
+        urgency: "NORMAL",
+      });
+
+      const payload = response.data || {};
+      const suggestedBudget = Number(payload.suggestedBudget || payload.aiSuggestedPrice || 0);
+      if (!Number.isFinite(suggestedBudget) || suggestedBudget <= 0) {
+        throw new Error("AI did not return a valid budget suggestion.");
+      }
+
+      const nextSuggestion: AiBudgetSuggestion = {
+        suggestedBudget,
+        suggestedMin: payload.suggestedMin != null ? Number(payload.suggestedMin) : undefined,
+        suggestedMax: payload.suggestedMax != null ? Number(payload.suggestedMax) : undefined,
+        explanation: payload.explanation || payload.rationale || "",
+        currency: payload.currency || "VND",
+        factorsUsed: Array.isArray(payload.factorsUsed) ? payload.factorsUsed : [],
+      };
+      setAiSuggestion(nextSuggestion);
+      setBudget(formatVndInput(String(nextSuggestion.suggestedBudget)));
+      Alert.alert("AI Budget Suggestion", "AI budget guidance generated successfully.");
+    } catch (error: any) {
+      const message = error?.response?.data?.message || error?.message || "Failed to get AI budget suggestion.";
+      Alert.alert("AI budget failed", message);
+    } finally {
+      setIsGettingAiBudgetSuggestion(false);
+    }
+  };
+
   const handlePostTask = async (): Promise<void> => {
     if (!user || !isRequester(user)) {
       setFormError("Only requester accounts can post tasks in the current shared workflow.");
       return;
     }
 
-    const validation = validateForm({ title, description, location, budget });
+    const validation = validateForm({ title, description, location, budget, maxBids, dueDate });
     setErrors(validation);
     setFormError("");
     if (Object.keys(validation).length > 0) return;
@@ -121,7 +208,9 @@ export default function PostTaskScreen(): React.ReactElement {
         title: title.trim(),
         description: description.trim(),
         category,
-        budget: Number(budget),
+        budget: parseVndInput(budget),
+        aiSuggestedPrice: aiSuggestion?.suggestedBudget,
+        maxBids: Number(maxBids || 30),
         location: location.trim(),
         createdById,
         imageUrls,
@@ -243,13 +332,53 @@ export default function PostTaskScreen(): React.ReactElement {
             error={errors.location}
           />
 
+          <View style={styles.aiSuggestionBox}>
+            <View style={styles.aiSuggestionHeader}>
+              <View style={styles.aiSuggestionCopy}>
+                <Text style={styles.aiSuggestionTitle}>AI Budget Suggestion</Text>
+                <Text style={styles.aiSuggestionHint}>Analyze title, category, and description for VND guidance.</Text>
+              </View>
+              <Button
+                title={isGettingAiBudgetSuggestion ? "Generating..." : "Get AI Budget"}
+                size="sm"
+                onPress={() => void handleGetAiBudgetSuggestion()}
+                loading={isGettingAiBudgetSuggestion}
+              />
+            </View>
+            {aiSuggestion ? (
+              <View style={styles.aiResultCard}>
+                <Text style={styles.aiResultLabel}>Suggested Budget</Text>
+                <Text style={styles.aiResultValue}>{formatCurrency(aiSuggestion.suggestedBudget)}</Text>
+                {aiSuggestion.suggestedMin != null && aiSuggestion.suggestedMax != null ? (
+                  <Text style={styles.aiResultMeta}>
+                    Estimated range: {formatCurrency(aiSuggestion.suggestedMin)} - {formatCurrency(aiSuggestion.suggestedMax)}
+                  </Text>
+                ) : null}
+                {aiSuggestion.explanation ? (
+                  <Text style={styles.aiResultExplanation}>{aiSuggestion.explanation}</Text>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+
           <Input
             label="Budget (VND)*"
-            placeholder="Example: 1200000"
+            placeholder="e.g., 500,000"
             value={budget}
-            onChangeText={setBudget}
+            onChangeText={(value) => setBudget(formatVndInput(value))}
             keyboardType="numeric"
+            helperText="Enter your estimated budget in VND (e.g., 500,000)"
             error={errors.budget}
+          />
+
+          <Input
+            label="Maximum number of bids"
+            placeholder="Default: 30"
+            value={maxBids}
+            onChangeText={setMaxBids}
+            keyboardType="numeric"
+            helperText="You can limit how many providers can bid on this task (maximum 100)."
+            error={errors.maxBids}
           />
 
           <Input
@@ -257,7 +386,8 @@ export default function PostTaskScreen(): React.ReactElement {
             placeholder="Example: 2026-03-30T17:00:00.000Z"
             value={dueDate}
             onChangeText={setDueDate}
-            helperText="Paste an ISO date if you want the deadline to show on task cards."
+            helperText="Enter a future ISO datetime only (example: 2026-03-30T17:00:00.000Z)."
+            error={errors.dueDate}
           />
 
           {formError ? <Text style={styles.formError}>{formError}</Text> : null}
@@ -395,6 +525,66 @@ const styles = StyleSheet.create({
   },
   categoryChipTablet: {
     width: "48.8%",
+  },
+  aiSuggestionBox: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.primary[200],
+    backgroundColor: colors.primary[50],
+    padding: 12,
+    gap: 10,
+  },
+  aiSuggestionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+  },
+  aiSuggestionCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  aiSuggestionTitle: {
+    color: colors.dark[900],
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: "800",
+  },
+  aiSuggestionHint: {
+    color: colors.dark[600],
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  aiResultCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.success[200],
+    backgroundColor: colors.white,
+    padding: 12,
+    gap: 4,
+  },
+  aiResultLabel: {
+    color: colors.dark[500],
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+  },
+  aiResultValue: {
+    color: colors.success[700],
+    fontSize: 26,
+    lineHeight: 32,
+    fontWeight: "800",
+  },
+  aiResultMeta: {
+    color: colors.dark[700],
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+  },
+  aiResultExplanation: {
+    color: colors.dark[600],
+    fontSize: 13,
+    lineHeight: 18,
   },
   formError: {
     color: colors.danger[600],

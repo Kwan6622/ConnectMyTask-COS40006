@@ -59,7 +59,8 @@ const env = {
   DATABASE_URL:
     process.env.DATABASE_URL ||
     'postgresql://postgres:postgres@localhost:5432/connectmytask',
-  AI_SERVICE_URL: process.env.AI_SERVICE_URL || 'http://ai-service',
+  // Default to local FastAPI AI service for non-docker development.
+  AI_SERVICE_URL: process.env.AI_SERVICE_URL || 'http://127.0.0.1:8000',
   JWT_SECRET: process.env.JWT_SECRET || 'supersecretjwtkey',
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:5173',
   OPENAI_API_KEY: openAiApiKey,

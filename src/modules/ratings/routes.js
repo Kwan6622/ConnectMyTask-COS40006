@@ -10,6 +10,9 @@ router.post('/ratings', authenticate, createValidationMiddleware({ body: createR
 
 router.get('/users/:id/ratings', createValidationMiddleware({ params: userIdParamsSchema }), ratingsController.getUserRatings);
 
+router.get('/providers/:id/ratings', createValidationMiddleware({ params: userIdParamsSchema }), ratingsController.getProviderRatingSummary);
+router.get('/providers/:id/rating-summary', createValidationMiddleware({ params: userIdParamsSchema }), ratingsController.getProviderRatingSummary);
+
 router.get('/tasks/:id/ratings/me', authenticate, createValidationMiddleware({ params: taskIdParamsSchema }), ratingsController.getMyTaskRatingStatus);
 
 module.exports = router;

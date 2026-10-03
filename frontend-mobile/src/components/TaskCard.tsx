@@ -3,6 +3,7 @@ import { Image, Pressable, StyleSheet, Text, View, useWindowDimensions } from "r
 import { Task } from "@/types";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
+import { useAuthStore } from "@/store/authStore";
 import { colors, radius } from "@/theme/tokens";
 import {
   extractDistrict,
@@ -15,6 +16,8 @@ import {
   getDisplayName,
   getTaskDueDate,
   getTaskDisplayBudget,
+  isAdmin,
+  isProvider,
 } from "@/utils/taskUtils";
 
 interface TaskCardProps {
@@ -32,11 +35,13 @@ export function TaskCard({
   onToggleSave,
   isSaved = false,
 }: TaskCardProps): React.ReactElement {
+  const user = useAuthStore((state) => state.user);
   const { width } = useWindowDimensions();
   const compact = width < 390;
   const dueDate = getTaskDueDate(task);
   const postedBy = getDisplayName(task.createdBy || task.client);
   const budget = getTaskDisplayBudget(task);
+  const canSeeSuspiciousRisk = isProvider(user) || isAdmin(user);
 
   return (
     <Card style={styles.card} contentStyle={styles.content}>
@@ -78,7 +83,7 @@ export function TaskCard({
         <FactRow label="Created" value={formatDate(task.createdAt)} />
       </View>
 
-      {task.isSuspicious ? (
+      {task.isSuspicious && canSeeSuspiciousRisk ? (
         <View style={styles.warningBanner}>
           <Text style={styles.warningTitle}>Potential scam risk</Text>
           <Text style={styles.warningBody} numberOfLines={2}>
@@ -89,7 +94,7 @@ export function TaskCard({
 
       <View style={[styles.actionRow, compact ? styles.actionRowCompact : null]}>
         <Button title="View Task" size="sm" variant="outline" onPress={onView || (() => undefined)} style={styles.actionButton} />
-        {onBid ? <Button title="Bid" size="sm" onPress={onBid} style={styles.actionButton} /> : null}
+        {onBid ? <Button title="Place Bid" size="sm" onPress={onBid} style={styles.actionButton} /> : null}
         {onToggleSave ? (
           <Pressable onPress={onToggleSave} style={styles.savePill}>
             <Text style={styles.savePillText}>{isSaved ? "Saved" : "Save"}</Text>

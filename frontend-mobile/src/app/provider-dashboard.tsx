@@ -62,6 +62,7 @@ export default function ProviderDashboardScreen(): React.ReactElement {
       <Card>
         <View style={styles.actionRow}>
           <Button title="Browse Tasks" onPress={() => router.push("/browse-tasks")} style={styles.actionBtn} />
+          <Button title="Suggested Tasks" variant="outline" onPress={() => router.push("/suggested-tasks")} style={styles.actionBtn} />
           <Button title="My Bids" variant="outline" onPress={() => router.push("/my-bids")} style={styles.actionBtn} />
           <Button title="Task Progress" variant="outline" onPress={() => router.push("/task-progress")} style={styles.actionBtn} />
         </View>
@@ -121,4 +122,3 @@ const styles = StyleSheet.create({
     gap: 8,
   },
 });
-

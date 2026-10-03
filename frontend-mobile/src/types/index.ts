@@ -23,7 +23,7 @@ export enum TaskStatus {
   CANCELLED = "CANCELLED",
 }
 
-export type TaskSortBy = "most_recent" | "price_low_to_high" | "price_high_to_low" | "deadline";
+export type TaskSortBy = "most_recent" | "budget_low_to_high" | "budget_high_to_low" | "deadline";
 export type AccountType = "client" | "service_provider";
 
 export type EscrowStatus =
@@ -61,6 +61,43 @@ export interface User {
   isVerified?: boolean;
   bio?: string;
   createdAt?: string;
+}
+
+export interface ProviderCertificate {
+  id: string | number;
+  providerId?: string | number;
+  title: string;
+  fileUrl: string;
+  certificateType: string;
+  verificationStatus: "PENDING" | "VERIFIED" | "REJECTED";
+  uploadedAt?: string;
+  verifiedAt?: string | null;
+}
+
+export interface ProviderProfile {
+  id?: string | number;
+  userId?: string | number;
+  address?: string;
+  district?: string;
+  city?: string;
+  specialties: string[];
+  safetyComplianceAgreed: boolean;
+  shortBio?: string;
+  certificates?: ProviderCertificate[];
+}
+
+export interface RatingComment {
+  id: string | number;
+  rating: number;
+  comment?: string | null;
+  fromUser?: Pick<User, "id" | "name" | "fullName">;
+  createdAt?: string;
+}
+
+export interface UserRatingSummary {
+  averageRating: number;
+  totalReviews: number;
+  latestComments: RatingComment[];
 }
 
 export interface Bid {
@@ -101,6 +138,7 @@ export interface Task {
   suspiciousReason?: string | null;
   riskLevel?: "LOW" | "MEDIUM" | "HIGH" | string | null;
   aiSuggestedPrice?: number;
+  maxBids?: number;
   clientId?: string | number;
   providerId?: string | number;
   createdById?: string | number;
@@ -148,6 +186,16 @@ export interface TaskProgressUpdate {
   provider?: User;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TaskSubtask {
+  id: string | number;
+  taskId: string | number;
+  title: string;
+  status: "PENDING" | "IN_PROGRESS" | "DONE";
+  order?: number;
+  progressPercent?: 25 | 50 | 75 | 100 | number;
+  createdAt?: string;
 }
 
 export interface TaskProgressSummary {

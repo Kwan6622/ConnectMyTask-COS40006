@@ -76,6 +76,14 @@ router.get(
   taskController.listProviderAssignedTasks
 );
 
+// GET /tasks/suggested/me
+router.get(
+  '/suggested/me',
+  authenticate,
+  requireRoles('PROVIDER'),
+  taskController.listSuggestedTasksForProvider
+);
+
 // GET /tasks/disputes/all (admin)
 router.get(
   '/disputes/all',

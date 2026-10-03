@@ -31,11 +31,17 @@ function rewriteUrlHost(rawUrl: string, nextHost: string): string {
 function resolveApiBaseUrl(): string {
   const envUrl = process.env.EXPO_PUBLIC_API_URL;
   const expoHost = getExpoDebugHost();
+  const isAndroidEmulator = Platform.OS === "android" && Constants.isDevice === false;
 
   if (envUrl) {
     try {
       const envParsed = new URL(envUrl);
       if (!isLoopbackHost(envParsed.hostname)) return envUrl;
+
+      // Android emulators cannot reach localhost of host machine directly.
+      if (isAndroidEmulator) {
+        return `http://10.0.2.2:${envParsed.port || "4000"}/api`;
+      }
 
       // If env uses localhost but we have Expo debug host (physical device/LAN),
       // rewrite host so mobile can reach the backend on the dev machine.
@@ -56,7 +62,7 @@ function resolveApiBaseUrl(): string {
     return `http://${expoHost}:4000/api`;
   }
 
-  if (Platform.OS === "android") {
+  if (isAndroidEmulator || Platform.OS === "android") {
     return "http://10.0.2.2:4000/api";
   }
 
@@ -109,9 +115,15 @@ class ApiService {
     delete: (id: string | number) => apiClient.delete(`/tasks/${id}`),
     getRequesterMe: () => apiClient.get("/tasks/requester/me"),
     getProviderAssignedMe: () => apiClient.get("/tasks/provider/assigned/me"),
+    getSuggestedMe: () => apiClient.get("/tasks/suggested/me"),
     updateStatus: (id: string | number, status: string) => apiClient.patch(`/tasks/${id}/status`, { status }),
     assignProvider: (id: string | number, bidId: number) => apiClient.patch(`/tasks/${id}/assign-provider`, { bidId }),
     getProgress: (id: string | number) => apiClient.get(`/tasks/${id}/progress`),
+    updateSubtaskStatus: (
+      id: string | number,
+      subtaskId: string | number,
+      status: "PENDING" | "IN_PROGRESS" | "DONE"
+    ) => apiClient.patch(`/tasks/${id}/subtasks/${subtaskId}`, { status }),
     addProgressUpdate: (
       id: string | number,
       data: {
@@ -147,6 +159,19 @@ class ApiService {
   users = {
     getProfile: (id: string | number) => apiClient.get(`/users/${id}`),
     updateProfilePhoto: (profilePhotoUrl: string) => apiClient.patch("/users/me", { profilePhotoUrl }),
+    updateProviderProfile: (data: {
+      address?: string;
+      district?: string;
+      city?: string;
+      specialties?: string[];
+      safetyComplianceAgreed?: boolean;
+      shortBio?: string;
+    }) => apiClient.patch("/users/me/provider-profile", data),
+    uploadProviderCertificate: (data: {
+      title: string;
+      certificateType: string;
+      fileUrl: string;
+    }) => apiClient.post("/users/me/provider-certificates", data),
   };
 
   notifications = {
@@ -171,6 +196,39 @@ class ApiService {
       message: string;
       history?: Array<{ role: "user" | "assistant"; content: string }>;
     }) => apiClient.post("/chat", data),
+  };
+
+  ai = {
+    predictPrice: (data: {
+      title?: string;
+      category: string;
+      location: string;
+      budget?: number;
+      description?: string;
+      complexity?: "LOW" | "MEDIUM" | "HIGH";
+      urgency?: "LOW" | "NORMAL" | "HIGH";
+    }) => apiClient.post("/ai/predict-price", data),
+  };
+
+  ratings = {
+    create: (data: { taskId: number; toUserId?: number; rating: number; comment?: string }) =>
+      apiClient.post("/ratings", data),
+    getUserRatings: (userId: string | number) => apiClient.get(`/users/${userId}/ratings`),
+    getMyTaskRatingStatus: (taskId: string | number) => apiClient.get(`/tasks/${taskId}/ratings/me`),
+  };
+
+  admin = {
+    getStats: () => apiClient.get("/admin/stats"),
+    getTasks: () => apiClient.get("/admin/tasks"),
+    getSuspiciousTasks: () => apiClient.get("/admin/tasks/suspicious"),
+    deleteTask: (taskId: string | number) => apiClient.delete(`/admin/tasks/${taskId}`),
+    reviewTask: (taskId: string | number) => apiClient.patch(`/admin/tasks/${taskId}/reviewed`),
+    getCertificates: () => apiClient.get("/admin/certificates"),
+    verifyCertificate: (certificateId: string | number) => apiClient.patch(`/admin/certificates/${certificateId}/verify`),
+    rejectCertificate: (certificateId: string | number) => apiClient.patch(`/admin/certificates/${certificateId}/reject`),
+    getPayments: () => apiClient.get("/admin/payments"),
+    getEscrowPayments: () => apiClient.get("/admin/payments/escrow"),
+    releasePayment: (paymentId: string | number) => apiClient.patch(`/admin/payments/${paymentId}/release`),
   };
 }
 

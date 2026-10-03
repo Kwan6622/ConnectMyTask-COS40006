@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTaskStore } from '../stores/task.store';
+import { useAuthStore } from '../stores/auth.store';
 import { TaskCard } from '../components/task/TaskCard';
 import { Button } from '../components/common/Button';
 import { Input } from '../components/common/Input';
@@ -16,6 +17,7 @@ import {
   StarIcon,
   UserGroupIcon,
 } from '@heroicons/react/24/outline';
+import { api } from '../services/api';
 
 function getVisiblePages(currentPage: number, totalPages: number): Array<number | '...'> {
   if (totalPages <= 7) {
@@ -54,11 +56,14 @@ export const TaskBrowsePage: React.FC = () => {
   const ITEMS_PER_PAGE = 4;
   const navigate = useNavigate();
   const { tasks, filters, isLoading, fetchTasks, setFilters, clearFilters } = useTaskStore();
+  const { user } = useAuthStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [locationQuery, setLocationQuery] = useState('');
   const [isSearchDraftDirty, setIsSearchDraftDirty] = useState(false);
   const [sortBy, setSortBy] = useState('opportunity');
   const [currentPage, setCurrentPage] = useState(1);
+  const [browseMode, setBrowseMode] = useState<'all' | 'suggested'>('all');
+  const [suggestedTasks, setSuggestedTasks] = useState<any[]>([]);
   const locationOptions = [
     '',
     'District 1',
@@ -84,6 +89,31 @@ export const TaskBrowsePage: React.FC = () => {
   useEffect(() => {
     fetchTasks();
   }, []);
+
+  useEffect(() => {
+    if (browseMode !== 'suggested') return;
+    if (String(user?.role || '').toUpperCase() !== 'PROVIDER') return;
+    api.tasks
+      .getSuggestedMe()
+      .then((response) => {
+        setSuggestedTasks(Array.isArray(response.data) ? response.data : []);
+      })
+      .catch(() => {
+        setSuggestedTasks([]);
+      });
+  }, [browseMode, user?.id, user?.role]);
+
+  const sourceTasks = browseMode === 'suggested' ? suggestedTasks : tasks;
+  const browseVisibleTasks = useMemo(
+    () =>
+      sourceTasks.filter((task) => {
+        const status = String(task.status || '').toUpperCase();
+        const isAssigned = status === TaskStatus.ASSIGNED;
+        const isOverdueUnassigned = Boolean(task.isOverdue) && !task.assignedProviderId;
+        return !isAssigned && !isOverdueUnassigned;
+      }),
+    [sourceTasks]
+  );
 
   const effectiveSearch = isSearchDraftDirty ? searchQuery : (filters.search || '');
   const effectiveLocation = isSearchDraftDirty ? locationQuery : (filters.location || '');
@@ -134,7 +164,7 @@ export const TaskBrowsePage: React.FC = () => {
     { value: TaskCategory.OTHER, label: 'Other', icon: '⭐', count: 0 },
   ].map((category) => ({
     ...category,
-    count: tasks.filter((task) => task.category === category.value).length,
+    count: browseVisibleTasks.filter((task) => task.category === category.value).length,
   }));
 
   const statuses: Array<{ value: TaskStatus; label: string; color: string }> = [
@@ -149,7 +179,7 @@ export const TaskBrowsePage: React.FC = () => {
     { value: TaskStatus.DISPUTED, label: 'Disputed', color: 'bg-red-100 text-red-700 border-red-200' },
   ];
 
-  const filteredTasks = useMemo(() => tasks.filter((task) => {
+  const filteredTasks = useMemo(() => browseVisibleTasks.filter((task) => {
     if (filters.category && task.category !== filters.category) {
       return false;
     }
@@ -219,7 +249,7 @@ export const TaskBrowsePage: React.FC = () => {
       default:
         return dateB - dateA;
     }
-  }), [filters, sortBy, tasks]);
+  }), [browseVisibleTasks, filters, sortBy]);
 
   const totalPages = Math.max(1, Math.ceil(filteredTasks.length / ITEMS_PER_PAGE));
   const safePage = Math.min(currentPage, totalPages);
@@ -449,14 +479,42 @@ export const TaskBrowsePage: React.FC = () => {
                   {filteredTasks.length} {filteredTasks.length === 1 ? 'Task' : 'Tasks'} Found
                 </h2>
                 <p className="text-gray-600 mt-1">
-                  {filters.category || filters.status || filters.search || filters.location || filters.minBudget != null || filters.maxBudget != null
+                  {browseMode === 'suggested'
+                    ? 'Suggested for you based on your specialties and district'
+                    : (filters.category || filters.status || filters.search || filters.location || filters.minBudget != null || filters.maxBudget != null
                     ? 'Matching your filters'
-                    : 'Showing all available tasks'}
+                    : 'Showing all available tasks')}
                 </p>
               </div>
               
               {/* Sort Options */}
               <div className="flex items-center gap-3">
+                {String(user?.role || '').toUpperCase() === 'PROVIDER' && (
+                  <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1">
+                    <button
+                      onClick={() => {
+                        setBrowseMode('all');
+                        setCurrentPage(1);
+                      }}
+                      className={`px-3 py-1.5 text-sm rounded-md ${
+                        browseMode === 'all' ? 'bg-blue-600 text-white' : 'text-gray-600'
+                      }`}
+                    >
+                      All
+                    </button>
+                    <button
+                      onClick={() => {
+                        setBrowseMode('suggested');
+                        setCurrentPage(1);
+                      }}
+                      className={`px-3 py-1.5 text-sm rounded-md ${
+                        browseMode === 'suggested' ? 'bg-blue-600 text-white' : 'text-gray-600'
+                      }`}
+                    >
+                      Suggested
+                    </button>
+                  </div>
+                )}
                 <span className="text-sm text-gray-600">Sort by:</span>
                 <select 
                   value={sortBy}

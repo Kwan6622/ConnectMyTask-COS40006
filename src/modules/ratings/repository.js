@@ -80,6 +80,30 @@ async function getRatingStatsForUser(userId) {
   });
 }
 
+async function listLatestCommentRatingsForUser(userId, limit = 5) {
+  return prisma.rating.findMany({
+    where: {
+      toUserId: userId,
+      comment: {
+        not: null,
+      },
+    },
+    include: {
+      fromUser: { select: userLiteSelect },
+      task: {
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          category: true,
+        },
+      },
+    },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: limit,
+  });
+}
+
 async function updateUserRating(userId, value) {
   return prisma.user.update({
     where: { id: userId },
@@ -95,5 +119,6 @@ module.exports = {
   createRating,
   listRatingsForUser,
   getRatingStatsForUser,
+  listLatestCommentRatingsForUser,
   updateUserRating,
 };

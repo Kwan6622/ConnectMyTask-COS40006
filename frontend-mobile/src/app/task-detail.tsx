@@ -19,6 +19,7 @@ import {
   getDisplayName,
   getTaskDueDate,
   getTaskDisplayBudget,
+  isAdmin,
   isProvider,
 } from "@/utils/taskUtils";
 
@@ -39,6 +40,7 @@ export default function TaskDetailScreen(): React.ReactElement {
   const [taskBids, setTaskBids] = useState<Bid[]>([]);
   const [paymentHistory, setPaymentHistory] = useState<any[]>([]);
   const [isSubmittingBid, setIsSubmittingBid] = useState(false);
+  const [assigningBidId, setAssigningBidId] = useState<string | number | null>(null);
   const [isCreatingPayment, setIsCreatingPayment] = useState(false);
   const [bidAmount, setBidAmount] = useState("");
   const [bidMessage, setBidMessage] = useState("");
@@ -57,13 +59,9 @@ export default function TaskDetailScreen(): React.ReactElement {
       try {
         const response = await api.bids.getAll(resolvedTaskId);
         const payload = Array.isArray(response.data) ? response.data : response.data?.items || response.data?.data || [];
-        if (mounted) {
-          setTaskBids(payload);
-        }
+        if (mounted) setTaskBids(payload);
       } catch {
-        if (mounted) {
-          setTaskBids([]);
-        }
+        if (mounted) setTaskBids([]);
       }
     }
 
@@ -83,13 +81,9 @@ export default function TaskDetailScreen(): React.ReactElement {
         const response = await api.payments.getByTask(resolvedTaskId);
         const result = response.data || {};
         const list = Array.isArray(result) ? result : result.payments || result.items || result.data || [];
-        if (mounted) {
-          setPaymentHistory(list);
-        }
+        if (mounted) setPaymentHistory(list);
       } catch {
-        if (mounted) {
-          setPaymentHistory([]);
-        }
+        if (mounted) setPaymentHistory([]);
       }
     }
 
@@ -103,9 +97,21 @@ export default function TaskDetailScreen(): React.ReactElement {
     () => savedTaskIds.some((id) => String(id) === String(currentTask?.id)),
     [currentTask?.id, savedTaskIds]
   );
-  const canBid = isAuthenticated && isProvider(user) && currentTask != null;
+
+  const bidCount = currentTask?._count?.bids ?? currentTask?.bids?.length ?? taskBids.length;
+  const maxBids = Math.min(Number(currentTask?.maxBids || 30), 100);
+  const isBidLimitReached = bidCount >= maxBids || bidCount >= 100;
+  const canBid =
+    isAuthenticated &&
+    isProvider(user) &&
+    currentTask != null &&
+    ["OPEN", "BIDDING"].includes(String(currentTask.status || "")) &&
+    !isBidLimitReached;
+
   const isRequesterUser =
     isAuthenticated && user != null && ["REQUESTER", "CLIENT"].includes(String(user.role || "").toUpperCase());
+  const canAssignProvider =
+    isRequesterUser && currentTask != null && ["OPEN", "BIDDING"].includes(String(currentTask.status || ""));
 
   const submitBid = async (): Promise<void> => {
     if (!taskId) return;
@@ -132,6 +138,24 @@ export default function TaskDetailScreen(): React.ReactElement {
       Alert.alert("Bid failed", message);
     } finally {
       setIsSubmittingBid(false);
+    }
+  };
+
+  const assignBid = async (bidId: string | number): Promise<void> => {
+    if (!taskId || !canAssignProvider) return;
+    setAssigningBidId(bidId);
+    try {
+      await api.tasks.assignProvider(taskId, Number(bidId));
+      await fetchTaskById(taskId);
+      const response = await api.bids.getAll(taskId);
+      const payload = Array.isArray(response.data) ? response.data : response.data?.items || response.data?.data || [];
+      setTaskBids(payload);
+      Alert.alert("Provider assigned", "Task moved to assigned workflow.");
+    } catch (error: any) {
+      const message = error?.response?.data?.message || "Cannot assign provider right now.";
+      Alert.alert("Assign failed", message);
+    } finally {
+      setAssigningBidId(null);
     }
   };
 
@@ -202,6 +226,7 @@ export default function TaskDetailScreen(): React.ReactElement {
   const budget = getTaskDisplayBudget(currentTask);
   const dueDate = getTaskDueDate(currentTask);
   const postedBy = getDisplayName(currentTask.createdBy || currentTask.client);
+  const canSeeSuspiciousRisk = isProvider(user) || isAdmin(user);
 
   return (
     <MarketplaceShell activeRoute="browse">
@@ -219,12 +244,12 @@ export default function TaskDetailScreen(): React.ReactElement {
         <View style={styles.detailBody}>
           <View style={styles.topRow}>
             <Text style={styles.title}>{currentTask.title}</Text>
-            <Text style={styles.price}>{formatCurrency(budget)}</Text>
+            <Text style={styles.budget}>{formatCurrency(budget)}</Text>
           </View>
           <View style={styles.badgeRow}>
             <Badge label={formatTaskStatusLabel(currentTask.status)} variant="primary" />
             <Badge label={formatCategoryLabel(String(currentTask.category))} variant="neutral" />
-            {currentTask.isSuspicious ? <Badge label="Risk flagged" variant="warning" /> : null}
+            {currentTask.isSuspicious && canSeeSuspiciousRisk ? <Badge label="Risk flagged" variant="warning" /> : null}
           </View>
           <Text style={styles.body}>{currentTask.description}</Text>
           <View style={styles.infoBox}>
@@ -232,6 +257,8 @@ export default function TaskDetailScreen(): React.ReactElement {
             <InfoRow label="Posted by" value={postedBy} />
             <InfoRow label="Due date" value={dueDate ? formatDate(dueDate) : "Flexible"} />
             <InfoRow label="Created" value={formatDate(currentTask.createdAt)} />
+            <InfoRow label="Bid slots" value={`${bidCount}/${maxBids}`} />
+            {isBidLimitReached ? <InfoRow label="Bidding" value="Closed" /> : null}
           </View>
         </View>
       </Card>
@@ -281,9 +308,7 @@ export default function TaskDetailScreen(): React.ReactElement {
                   <Text style={styles.paymentItemTitle}>
                     {String(item.type || "PAYMENT")} · {formatCurrency(Number(item.amount || 0))}
                   </Text>
-                  <Text style={styles.paymentItemMeta}>
-                    Status: {String(item.status || "PENDING")}
-                  </Text>
+                  <Text style={styles.paymentItemMeta}>Status: {String(item.status || "PENDING")}</Text>
                 </View>
               ))
             )}
@@ -296,7 +321,7 @@ export default function TaskDetailScreen(): React.ReactElement {
           {canBid ? (
             <View style={styles.bidForm}>
               <Input
-                label="Your bid amount (VND)"
+                label="Your Offer (VND)"
                 placeholder="e.g. 200000"
                 keyboardType="numeric"
                 value={bidAmount}
@@ -311,14 +336,16 @@ export default function TaskDetailScreen(): React.ReactElement {
                 numberOfLines={3}
               />
               <Button
-                title={isSubmittingBid ? "Submitting..." : "Submit Bid"}
+                title={isSubmittingBid ? "Submitting..." : "Place Bid"}
                 onPress={() => void submitBid()}
                 loading={isSubmittingBid}
               />
             </View>
           ) : (
             <Text style={styles.body}>
-              Sign in as a provider to submit bids on this task.
+              {isBidLimitReached
+                ? "This task is no longer accepting bids."
+                : "Sign in as a provider to place a bid on this task."}
             </Text>
           )}
 
@@ -337,6 +364,16 @@ export default function TaskDetailScreen(): React.ReactElement {
                     </View>
                     <Text style={styles.bidMeta}>Status: {String(bid.status || "PENDING")}</Text>
                     {bid.message ? <Text style={styles.bidMessage}>{bid.message}</Text> : null}
+                    {canAssignProvider ? (
+                      <View style={styles.assignWrap}>
+                        <Button
+                          title={assigningBidId === bid.id ? "Assigning..." : "Assign Provider"}
+                          size="sm"
+                          onPress={() => void assignBid(bid.id)}
+                          loading={assigningBidId === bid.id}
+                        />
+                      </View>
+                    ) : null}
                   </View>
                 );
               })
@@ -384,7 +421,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
-  price: {
+  budget: {
     color: colors.success[700],
     fontSize: 16,
     lineHeight: 20,
@@ -496,6 +533,9 @@ const styles = StyleSheet.create({
     color: colors.dark[700],
     fontSize: 12,
     lineHeight: 17,
+  },
+  assignWrap: {
+    marginTop: 8,
   },
   emptyText: {
     color: colors.dark[500],

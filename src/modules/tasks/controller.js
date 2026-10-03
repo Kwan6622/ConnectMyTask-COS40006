@@ -127,6 +127,15 @@ async function listProviderAssignedTasks(req, res, next) {
   }
 }
 
+async function listSuggestedTasksForProvider(req, res, next) {
+  try {
+    const tasks = await taskService.listSuggestedTasksForProvider(req.user);
+    return res.json(tasks);
+  } catch (err) {
+    return next(err);
+  }
+}
+
 async function getTaskProgress(req, res, next) {
   try {
     const taskId = parseInt(req.params.id, 10);
@@ -240,6 +249,7 @@ module.exports = {
   assignProvider,
   listRequesterTasks,
   listProviderAssignedTasks,
+  listSuggestedTasksForProvider,
   getTaskProgress,
   updateTaskSubtaskStatus,
   createTaskProgressUpdate,

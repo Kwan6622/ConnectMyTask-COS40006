@@ -30,6 +30,7 @@ export default function TaskProgressPage(): React.ReactElement {
     assignedTasks,
     currentTask,
     taskProgressUpdates,
+    taskSubtasks,
     taskProgressSummary,
     taskDisputes,
     taskActivityLogs,
@@ -37,6 +38,7 @@ export default function TaskProgressPage(): React.ReactElement {
     fetchAssignedTasks,
     fetchTaskProgress,
     addTaskProgressUpdate,
+    updateTaskSubtaskStatus,
     confirmTaskCompletion,
     openTaskDispute,
     isLoading,
@@ -45,6 +47,7 @@ export default function TaskProgressPage(): React.ReactElement {
     assignedTasks: state.assignedTasks,
     currentTask: state.currentTask,
     taskProgressUpdates: state.taskProgressUpdates,
+    taskSubtasks: state.taskSubtasks,
     taskProgressSummary: state.taskProgressSummary,
     taskDisputes: state.taskDisputes,
     taskActivityLogs: state.taskActivityLogs,
@@ -52,6 +55,7 @@ export default function TaskProgressPage(): React.ReactElement {
     fetchAssignedTasks: state.fetchAssignedTasks,
     fetchTaskProgress: state.fetchTaskProgress,
     addTaskProgressUpdate: state.addTaskProgressUpdate,
+    updateTaskSubtaskStatus: state.updateTaskSubtaskStatus,
     confirmTaskCompletion: state.confirmTaskCompletion,
     openTaskDispute: state.openTaskDispute,
     isLoading: state.isLoading,
@@ -66,6 +70,7 @@ export default function TaskProgressPage(): React.ReactElement {
   const [disputeReason, setDisputeReason] = useState("QUALITY_ISSUE");
   const [disputeDescription, setDisputeDescription] = useState("");
   const [disputeImages, setDisputeImages] = useState<ImagePicker.ImagePickerAsset[]>([]);
+  const [updatingSubtaskId, setUpdatingSubtaskId] = useState<string | number | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated || !user) return;
@@ -114,6 +119,8 @@ export default function TaskProgressPage(): React.ReactElement {
     (isOwner || isAssignedProvider) &&
     !["PAID", "CANCELLED"].includes(String(currentTask.status));
   const summaryProgress = Math.max(0, Math.min(100, taskProgressSummary?.progressPercent ?? 0));
+  const totalSubtasks = taskSubtasks.length;
+  const doneSubtasks = taskSubtasks.filter((item) => item.status === "DONE").length;
 
   const pickImage = async (target: "proof" | "dispute"): Promise<void> => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -182,6 +189,22 @@ export default function TaskProgressPage(): React.ReactElement {
     } catch (error: any) {
       const message = error?.response?.data?.message || error?.message || "Failed to confirm completion.";
       Alert.alert("Confirmation failed", message);
+    }
+  };
+
+  const handleUpdateSubtask = async (
+    subtaskId: string | number,
+    status: "PENDING" | "IN_PROGRESS" | "DONE"
+  ): Promise<void> => {
+    if (!selectedTaskId || !canManageProgress) return;
+    setUpdatingSubtaskId(subtaskId);
+    try {
+      await updateTaskSubtaskStatus(selectedTaskId, subtaskId, status);
+    } catch (error: any) {
+      const message = error?.response?.data?.message || error?.message || "Failed to update checklist item.";
+      Alert.alert("Checklist update failed", message);
+    } finally {
+      setUpdatingSubtaskId(null);
     }
   };
 
@@ -321,6 +344,45 @@ export default function TaskProgressPage(): React.ReactElement {
                         <Text style={styles.timelineAttachment}>{update.attachments.length} proof image(s) attached</Text>
                       ) : null}
                     </View>
+                  </View>
+                ))}
+              </View>
+            )}
+          </Card>
+
+          <Card title="Subtask Checklist">
+            {taskSubtasks.length === 0 ? (
+              <Text style={styles.emptyText}>No subtasks/checkpoints available for this task yet.</Text>
+            ) : (
+              <View style={styles.subtaskList}>
+                <Text style={styles.subtaskSummary}>
+                  Completed: {doneSubtasks}/{totalSubtasks}
+                </Text>
+                {taskSubtasks.map((subtask) => (
+                  <View key={String(subtask.id)} style={styles.subtaskItem}>
+                    <View style={styles.subtaskCopy}>
+                      <Text style={styles.subtaskTitle}>{subtask.title}</Text>
+                      <Text style={styles.subtaskMeta}>
+                        {subtask.progressPercent ? `${subtask.progressPercent}%` : "Checkpoint"} · {subtask.status}
+                      </Text>
+                    </View>
+                    {canManageProgress ? (
+                      <View style={styles.subtaskActions}>
+                        <Button
+                          title="Start"
+                          size="sm"
+                          variant="outline"
+                          onPress={() => void handleUpdateSubtask(subtask.id, "IN_PROGRESS")}
+                          loading={updatingSubtaskId === subtask.id}
+                        />
+                        <Button
+                          title="Done"
+                          size="sm"
+                          onPress={() => void handleUpdateSubtask(subtask.id, "DONE")}
+                          loading={updatingSubtaskId === subtask.id}
+                        />
+                      </View>
+                    ) : null}
                   </View>
                 ))}
               </View>
@@ -673,6 +735,41 @@ const styles = StyleSheet.create({
     color: colors.dark[500],
     fontSize: 11,
     lineHeight: 15,
+  },
+  subtaskList: {
+    gap: 10,
+  },
+  subtaskSummary: {
+    color: colors.dark[700],
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+  },
+  subtaskItem: {
+    borderWidth: 1,
+    borderColor: colors.dark[200],
+    borderRadius: radius.lg,
+    backgroundColor: colors.dark[50],
+    padding: 10,
+    gap: 10,
+  },
+  subtaskCopy: {
+    gap: 2,
+  },
+  subtaskTitle: {
+    color: colors.dark[900],
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
+  subtaskMeta: {
+    color: colors.dark[600],
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  subtaskActions: {
+    flexDirection: "row",
+    gap: 8,
   },
   form: {
     gap: 12,

@@ -155,7 +155,7 @@ export default function SignUpScreen(): React.ReactElement {
               />
 
               <View style={styles.radioSection}>
-                <Text style={styles.radioLabel}>Account Type</Text>
+                <Text style={styles.radioLabel}>I am a:</Text>
                 <View style={styles.radioGroup}>
                   {accountTypeOptions.map((option) => {
                     const selected = accountType === option.value;
@@ -187,6 +187,7 @@ export default function SignUpScreen(): React.ReactElement {
                 value={password}
                 onChangeText={setPassword}
                 error={errors.password}
+                helperText="At least 6 characters"
                 secureTextEntry
                 autoCapitalize="none"
                 autoCorrect={false}

@@ -676,6 +676,41 @@ export const TaskDetailPage: React.FC = () => {
                 <p className="text-sm text-dark-600 mt-1">
                   ⭐ {(providerRatingSummary?.averageRating ?? task.assignedProvider.rating ?? 0).toFixed(1)} ({providerRatingSummary?.totalReviews ?? 0} reviews)
                 </p>
+                {(task.assignedProvider.providerProfile?.specialties || []).length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {(task.assignedProvider.providerProfile?.specialties || []).map((item: string) => (
+                      <span key={item} className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs mt-3 text-dark-600">
+                  Safety compliance: <span className={task.assignedProvider.providerProfile?.safetyComplianceAgreed ? 'text-emerald-700 font-semibold' : 'text-amber-700 font-semibold'}>
+                    {task.assignedProvider.providerProfile?.safetyComplianceAgreed ? 'Agreed' : 'Not agreed yet'}
+                  </span>
+                </p>
+                {(task.assignedProvider.providerProfile?.certificates || []).length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    <p className="text-xs font-semibold text-dark-700">Certificates</p>
+                    {(task.assignedProvider.providerProfile?.certificates || []).slice(0, 3).map((cert: any) => (
+                      <div key={String(cert.id)} className="rounded-lg border border-dark-100 bg-dark-50 px-2 py-1.5 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium text-dark-800">{cert.title}</span>
+                          <span className={`px-1.5 py-0.5 rounded-full border ${
+                            cert.verificationStatus === 'VERIFIED'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : cert.verificationStatus === 'REJECTED'
+                                ? 'bg-red-50 text-red-700 border-red-200'
+                                : 'bg-amber-50 text-amber-700 border-amber-200'
+                          }`}>
+                            {cert.verificationStatus}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </Card>
             )}
 

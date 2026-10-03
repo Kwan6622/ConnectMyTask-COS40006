@@ -31,6 +31,17 @@ export const isTaskActive = (status: TaskStatus | string): boolean => {
   return ![TaskStatus.COMPLETED, TaskStatus.PAID, TaskStatus.CANCELLED].includes(normalized);
 };
 
+export const isTaskBrowsable = (task: Pick<Task, "status" | "isOverdue" | "assignedProviderId">): boolean => {
+  const normalized = normalizeTaskStatus(task.status);
+  if ([TaskStatus.ASSIGNED, TaskStatus.COMPLETED, TaskStatus.PAID, TaskStatus.CANCELLED].includes(normalized)) {
+    return false;
+  }
+  if (Boolean(task.isOverdue) && !task.assignedProviderId) {
+    return false;
+  }
+  return true;
+};
+
 export const normalizeTaskStatus = (status: string | null | undefined): TaskStatus => {
   const value = (status || "").trim().toUpperCase();
   if (value === "POSTED" || value === "PENDING") return TaskStatus.OPEN;
@@ -124,6 +135,10 @@ export function isRequester(user?: User | null): boolean {
 
 export function isProvider(user?: User | null): boolean {
   return String(user?.role || "").toUpperCase() === "PROVIDER";
+}
+
+export function isAdmin(user?: User | null): boolean {
+  return String(user?.role || "").toUpperCase() === "ADMIN";
 }
 
 export function extractDistrict(location?: string): string {

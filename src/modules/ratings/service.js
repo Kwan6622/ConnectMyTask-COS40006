@@ -1,6 +1,6 @@
 const ratingsRepository = require('./repository');
 
-const COMPLETED_STATUSES = new Set(['COMPLETED', 'AWAITING_PAYMENT', 'PAID']);
+const COMPLETED_STATUSES = new Set(['COMPLETED']);
 
 function toNumber(value) {
   const parsed = Number(value);
@@ -35,15 +35,7 @@ function resolveRatingDirection(task, currentUser) {
     };
   }
 
-  if (Number(task.assignedProviderId) === userId) {
-    return {
-      fromUserId: userId,
-      toUserId: Number(task.createdById),
-      direction: 'PROVIDER_TO_REQUESTER',
-    };
-  }
-
-  const err = new Error('Only the task requester and assigned provider can rate each other');
+  const err = new Error('Only the task requester can rate the assigned provider');
   err.statusCode = 403;
   throw err;
 }
@@ -176,8 +168,30 @@ async function getMyTaskRatingStatus(taskIdRaw, currentUser) {
   };
 }
 
+async function getProviderRatingSummary(providerIdRaw) {
+  const providerId = toNumber(providerIdRaw);
+  if (!Number.isInteger(providerId) || providerId <= 0) {
+    const err = new Error('Invalid provider id');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const summary = await recalculateUserRating(providerId);
+  const latestComments = await ratingsRepository.listLatestCommentRatingsForUser(providerId, 5);
+  const latestCommentsCount = latestComments.length;
+
+  return {
+    providerId,
+    averageRating: summary.averageRating,
+    totalReviews: summary.totalReviews,
+    latestCommentsCount,
+    latestComments,
+  };
+}
+
 module.exports = {
   createRating,
   getUserRatings,
   getMyTaskRatingStatus,
+  getProviderRatingSummary,
 };

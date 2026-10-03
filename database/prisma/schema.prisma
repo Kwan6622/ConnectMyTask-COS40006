@@ -38,8 +38,52 @@ model User {
   disputesOpened        Dispute[]            @relation("DisputeOpenedBy")
   disputesResolved      Dispute[]            @relation("DisputeResolvedBy")
   activityLogs          TaskActivityLog[]    @relation("TaskActivityActor")
+  providerProfile       ProviderProfile?
+  providerCertificates  ProviderCertificate[] @relation("ProviderCertificates")
+  verifiedCertificates  ProviderCertificate[] @relation("CertificateVerifiedBy")
 
   @@map("USERS")
+}
+
+model ProviderProfile {
+  id                       Int      @id @default(autoincrement())
+  userId                   Int      @unique
+  address                  String?
+  district                 String?
+  city                     String?
+  specialties              String[] @default([])
+  safetyComplianceAgreed   Boolean  @default(false)
+  shortBio                 String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  user                     User     @relation(fields: [userId], references: [id])
+  certificates             ProviderCertificate[] @relation("ProfileCertificates")
+
+  @@index([district])
+  @@map("PROVIDER_PROFILES")
+}
+
+model ProviderCertificate {
+  id                  Int                           @id @default(autoincrement())
+  providerId          Int
+  providerProfileId   Int?
+  title               String
+  fileUrl             String
+  certificateType     String
+  verificationStatus  CertificateVerificationStatus @default(PENDING)
+  rejectionReason     String?
+  uploadedAt          DateTime                      @default(now())
+  verifiedAt          DateTime?
+  verifiedByAdminId   Int?
+
+  provider            User            @relation("ProviderCertificates", fields: [providerId], references: [id])
+  providerProfile     ProviderProfile? @relation("ProfileCertificates", fields: [providerProfileId], references: [id])
+  verifiedByAdmin     User?           @relation("CertificateVerifiedBy", fields: [verifiedByAdminId], references: [id])
+
+  @@index([providerId, uploadedAt])
+  @@index([verificationStatus])
+  @@map("PROVIDER_CERTIFICATES")
 }
 
 model Task {
@@ -55,6 +99,8 @@ model Task {
   location          String
   status            TaskStatus @default(PENDING)
   dueDate           DateTime?
+  biddingStartedAt  DateTime?
+  biddingEndsAt     DateTime?
   isOverdue         Boolean   @default(false)
   overdueNotifiedAt DateTime?
   escrowStatus      EscrowStatus     @default(NONE)
@@ -64,6 +110,10 @@ model Task {
   escrowReleasedAt  DateTime?
   canceledAt        DateTime?
   cancellationReason String?
+  isDeleted         Boolean  @default(false)
+  deletedAt         DateTime?
+  reviewedByAdminAt DateTime?
+  reviewedByAdminId Int?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   imageUrls         String[] @default([])
@@ -179,6 +229,13 @@ model TaskSubtask {
 model PaymentTransaction {
   id                    Int           @id @default(autoincrement())
   amount                Float
+  totalAmount           Float?
+  escrowHeldAmount      Float?
+  platformFeeAmount     Float?
+  providerPayoutAmount  Float?
+  heldAt                DateTime?
+  releasedAt            DateTime?
+  lifecycleStatus       PaymentLifecycleStatus @default(PENDING)
   method                PaymentMethod
   type                  PaymentTransactionType @default(DIRECT_PAYMENT)
   escrowStatus          EscrowStatus           @default(NONE)
@@ -372,6 +429,15 @@ enum PaymentTransactionType {
   ESCROW_REFUND
 }
 
+enum PaymentLifecycleStatus {
+  PENDING
+  ESCROW_HELD
+  RELEASE_READY
+  RELEASED
+  FAILED
+  REFUNDED
+}
+
 enum DisputeStatus {
   OPEN
   UNDER_REVIEW
@@ -384,4 +450,10 @@ enum SubtaskStatus {
   PENDING
   IN_PROGRESS
   DONE
+}
+
+enum CertificateVerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
 }
