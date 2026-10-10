@@ -36,8 +36,23 @@ export default function SignInScreen(): React.ReactElement {
       await login(normalizedEmail, password);
       router.replace("/browse-tasks");
     } catch (error) {
-      console.error("Sign in failed", error);
-      setFormError("Sign in failed. Please try again.");
+      const loginError = error as {
+        code?: string;
+        response?: { status?: number; data?: { error?: string; message?: string } };
+      };
+      console.warn("[mobile-auth] Login request failed", {
+        status: loginError.response?.status ?? null,
+        code: loginError.code ?? "UNKNOWN",
+        endpoint: "/api/auth/login",
+      });
+      setFormError(
+        loginError.response?.data?.message ||
+          (loginError.response?.data?.error === "ValidationError"
+            ? "Enter your account email address (for example, requester5@gmail.com), not the username."
+            : loginError.code === "ECONNABORTED"
+              ? "Login request timed out. Check that the API server is reachable."
+              : "Sign in failed. Check your details and try again.")
+      );
     } finally {
       setLoading(false);
     }
