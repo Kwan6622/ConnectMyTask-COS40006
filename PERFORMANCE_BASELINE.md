@@ -53,3 +53,10 @@ With the backend running locally, measure the public list endpoint five times:
 ```
 
 For meaningful before/after comparisons, repeat with a fixed seeded dataset (including enough tasks, bids, subtasks, and progress updates to exercise the included relations), a clean browser cache, and the same machine/browser. Record response status, latency distribution, payload bytes, JS/CSS transfer size, FCP/LCP, and interaction/frame responsiveness. Keep development-server startup timings separate from production-build measurements.
+
+Baseline highlights:
+Web build succeeded, but Vite flagged the 604.32 KB JavaScript chunk (172.30 KB gzip) as exceeding its 500 KB threshold.
+Five warm production-preview page loads had a 31.3 ms median navigation load event. This is not FCP and isn’t a cold-cache or real-network measurement.
+Five local GET /api/tasks requests had an 11.7 ms median; the response was only [] (2 bytes), so this does not measure performance with realistic task data.
+The first cold Vite development load took about 8.7 seconds, largely during dependency compilation/optimization; it is recorded separately from production measurements.
+Likely hotspots to investigate: eager page imports contributing to the large web bundle; task and admin list queries that return unbounded results, with related data included. Mobile rendering, authenticated dashboards, and AI/realtime flows remain unbenchmarked. No optimization changes were made in this baseline pass.
