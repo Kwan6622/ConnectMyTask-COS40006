@@ -60,3 +60,14 @@ Five warm production-preview page loads had a 31.3 ms median navigation load eve
 Five local GET /api/tasks requests had an 11.7 ms median; the response was only [] (2 bytes), so this does not measure performance with realistic task data.
 The first cold Vite development load took about 8.7 seconds, largely during dependency compilation/optimization; it is recorded separately from production measurements.
 Likely hotspots to investigate: eager page imports contributing to the large web bundle; task and admin list queries that return unbounded results, with related data included. Mobile rendering, authenticated dashboards, and AI/realtime flows remain unbenchmarked. No optimization changes were made in this baseline pass.
+
+Planned Optimizations:
+Split the web app by route. The baseline measured a 604 KB JavaScript bundle, and App.tsx statically imports all the pages. Lazy-load routes so users download dashboards, admin tools, and less-frequently used screens only when needed. Maps, charts, and chat are good candidates to check for especially large feature-specific chunks.
+
+Implement server-side pagination for task lists. The web store sends page and limit values in task.store.ts, but the baseline found that the task repository’s listTasks query does not bound its results. Apply validated filters, stable ordering, and skip/take in the database, and return pagination metadata. Avoid loading relations in the browse response unless that screen needs them.
+
+Bound other growing collections. The admin task, certificate, and payment queries are also flagged as unbounded in the baseline. Add pagination there if realistic data shows those screens are slow or responses are large.
+
+Keep mobile lists scalable. The Expo browse screen renders cards from a scroll view in browse-tasks.tsx. If profiling shows scrolling or memory problems as task counts increase, use a virtualized list and avoid fetching every task up front.
+
+Improve the benchmark before tuning small details. Repeat tests with fixed seeded data—including tasks and the related records returned by the API—and capture payload size plus p50/p95 latency. For web, measure cold-cache LCP and interaction responsiveness separately from API time. For Android and iOS, profile frame times and memory on actual devices or suitable simulators.
