@@ -199,10 +199,17 @@ export const TaskProgressPage: React.FC = () => {
 
   useEffect(() => {
     if (!id || !canViewProgress) return;
+    let refreshInFlight = false;
     const timer = window.setInterval(() => {
-      fetchTaskProgress(id).catch(() => {
-        // keep silent during background refresh
-      });
+      if (refreshInFlight) return;
+      refreshInFlight = true;
+      fetchTaskProgress(id)
+        .catch(() => {
+          // keep silent during background refresh
+        })
+        .finally(() => {
+          refreshInFlight = false;
+        });
     }, 15000);
     return () => window.clearInterval(timer);
   }, [canViewProgress, fetchTaskProgress, id]);

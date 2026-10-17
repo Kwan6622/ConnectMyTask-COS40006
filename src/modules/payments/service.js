@@ -310,8 +310,16 @@ async function createCheckoutPayment(payload, currentUser) {
 async function confirmStripeSession(sessionId, currentUser) {
   ensureStripeConfigured();
 
+  // The transaction is keyed by the checkout session ID returned at creation.
+  // Handle lookup errors immediately so a faster database failure cannot become unhandled while Stripe responds.
+  const paymentLookup = paymentsRepository.getPaymentByCheckoutSessionId(sessionId)
+    .then((payment) => ({ payment }), (error) => ({ error }));
   const session = await stripe.checkout.sessions.retrieve(sessionId);
-  const payment = await paymentsRepository.getPaymentByCheckoutSessionId(session.id);
+  const lookup = session.id === sessionId
+    ? await paymentLookup
+    : { payment: await paymentsRepository.getPaymentByCheckoutSessionId(session.id) };
+  if (lookup.error) throw lookup.error;
+  const payment = lookup.payment;
   if (!payment) {
     const err = new Error('Payment transaction not found');
     err.statusCode = 404;

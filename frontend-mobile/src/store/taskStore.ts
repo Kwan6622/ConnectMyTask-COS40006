@@ -198,6 +198,8 @@ function getTaskList(payload: any): any[] {
   return [];
 }
 
+let tasksRequest: Promise<void> | null = null;
+
 export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
   currentTask: null,
@@ -217,26 +219,30 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   isLoading: false,
   error: null,
 
-  fetchTasks: async () => {
-    set({ isLoading: true, error: null });
-    try {
-      const response = await api.tasks.getAll({
-        sortBy: "createdAt",
-        sortOrder: "desc",
-      });
-      const list = getTaskList(response.data);
-      set({
-        tasks: list.map(normalizeTask),
-        isLoading: false,
-        error: null,
-      });
-    } catch (error) {
-      console.error("Failed to fetch tasks", error);
-      set({
-        isLoading: false,
-        error: "Cannot load tasks from server.",
-      });
-    }
+  fetchTasks: () => {
+    if (tasksRequest) return tasksRequest;
+    tasksRequest = (async () => {
+      set({ isLoading: true, error: null });
+      try {
+        const response = await api.tasks.getAll({
+          sortBy: "createdAt",
+          sortOrder: "desc",
+        });
+        const list = getTaskList(response.data);
+        set({
+          tasks: list.map(normalizeTask),
+          isLoading: false,
+          error: null,
+        });
+      } catch (error) {
+        console.error("Failed to fetch tasks", error);
+        set({
+          isLoading: false,
+          error: "Cannot load tasks from server.",
+        });
+      }
+    })().finally(() => { tasksRequest = null; });
+    return tasksRequest;
   },
 
   fetchSuggestedTasks: async () => {

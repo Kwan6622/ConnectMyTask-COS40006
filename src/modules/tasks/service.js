@@ -269,43 +269,7 @@ async function notifyTaskParties(task, notificationData) {
 }
 
 async function ensureOverdueState(task) {
-  if (!task?.id || !task?.dueDate) {
-    return task;
-  }
-
-  const now = new Date();
-  const shouldBeOverdue = now.getTime() > new Date(task.dueDate).getTime() && isTaskActiveForOverdue(task.status);
-
-  if (shouldBeOverdue && !task.isOverdue) {
-    const updated = await taskRepository.updateTask(task.id, {
-      isOverdue: true,
-      overdueNotifiedAt: task.overdueNotifiedAt || now,
-    });
-
-    // Notify once when crossing overdue threshold.
-    if (!task.overdueNotifiedAt) {
-      await notifyTaskParties(updated, {
-        message: `Task "${task.title}" is overdue. Please update progress or open a dispute if needed.`,
-      });
-      await logActivity(
-        task.id,
-        null,
-        'OVERDUE_TRIGGERED',
-        `Task became overdue at ${now.toISOString()}.`,
-        {
-          dueDate: task.dueDate,
-        }
-      );
-    }
-
-    return {
-      ...task,
-      isOverdue: true,
-      overdueNotifiedAt: now,
-    };
-  }
-
-  return task;
+  return (await hydrateTaskListWithOverdue([task]))[0];
 }
 
 async function hydrateTaskWithOverdue(task) {
@@ -314,15 +278,35 @@ async function hydrateTaskWithOverdue(task) {
 }
 
 async function hydrateTaskListWithOverdue(tasks) {
-  const enriched = [];
-  for (const task of tasks) {
-    // Keep this sequential to avoid notification races when multiple readers hit at the same time.
-    // Capstone scope: task lists are small.
-    // eslint-disable-next-line no-await-in-loop
-    const nextTask = await ensureOverdueState(task);
-    enriched.push(nextTask);
+  const now = new Date();
+  const candidates = tasks.filter((task) => task?.id && task.dueDate && !task.isOverdue &&
+    now.getTime() > new Date(task.dueDate).getTime() && isTaskActiveForOverdue(task.status));
+  if (!candidates.length) return tasks;
+
+  const { newlyNotified, marked } = await taskRepository.markTasksOverdue(candidates.map((task) => task.id), now);
+  const claimedById = new Map(newlyNotified.map((task) => [task.id, task]));
+  const markedById = new Map(marked.map((task) => [task.id, task]));
+  const missedIds = candidates.filter((task) => !markedById.has(task.id)).map((task) => task.id);
+  if (missedIds.length) {
+    const currentStates = await taskRepository.getTaskOverdueStates(missedIds);
+    for (const state of currentStates) {
+      if (state.isOverdue) markedById.set(state.id, state);
+    }
   }
-  return enriched;
+  for (const task of candidates) {
+    const updated = claimedById.get(task.id);
+    if (!updated) continue;
+    await notifyTaskParties(updated, {
+      message: `Task "${task.title}" is overdue. Please update progress or open a dispute if needed.`,
+    });
+    await logActivity(task.id, null, 'OVERDUE_TRIGGERED', `Task became overdue at ${now.toISOString()}.`, {
+      dueDate: task.dueDate,
+    });
+  }
+
+  return tasks.map((task) => markedById.has(task.id)
+    ? { ...task, isOverdue: true, overdueNotifiedAt: markedById.get(task.id).overdueNotifiedAt }
+    : task);
 }
 
 function buildProviderTrustMap(ratingStats) {
@@ -373,35 +357,35 @@ async function autoAssignExpiredBiddingTasks() {
   const ratingStats = await taskRepository.getProviderRatingStats(allProviderIds);
   const trustMap = buildProviderTrustMap(ratingStats);
 
-  for (const task of expiredTasks) {
-    const bestBid = pickBestBidWithTrust(task.bids, trustMap);
-    if (!bestBid) continue;
+  for (let i = 0; i < expiredTasks.length; i += 4) {
+    const results = await Promise.allSettled(expiredTasks.slice(i, i + 4).map(async (task) => {
+      const bestBid = pickBestBidWithTrust(task.bids, trustMap);
+      if (!bestBid) return;
 
-    // eslint-disable-next-line no-await-in-loop
-    const acceptedBid = await taskRepository.autoAssignProviderFromBid(task.id, bestBid.id);
-    if (!acceptedBid) continue;
+      const acceptedBid = await taskRepository.autoAssignProviderFromBid(task.id, bestBid.id);
+      if (!acceptedBid) return;
 
-    // eslint-disable-next-line no-await-in-loop
-    await notificationRepository.createNotification({
-      recipientId: acceptedBid.providerId,
-      senderId: null,
-      taskId: task.id,
-      message: `Your bid was auto-selected after bidding deadline for task "${task.title}".`,
-    });
-    // eslint-disable-next-line no-await-in-loop
-    await notificationRepository.createNotification({
-      recipientId: task.createdById,
-      senderId: acceptedBid.providerId,
-      taskId: task.id,
-      message: `Task "${task.title}" was auto-assigned after 24h bidding window. Please deposit escrow to start work.`,
-    });
-    // eslint-disable-next-line no-await-in-loop
-    await logActivity(task.id, null, 'AUTO_ASSIGNED_AFTER_BIDDING_WINDOW', 'System auto-assigned provider after 24h bidding window.', {
-      bidId: acceptedBid.id,
-      providerId: acceptedBid.providerId,
-      selectedBidPrice: acceptedBid.price,
-      ranking: 'lowest-bid first, then higher rating/review-count as tie-break in close bids',
-    });
+      await notificationRepository.createNotification({
+        recipientId: acceptedBid.providerId,
+        senderId: null,
+        taskId: task.id,
+        message: `Your bid was auto-selected after bidding deadline for task "${task.title}".`,
+      });
+      await notificationRepository.createNotification({
+        recipientId: task.createdById,
+        senderId: acceptedBid.providerId,
+        taskId: task.id,
+        message: `Task "${task.title}" was auto-assigned after 24h bidding window. Please deposit escrow to start work.`,
+      });
+      await logActivity(task.id, null, 'AUTO_ASSIGNED_AFTER_BIDDING_WINDOW', 'System auto-assigned provider after 24h bidding window.', {
+        bidId: acceptedBid.id,
+        providerId: acceptedBid.providerId,
+        selectedBidPrice: acceptedBid.price,
+        ranking: 'lowest-bid first, then higher rating/review-count as tie-break in close bids',
+      });
+    }));
+    const failure = results.find((result) => result.status === 'rejected');
+    if (failure) throw failure.reason;
   }
   } finally {
     autoAssignRunning = false;
@@ -469,8 +453,10 @@ async function createTask(payload, currentUser) {
     riskLevel: risk.riskLevel,
   };
 
-  const task = await taskRepository.createTask(createPayload);
-  const suggestedSubtasks = await generateSuggestedSubtasks(payload.category, payload.title, payload.description);
+  const [task, suggestedSubtasks] = await Promise.all([
+    taskRepository.createTask(createPayload),
+    generateSuggestedSubtasks(payload.category, payload.title, payload.description),
+  ]);
   await taskRepository.createSubtasksForTask(task.id, suggestedSubtasks);
 
   await logActivity(task.id, currentUser.id, 'TASK_CREATED', 'Requester posted a new task.', {
@@ -763,12 +749,14 @@ async function getTaskProgress(taskId, currentUser) {
     throw err;
   }
 
-  const updates = await taskRepository.listProgressUpdatesForTask(taskId);
-  const subtasks = await taskRepository.listSubtasksForTask(taskId);
+  const [updates, subtasks, disputes, activities, payments] = await Promise.all([
+    taskRepository.listProgressUpdatesForTask(taskId),
+    taskRepository.listSubtasksForTask(taskId),
+    taskRepository.listDisputesForTask(taskId),
+    taskRepository.listTaskActivity(taskId, 120),
+    taskRepository.listPaymentTransactionsForTask(taskId),
+  ]);
   const latestUpdate = updates[0] || null;
-  const disputes = await taskRepository.listDisputesForTask(taskId);
-  const activities = await taskRepository.listTaskActivity(taskId, 120);
-  const payments = await taskRepository.listPaymentTransactionsForTask(taskId);
 
   return {
     task,
