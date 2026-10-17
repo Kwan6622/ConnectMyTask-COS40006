@@ -5,7 +5,7 @@ from pathlib import Path
 import random
 import re
 from typing import Any
-
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import joblib
@@ -17,6 +17,15 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 app = FastAPI(
     title="ConnectMyTask Budget AI",
     description="Title-first, subtype-aware AI budget suggestion service for ConnectMyTask.",
+)
+
+# Add this block to allow the frontend to communicate with the API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins (good for local testing)
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods (POST, GET, etc.)
+    allow_headers=["*"],
 )
 
 
