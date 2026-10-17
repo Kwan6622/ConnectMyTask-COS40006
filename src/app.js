@@ -19,6 +19,7 @@ const chatRoutes = require('./modules/chat/routes');
 const ratingRoutes = require('./modules/ratings/routes');
 const adminRoutes = require('./modules/admin/routes');
 const platformRoutes = require('./modules/platform/routes');
+const supportRoutes = require('./modules/support/routes');
 
 const app = express();
 
@@ -49,6 +50,7 @@ app.use('/api/tracking', trackingRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/platform', platformRoutes);
+app.use('/api/support', supportRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

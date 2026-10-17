@@ -41,6 +41,9 @@ model User {
   providerProfile       ProviderProfile?
   providerCertificates  ProviderCertificate[] @relation("ProviderCertificates")
   verifiedCertificates  ProviderCertificate[] @relation("CertificateVerifiedBy")
+  supportTickets        SupportTicket[] @relation("SupportRequester")
+  supportMessages       SupportMessage[]
+  supportActivities     SupportActivity[]
 
   @@map("USERS")
 }
@@ -136,6 +139,7 @@ model Task {
   subtasks      TaskSubtask[]
   disputes      Dispute[]
   activityLogs  TaskActivityLog[]
+  supportTickets SupportTicket[]
 
   @@map("TASKS")
 }
@@ -156,6 +160,61 @@ model Notification {
   task        Task?    @relation(fields: [taskId], references: [id])
 
   @@map("NOTIFICATIONS")
+}
+
+model SupportTicket {
+  id Int @id @default(autoincrement())
+  category String
+  subject String
+  description String @db.Text
+  status String @default("OPEN")
+  priority String @default("NORMAL")
+  evidenceUrls String[] @default([])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  resolvedAt DateTime?
+  closedAt DateTime?
+  requesterId Int
+  requester User @relation("SupportRequester", fields: [requesterId], references: [id])
+  taskId Int?
+  task Task? @relation(fields: [taskId], references: [id])
+  paymentId Int?
+  payment PaymentTransaction? @relation(fields: [paymentId], references: [id])
+  messages SupportMessage[]
+  activities SupportActivity[]
+
+  @@index([requesterId, createdAt])
+  @@index([status, category, priority, createdAt])
+  @@map("SUPPORT_TICKETS")
+}
+
+model SupportMessage {
+  id Int @id @default(autoincrement())
+  ticketId Int
+  ticket SupportTicket @relation(fields: [ticketId], references: [id])
+  senderId Int
+  sender User @relation(fields: [senderId], references: [id])
+  body String @db.Text
+  evidenceUrls String[] @default([])
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+  @@map("SUPPORT_MESSAGES")
+}
+
+model SupportActivity {
+  id Int @id @default(autoincrement())
+  ticketId Int
+  ticket SupportTicket @relation(fields: [ticketId], references: [id])
+  actorId Int
+  actor User @relation(fields: [actorId], references: [id])
+  action String
+  fromValue String?
+  toValue String?
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+  @@map("SUPPORT_ACTIVITIES")
 }
 
 model SavedTask {
@@ -256,6 +315,7 @@ model PaymentTransaction {
 
   providerId            Int?
   provider              User?         @relation("PaymentProvider", fields: [providerId], references: [id])
+  supportTickets        SupportTicket[]
 
   @@index([taskId])
   @@index([payerId])

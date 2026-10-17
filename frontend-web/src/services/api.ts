@@ -184,6 +184,16 @@ class ApiService {
   };
 
   // Notification APIs
+  support = {
+    list: (params?: Record<string, string | number>) => this.api.get('/support/tickets', { params }),
+    create: (data: Record<string, unknown>) => this.api.post('/support/tickets', data),
+    get: (id: number) => this.api.get(`/support/tickets/${id}`),
+    messages: (id: number, page = 1) => this.api.get(`/support/tickets/${id}/messages`, { params: { page } }),
+    activity: (id: number, page = 1) => this.api.get(`/support/tickets/${id}/activity`, { params: { page } }),
+    reply: (id: number, data: Record<string, unknown>) => this.api.post(`/support/tickets/${id}/messages`, data),
+    update: (id: number, data: Record<string, string>) => this.api.patch(`/support/tickets/${id}`, data),
+  };
+
   notifications = {
     contactClient: (data: { taskId: number }) =>
       this.api.post('/notifications/contact', data),

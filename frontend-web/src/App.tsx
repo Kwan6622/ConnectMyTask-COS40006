@@ -16,6 +16,7 @@ const ProviderDashboardPage = lazy(() => import('./pages/ProviderDashboardPage')
 const TaskProgressPage = lazy(() => import('./pages/TaskProgressPage').then((module) => ({ default: module.TaskProgressPage })));
 const RegisterPage = lazy(() => import('./pages/Auth/RegisterPage').then((module) => ({ default: module.RegisterPage })));
 const AdminDashboard = lazy(() => import('./pages/Admin/Dashboard').then((module) => ({ default: module.AdminDashboard })));
+const SupportPage = lazy(() => import('./pages/SupportPage').then((module) => ({ default: module.SupportPage })));
 const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage').then((module) => ({ default: module.PrivacyPolicyPage })));
 const TermsOfServicePage = lazy(() => import('./pages/TermsOfServicePage').then((module) => ({ default: module.TermsOfServicePage })));
 const AboutPage = lazy(() => import('./pages/AboutPage').then((module) => ({ default: module.AboutPage })));
@@ -110,6 +111,7 @@ function App() {
               path="/admin"
               element={user ? <AdminDashboard /> : <Navigate to="/" replace />}
             />
+            <Route path="/support" element={user ? <SupportPage /> : <Navigate to="/login" replace />} />
             <Route
               path="/about"
               element={<AboutPage />}

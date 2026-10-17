@@ -99,6 +99,15 @@ apiClient.interceptors.response.use(
 );
 
 class ApiService {
+  support = {
+    list: (params?: Record<string, string | number>) => apiClient.get('/support/tickets', { params }),
+    create: (data: Record<string, unknown>) => apiClient.post('/support/tickets', data),
+    get: (id: number) => apiClient.get(`/support/tickets/${id}`),
+    messages: (id: number, page = 1) => apiClient.get(`/support/tickets/${id}/messages`, { params: { page } }),
+    activity: (id: number, page = 1) => apiClient.get(`/support/tickets/${id}/activity`, { params: { page } }),
+    reply: (id: number, data: Record<string, unknown>) => apiClient.post(`/support/tickets/${id}/messages`, data),
+    update: (id: number, data: Record<string, string>) => apiClient.patch(`/support/tickets/${id}`, data),
+  };
   auth = {
     login: (email: string, password: string) => apiClient.post("/auth/login", { email, password }),
     signup: (data: any) => apiClient.post("/auth/signup", data),
