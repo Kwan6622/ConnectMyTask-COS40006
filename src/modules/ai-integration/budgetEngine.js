@@ -27,9 +27,9 @@ function normalizeText(value) {
   return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-function roundVnd(value) {
-  const step = value >= 1000000 ? 50000 : 10000;
-  return Math.max(step, Math.round(value / step) * step);
+function roundSgd(value) {
+  // Round to the nearest whole SGD dollar
+  return Math.max(1, Math.round(value));
 }
 
 function extractFirstNumber(text) {
@@ -62,27 +62,27 @@ function detectDistanceHint(locationText, descriptionText) {
 }
 
 function estimateCleaningBudget({ titleText, descText }) {
-  let min = 180000;
-  let max = 350000;
+  let min = 18; // SGD
+  let max = 35; // SGD
   const factors = [];
 
   const roomCount = extractFirstNumber(`${titleText} ${descText}`);
   if (roomCount && roomCount >= 2) {
-    const add = Math.min(roomCount, 6) * 70000;
+    const add = Math.min(roomCount, 6) * 7;
     min += add;
-    max += add + 70000;
+    max += add + 7;
     factors.push(`${roomCount} room(s) mentioned`);
   }
 
   if (titleText.includes('deep') || descText.includes('deep') || descText.includes('full')) {
-    min += 180000;
-    max += 350000;
+    min += 18;
+    max += 35;
     factors.push('deep/full cleaning scope');
   }
 
   if (descText.includes('kitchen') || descText.includes('bathroom')) {
-    min += 90000;
-    max += 170000;
+    min += 9;
+    max += 17;
     factors.push('kitchen/bathroom included');
   }
 
@@ -90,30 +90,30 @@ function estimateCleaningBudget({ titleText, descText }) {
 }
 
 function estimateDeliveryBudget({ titleText, descText, locationText, urgent }) {
-  let min = 80000;
-  let max = 180000;
+  let min = 8;
+  let max = 18;
   const factors = [];
 
   const distanceKm = detectDistanceHint(locationText, `${titleText} ${descText}`);
-  min += distanceKm * 6000;
-  max += distanceKm * 12000;
+  min += distanceKm * 0.6;
+  max += distanceKm * 1.2;
   factors.push(`estimated distance around ${distanceKm}km`);
 
   if (titleText.includes('document') || descText.includes('document')) {
-    min += 20000;
-    max += 50000;
+    min += 2;
+    max += 5;
     factors.push('document handling');
   }
 
   if (titleText.includes('heavy') || descText.includes('heavy') || descText.includes('fragile')) {
-    min += 40000;
-    max += 90000;
+    min += 4;
+    max += 9;
     factors.push('special package handling');
   }
 
   if (urgent) {
-    min += 80000;
-    max += 150000;
+    min += 8;
+    max += 15;
     factors.push('urgent delivery');
   }
 
@@ -121,27 +121,27 @@ function estimateDeliveryBudget({ titleText, descText, locationText, urgent }) {
 }
 
 function estimateRepairBudget({ titleText, descText, isElectrical }) {
-  let min = isElectrical ? 250000 : 220000;
-  let max = isElectrical ? 600000 : 550000;
+  let min = isElectrical ? 25 : 22;
+  let max = isElectrical ? 60 : 55;
   const factors = [];
 
   const issueCount = extractFirstNumber(`${titleText} ${descText}`);
   if (issueCount && issueCount >= 2) {
-    const add = Math.min(issueCount, 6) * 90000;
+    const add = Math.min(issueCount, 6) * 9;
     min += add;
-    max += add + 120000;
+    max += add + 12;
     factors.push(`${issueCount} issues/points mentioned`);
   }
 
   if (titleText.includes('install') || descText.includes('install')) {
-    min += 80000;
-    max += 170000;
+    min += 8;
+    max += 17;
     factors.push('installation work included');
   }
 
   if (titleText.includes('leak') || descText.includes('leak') || descText.includes('water')) {
-    min += 60000;
-    max += 130000;
+    min += 6;
+    max += 13;
     factors.push('technical troubleshooting required');
   }
 
@@ -149,29 +149,29 @@ function estimateRepairBudget({ titleText, descText, isElectrical }) {
 }
 
 function estimatePlumbingBudget({ titleText, descText }) {
-  let min = 260000;
-  let max = 620000;
+  let min = 26;
+  let max = 62;
   const factors = [];
 
   const issueCount = extractFirstNumber(`${titleText} ${descText}`);
   if (issueCount && issueCount >= 2) {
-    const add = Math.min(issueCount, 6) * 85000;
+    const add = Math.min(issueCount, 6) * 8.5;
     min += add;
-    max += add + 120000;
+    max += add + 12;
     factors.push(`${issueCount} plumbing issues/points mentioned`);
   } else {
     factors.push('single plumbing issue scope');
   }
 
   if (descText.includes('leak')) {
-    min += 60000;
-    max += 130000;
+    min += 6;
+    max += 13;
     factors.push('leak troubleshooting');
   }
 
   if (descText.includes('toilet') || descText.includes('sink')) {
-    min += 40000;
-    max += 90000;
+    min += 4;
+    max += 9;
     factors.push('fixture-specific repair');
   }
 
@@ -179,23 +179,23 @@ function estimatePlumbingBudget({ titleText, descText }) {
 }
 
 function estimateInstallationBudget({ titleText, descText }) {
-  let min = 220000;
-  let max = 520000;
+  let min = 22;
+  let max = 52;
   const factors = [];
 
   const itemCount = extractFirstNumber(`${titleText} ${descText}`);
   if (itemCount && itemCount >= 2) {
-    const add = Math.min(itemCount, 8) * 70000;
+    const add = Math.min(itemCount, 8) * 7;
     min += add;
-    max += add + 110000;
+    max += add + 11;
     factors.push(`${itemCount} installation items mentioned`);
   } else {
     factors.push('single installation item scope');
   }
 
   if (descText.includes('wall') || descText.includes('ceiling') || descText.includes('drill')) {
-    min += 50000;
-    max += 110000;
+    min += 5;
+    max += 11;
     factors.push('mounting/drilling complexity');
   }
 
@@ -208,29 +208,13 @@ function detectSubServiceByKeywords(titleText, descText) {
   const combined = `${title} ${desc}`;
 
   const plumbingKeywords = [
-    'pipe',
-    'sink',
-    'toilet',
-    'leak',
-    'water',
-    'faucet',
-    'drain',
+    'pipe', 'sink', 'toilet', 'leak', 'water', 'faucet', 'drain',
   ];
   const electricalKeywords = [
-    'switch',
-    'outlet',
-    'socket',
-    'wiring',
-    'wire',
-    'fan',
-    'light',
-    'power',
+    'switch', 'outlet', 'socket', 'wiring', 'wire', 'fan', 'light', 'power',
   ];
   const installationKeywords = [
-    'install',
-    'mount',
-    'assemble',
-    'set up',
+    'install', 'mount', 'assemble', 'set up',
   ];
 
   const countMatches = (keywords) => keywords.reduce((acc, keyword) => acc + (combined.includes(keyword) ? 1 : 0), 0);
@@ -251,32 +235,32 @@ function detectSubServiceByKeywords(titleText, descText) {
 }
 
 function estimateMovingBudget({ titleText, descText, locationText }) {
-  let min = 300000;
-  let max = 700000;
+  let min = 30;
+  let max = 70;
   const factors = [];
 
   const itemCount = extractFirstNumber(`${titleText} ${descText}`);
   if (itemCount && itemCount >= 3) {
-    const add = Math.min(itemCount, 20) * 45000;
+    const add = Math.min(itemCount, 20) * 4.5;
     min += add;
-    max += add + 150000;
+    max += add + 15;
     factors.push(`${itemCount} items/furniture mentioned`);
   }
 
   const distanceKm = detectDistanceHint(locationText, `${titleText} ${descText}`);
-  min += distanceKm * 12000;
-  max += distanceKm * 22000;
+  min += distanceKm * 1.2;
+  max += distanceKm * 2.2;
   factors.push(`moving distance around ${distanceKm}km`);
 
   if (descText.includes('stairs') || descText.includes('no lift')) {
-    min += 120000;
-    max += 220000;
+    min += 12;
+    max += 22;
     factors.push('stairs/no-lift condition');
   }
 
   if (descText.includes('fragile') || descText.includes('heavy')) {
-    min += 90000;
-    max += 180000;
+    min += 9;
+    max += 18;
     factors.push('fragile/heavy handling');
   }
 
@@ -284,27 +268,27 @@ function estimateMovingBudget({ titleText, descText, locationText }) {
 }
 
 function estimateTechSupportBudget({ titleText, descText }) {
-  let min = 150000;
-  let max = 400000;
+  let min = 15;
+  let max = 40;
   const factors = [];
 
   const issueCount = extractFirstNumber(`${titleText} ${descText}`);
   if (issueCount && issueCount >= 2) {
-    const add = Math.min(issueCount, 5) * 60000;
+    const add = Math.min(issueCount, 5) * 6;
     min += add;
-    max += add + 90000;
+    max += add + 9;
     factors.push(`${issueCount} issues to fix`);
   }
 
   if (descText.includes('hardware') || descText.includes('install') || descText.includes('replace')) {
-    min += 70000;
-    max += 150000;
+    min += 7;
+    max += 15;
     factors.push('hardware-level support');
   }
 
   if (descText.includes('onsite') || descText.includes('at home')) {
-    min += 50000;
-    max += 90000;
+    min += 5;
+    max += 9;
     factors.push('onsite support required');
   }
 
@@ -312,13 +296,13 @@ function estimateTechSupportBudget({ titleText, descText }) {
 }
 
 function estimateOtherBudget({ titleText, descText }) {
-  let min = 180000;
-  let max = 450000;
+  let min = 18;
+  let max = 45;
   const factors = [];
 
   if ((titleText + descText).length > 180) {
-    min += 50000;
-    max += 120000;
+    min += 5;
+    max += 12;
     factors.push('detailed scope indicates medium-high complexity');
   }
 
@@ -374,30 +358,31 @@ function buildBudgetSuggestion(payload, aiRecommendation) {
   }
 
   if (urgent) {
-    min += 60000;
-    max += 120000;
+    min += 6;
+    max += 12;
     factorsUsed.push('urgent keyword detected in title/description');
   }
 
+  // If the Python AI model provided an SGD recommendation, blend it seamlessly
   if (aiRecommendation && Number.isFinite(aiRecommendation.suggestedPrice)) {
-    const aiVnd = Math.max(100000, aiRecommendation.suggestedPrice * 26000);
+    const aiSgd = Math.max(10, aiRecommendation.suggestedPrice); // Safely ingest raw SGD from Python
     const ruleMid = (min + max) / 2;
-    const blendedMid = ruleMid * 0.8 + aiVnd * 0.2;
-    const spread = Math.max(60000, (max - min) * 0.6);
+    const blendedMid = ruleMid * 0.8 + aiSgd * 0.2;
+    const spread = Math.max(6, (max - min) * 0.6); // Minimum spread of 6 SGD
     min = blendedMid - spread / 2;
     max = blendedMid + spread / 2;
     factorsUsed.push('blended with existing AI model signal');
   }
 
-  const suggestedMin = roundVnd(min);
-  const suggestedMax = roundVnd(Math.max(suggestedMin + 20000, max));
-  const suggestedBudget = roundVnd((suggestedMin + suggestedMax) / 2);
+  const suggestedMin = roundSgd(min);
+  const suggestedMax = roundSgd(Math.max(suggestedMin + 2, max)); // Ensure max is at least 2 SGD higher
+  const suggestedBudget = roundSgd((suggestedMin + suggestedMax) / 2);
 
   return {
     suggestedMin,
     suggestedMax,
     suggestedBudget,
-    currency: 'VND',
+    currency: 'SGD', // Correctly returning SGD to the frontend
     factorsUsed,
     explanation: `Suggested from ${effectiveCategory || 'OTHER'} job type detected mainly from title, then refined by description${urgent ? ', including urgency' : ''}.`,
   };
