@@ -39,7 +39,7 @@
 - Safe verification after the fix: authenticated support list returned 503 `SupportSetupPending`; backend health, public tasks and web URL returned 200; mock-only support API test, web build/lint and mobile typecheck/lint passed. No live writes or migration were performed.
 
 ## Migration preparation (awaiting approval)
-- Recovered the five missing migration SQL files from `/Users/dbaoo/Documents/ProjectB/ConnectMyTask-COS40005-main`; each SHA-256 exactly matches its applied Neon `_prisma_migrations` checksum. All 13 applied migrations now have matching local files. No migration record was inserted or edited.
+- Recovered the five missing migration SQL files from another local Project B checkout; each SHA-256 exactly matches its applied Neon `_prisma_migrations` checksum. All 13 applied migrations now have matching local files. No migration record was inserted or edited.
 - Read-only `prisma migrate status` reports exactly one pending migration: `20261017000000_customer_support`.
 - Reviewed and refined that migration to use Prisma's expected column nullability and foreign-key actions. It only creates three new support tables, indexes, and constraints on those new tables. No existing table or row is changed.
 - Read-only Neon checks: `SELECT 1` succeeded; support tables and colliding objects are absent; referenced `USERS`, `TASKS`, and `PAYMENT_TRANSACTIONS` IDs are all integer.
