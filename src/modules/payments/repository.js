@@ -1,4 +1,4 @@
-const { prisma } = require('../../database/prisma');
+const { prisma } = require('../../database/taskTransaction');
 
 async function getTaskById(taskId) {
   return prisma.task.findUnique({
@@ -9,6 +9,11 @@ async function getTaskById(taskId) {
       },
       assignedProvider: {
         select: { id: true, name: true, email: true, role: true },
+      },
+      bids: {
+        where: { status: 'ACCEPTED' },
+        select: { id: true, providerId: true, price: true, status: true },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       },
     },
   });

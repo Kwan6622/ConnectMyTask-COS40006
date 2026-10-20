@@ -3,7 +3,7 @@ const { createValidationMiddleware } = require('../../shared/validation/validate
 const {
   createUserSchema,
   getUserParamsSchema,
-  updateProfilePhotoSchema,
+  updateProfileSchema,
   updateProviderProfileSchema,
   createProviderCertificateSchema,
   certificateIdParamsSchema,
@@ -20,17 +20,19 @@ router.post(
   userController.createUser
 );
 
+router.patch(
+  '/me',
+  authenticate,
+  createValidationMiddleware({ body: updateProfileSchema }),
+  userController.updateProfile
+);
+
+router.get('/me', authenticate, userController.getMyProfile);
+
 router.get(
   '/:id',
   createValidationMiddleware({ params: getUserParamsSchema }),
   userController.getUserById
-);
-
-router.patch(
-  '/me',
-  authenticate,
-  createValidationMiddleware({ body: updateProfilePhotoSchema }),
-  userController.updateProfilePhoto
 );
 
 router.patch(

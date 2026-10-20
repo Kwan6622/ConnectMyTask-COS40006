@@ -8,6 +8,12 @@ function mapRole(role) {
   return role;
 }
 
+function toSafeUser(user) {
+  if (!user) return user;
+  const { passwordHash: _passwordHash, failedLoginAttempts: _failedLoginAttempts, lockoutUntil: _lockoutUntil, tokenVersion: _tokenVersion, ...safe } = user;
+  return safe;
+}
+
 async function signup(payload) {
   const existing = await authRepository.findUserByEmail(payload.email);
   if (existing) {
@@ -28,7 +34,7 @@ async function signup(payload) {
 
   const accessToken = signToken(user);
 
-  return { user, accessToken };
+  return { user: toSafeUser(user), accessToken };
 }
 
 async function login(email, password) {
@@ -66,6 +72,12 @@ async function login(email, password) {
     throw err;
   }
 
+  if (user.status === 'SUSPENDED') {
+    const err = new Error('Account is suspended');
+    err.statusCode = 403;
+    throw err;
+  }
+
   if (user.failedLoginAttempts || user.lockoutUntil) {
     await authRepository.updateUserLoginState(user.id, {
       failedLoginAttempts: 0,
@@ -75,7 +87,7 @@ async function login(email, password) {
 
   const accessToken = signToken(user);
 
-  return { user, accessToken };
+  return { user: toSafeUser(user), accessToken };
 }
 
 async function getCurrentUser(userId) {
@@ -85,7 +97,12 @@ async function getCurrentUser(userId) {
     err.statusCode = 404;
     throw err;
   }
-  return user;
+  if (user.status === 'SUSPENDED') {
+    const err = new Error('Account is suspended');
+    err.statusCode = 403;
+    throw err;
+  }
+  return toSafeUser(user);
 }
 
 module.exports = {

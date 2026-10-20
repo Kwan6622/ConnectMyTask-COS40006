@@ -5,7 +5,7 @@ from pathlib import Path
 import random
 import re
 from typing import Any
-
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import joblib
@@ -17,6 +17,15 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 app = FastAPI(
     title="ConnectMyTask Budget AI",
     description="Title-first, subtype-aware AI budget suggestion service for ConnectMyTask.",
+)
+
+# Add this block to allow the frontend to communicate with the API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins (good for local testing)
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods (POST, GET, etc.)
+    allow_headers=["*"],
 )
 
 
@@ -135,39 +144,39 @@ SUBTYPE_DEFINITIONS: dict[str, dict[str, Any]] = {
     "GENERAL_HELP": {"category": "OTHER", "keywords": ["help", "support", "assistant", "service"]},
 }
 
-# base market ranges (VND) by subtype
-SUBTYPE_BASE_VND: dict[str, tuple[int, int]] = {
-    "DEEP_CLEANING": (450_000, 1_500_000),
-    "APARTMENT_CLEANING": (280_000, 900_000),
-    "HOUSE_CLEANING": (350_000, 1_200_000),
-    "OFFICE_CLEANING": (500_000, 1_600_000),
-    "KITCHEN_BATHROOM_CLEANING": (300_000, 950_000),
-    "SOFA_MATTRESS_CLEANING": (250_000, 900_000),
-    "BASIC_CLEANING": (180_000, 650_000),
-    "URGENT_DOCUMENT_DELIVERY": (180_000, 550_000),
-    "DOCUMENT_DELIVERY": (90_000, 280_000),
-    "PARCEL_DELIVERY": (120_000, 420_000),
-    "HEAVY_FRAGILE_DELIVERY": (250_000, 950_000),
-    "PLUMBING_REPAIR": (250_000, 850_000),
-    "ELECTRICAL_REPAIR": (300_000, 1_000_000),
-    "INSTALLATION_WORK": (260_000, 900_000),
-    "FURNITURE_REPAIR": (250_000, 800_000),
-    "GENERAL_REPAIR": (220_000, 700_000),
-    "WIFI_NETWORK_SETUP": (250_000, 900_000),
-    "LAPTOP_DESKTOP_REPAIR": (300_000, 1_100_000),
-    "SOFTWARE_TROUBLESHOOTING": (180_000, 700_000),
-    "PRINTER_DEVICE_SETUP": (220_000, 850_000),
-    "HEAVY_FURNITURE_MOVING": (900_000, 2_800_000),
-    "FRAGILE_MOVING": (700_000, 2_200_000),
-    "BOX_TRANSPORT": (400_000, 1_500_000),
-    "SMALL_MOVING": (350_000, 1_200_000),
-    "ERRANDS": (150_000, 550_000),
-    "HOUSEHOLD_HELP": (180_000, 650_000),
-    "EXAM_PREP_TUTORING": (250_000, 900_000),
-    "LANGUAGE_TUTORING": (220_000, 800_000),
-    "SUBJECT_TUTORING": (250_000, 1_000_000),
-    "TUTORING_GENERAL": (220_000, 750_000),
-    "GENERAL_HELP": (180_000, 700_000),
+# base market ranges (SGD) by subtype
+SUBTYPE_BASE_SGD: dict[str, tuple[int, int]] = {
+    "DEEP_CLEANING": (45, 150),
+    "APARTMENT_CLEANING": (28, 90),
+    "HOUSE_CLEANING": (35, 120),
+    "OFFICE_CLEANING": (50, 160),
+    "KITCHEN_BATHROOM_CLEANING": (30, 95),
+    "SOFA_MATTRESS_CLEANING": (25, 90),
+    "BASIC_CLEANING": (18, 65),
+    "URGENT_DOCUMENT_DELIVERY": (18, 55),
+    "DOCUMENT_DELIVERY": (9, 28),
+    "PARCEL_DELIVERY": (12, 42),
+    "HEAVY_FRAGILE_DELIVERY": (25, 95),
+    "PLUMBING_REPAIR": (25, 85),
+    "ELECTRICAL_REPAIR": (30, 100),
+    "INSTALLATION_WORK": (26, 90),
+    "FURNITURE_REPAIR": (25, 80),
+    "GENERAL_REPAIR": (22, 70),
+    "WIFI_NETWORK_SETUP": (25, 90),
+    "LAPTOP_DESKTOP_REPAIR": (30, 110),
+    "SOFTWARE_TROUBLESHOOTING": (18, 70),
+    "PRINTER_DEVICE_SETUP": (22, 85),
+    "HEAVY_FURNITURE_MOVING": (90, 280),
+    "FRAGILE_MOVING": (70, 220),
+    "BOX_TRANSPORT": (40, 150),
+    "SMALL_MOVING": (35, 120),
+    "ERRANDS": (15, 55),
+    "HOUSEHOLD_HELP": (18, 65),
+    "EXAM_PREP_TUTORING": (25, 90),
+    "LANGUAGE_TUTORING": (22, 80),
+    "SUBJECT_TUTORING": (25, 100),
+    "TUTORING_GENERAL": (22, 75),
+    "GENERAL_HELP": (18, 70),
 }
 
 
@@ -175,9 +184,9 @@ def normalize_text(text: str | None) -> str:
     return re.sub(r"\s+", " ", (text or "").strip().lower())
 
 
-def to_vnd_round(value: float) -> int:
-    step = 50_000 if value >= 1_000_000 else 10_000
-    return int(max(step, round(value / step) * step))
+def to_sgd_round(value: float) -> int:
+    # Round to nearest SGD dollar
+    return int(round(value))
 
 
 def safe_first_number(text: str) -> int | None:
@@ -384,8 +393,8 @@ def parse_task_context(
     )
 
 
-def rule_based_vnd(context: ParsedContext) -> float:
-    base_min, base_max = SUBTYPE_BASE_VND.get(context.subtype, (220_000, 700_000))
+def rule_based_sgd(context: ParsedContext) -> float:
+    base_min, base_max = SUBTYPE_BASE_SGD.get(context.subtype, (22, 70))
     midpoint = (base_min + base_max) / 2
 
     multiplier = (
@@ -397,7 +406,7 @@ def rule_based_vnd(context: ParsedContext) -> float:
         + min(context.distance_km, 30.0) / 150.0
         + (0.14 if context.is_urgent_flag else 0.0)
     )
-    return max(120_000.0, midpoint * multiplier)
+    return max(12.0, midpoint * multiplier)
 
 
 def text_feature(context: ParsedContext) -> str:
@@ -428,7 +437,7 @@ def create_synthetic_training_data(size: int = 1200) -> tuple[list[str], np.ndar
     nums: list[np.ndarray] = []
     targets: list[float] = []
 
-    subtype_list = list(SUBTYPE_BASE_VND.keys())
+    subtype_list = list(SUBTYPE_BASE_SGD.keys())
     category_list = list(CATEGORY_TO_DEFAULT_SUBTYPE.keys())
 
     for _ in range(size):
@@ -460,7 +469,7 @@ def create_synthetic_training_data(size: int = 1200) -> tuple[list[str], np.ndar
             title_priority_reason="synthetic training sample",
         )
 
-        base = rule_based_vnd(synthetic_context)
+        base = rule_based_sgd(synthetic_context)
         target = base * random.uniform(0.9, 1.12)
 
         texts.append(text_feature(synthetic_context))
@@ -519,9 +528,9 @@ def startup() -> None:
     print(f"AI model initialized in mode: {MODEL_BUNDLE.get('mode', 'unknown')}, model={MODEL_BUNDLE.get('model_name', 'unknown')}")
 
 
-def ml_predict_vnd(context: ParsedContext) -> float:
+def ml_predict_sgd(context: ParsedContext) -> float:
     if not MODEL_BUNDLE:
-        return rule_based_vnd(context)
+        return rule_based_sgd(context)
 
     vectorizer: TfidfVectorizer = MODEL_BUNDLE["vectorizer"]
     x_text = vectorizer.transform([text_feature(context)]).toarray()
@@ -534,9 +543,9 @@ def ml_predict_vnd(context: ParsedContext) -> float:
         value = gbr_val * 0.55 + rf_val * 0.45
     else:
         reg = MODEL_BUNDLE.get("regressor")
-        value = float(reg.predict(x_all)[0]) if reg is not None else rule_based_vnd(context)
+        value = float(reg.predict(x_all)[0]) if reg is not None else rule_based_sgd(context)
 
-    return max(120_000.0, value)
+    return max(12.0, value)
 
 
 def confidence_score(context: ParsedContext, rule_value: float, ml_value: float) -> float:
@@ -554,34 +563,34 @@ def confidence_score(context: ParsedContext, rule_value: float, ml_value: float)
     return float(max(0.52, min(0.98, conf)))
 
 
-def build_explanation(context: ParsedContext, min_vnd: int, max_vnd: int) -> str:
+def build_explanation(context: ParsedContext, min_sgd: int, max_sgd: int) -> str:
     subtype = context.subtype.lower().replace("_", " ")
     complexity_label = "high" if context.complexity_score >= 0.8 else "moderate" if context.complexity_score >= 0.55 else "light"
     urgency_label = "urgent" if context.is_urgent_flag else "normal urgency"
     return (
         f"Suggested based on {subtype} inferred from the title/description, "
         f"{complexity_label} complexity, {urgency_label}, and scope/location signals. "
-        f"Estimated range {min_vnd:,} - {max_vnd:,} VND."
+        f"Estimated range {min_sgd} - {max_sgd} SGD."
     )
 
 
 def predict_budget(context: ParsedContext) -> dict[str, Any]:
-    rule_vnd = rule_based_vnd(context)
-    ml_vnd = ml_predict_vnd(context)
+    rule_sgd = rule_based_sgd(context)
+    ml_sgd = ml_predict_sgd(context)
 
     # ML is primary; rule gives stability and explainability.
-    blended = rule_vnd * 0.30 + ml_vnd * 0.70
+    blended = rule_sgd * 0.30 + ml_sgd * 0.70
 
-    conf = confidence_score(context, rule_vnd, ml_vnd)
+    conf = confidence_score(context, rule_sgd, ml_sgd)
     # high confidence => narrower range, low confidence => wider range
     spread_ratio = 0.30 - (conf - 0.5) * 0.22
     spread_ratio = max(0.12, min(0.34, spread_ratio))
 
-    min_vnd = to_vnd_round(blended * (1.0 - spread_ratio))
-    max_vnd = to_vnd_round(blended * (1.0 + spread_ratio))
-    suggested = to_vnd_round((min_vnd + max_vnd) / 2)
+    min_sgd = to_sgd_round(blended * (1.0 - spread_ratio))
+    max_sgd = to_sgd_round(blended * (1.0 + spread_ratio))
+    suggested = to_sgd_round((min_sgd + max_sgd) / 2)
 
-    explanation = build_explanation(context, min_vnd, max_vnd)
+    explanation = build_explanation(context, min_sgd, max_sgd)
 
     factors = {
         "top_level_category": context.category,
@@ -598,21 +607,21 @@ def predict_budget(context: ParsedContext) -> dict[str, Any]:
 
     return {
         "suggestedPrice": int(suggested),
-        "minPrice": int(min_vnd),
-        "maxPrice": int(max_vnd),
-        "currency": "VND",
+        "minPrice": int(min_sgd),
+        "maxPrice": int(max_sgd),
+        "currency": "SGD",
         "confidenceScore": round(conf, 2),
         "explanation": explanation,
         "detectedSubtype": context.subtype,
         "factorsUsed": factors,
         # Backward-compatible aliases used by current web/backend
         "ai_suggested_price": int(suggested),
-        "price_band_min": int(min_vnd),
-        "price_band_max": int(max_vnd),
+        "price_band_min": int(min_sgd),
+        "price_band_max": int(max_sgd),
         "rationale": explanation,
         "detected_subtype": context.subtype,
         "factors_used": factors,
-        "rule_based_price": int(to_vnd_round(rule_vnd)),
+        "rule_based_price": int(to_sgd_round(rule_sgd)),
         "model_mode": MODEL_BUNDLE.get("mode") if MODEL_BUNDLE else "rule_only",
         "model_name": MODEL_BUNDLE.get("model_name") if MODEL_BUNDLE else "rule_only",
     }

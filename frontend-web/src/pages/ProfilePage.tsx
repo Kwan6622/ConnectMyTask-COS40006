@@ -37,7 +37,7 @@ const emptyProviderProfile: ProviderProfile = {
 
 export const ProfilePage: React.FC = () => {
   const navigate = useNavigate();
-  const { user, logout, updateProfilePhoto } = useAuthStore();
+  const { user, logout, updateProfile, updateProfilePhoto, setUser } = useAuthStore();
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedPhotoFile, setSelectedPhotoFile] = useState<File | null>(null);
@@ -107,9 +107,10 @@ export const ProfilePage: React.FC = () => {
 
   useEffect(() => {
     if (!user?.id) return;
-    api.users.getProfile(String(user.id))
+    api.users.getMe()
       .then((response) => {
         const payload = response.data || {};
+        setUser({ ...user, ...payload, fullName: payload.name || user.fullName });
         const profile = payload.providerProfile || emptyProviderProfile;
         setProviderProfile({
           ...emptyProviderProfile,
@@ -136,15 +137,15 @@ export const ProfilePage: React.FC = () => {
         setProviderProfile(emptyProviderProfile);
         setProviderCertificates([]);
       });
-  }, [user?.id]);
+  }, [user?.id, setUser]);
 
-  const onSubmit = async (_data: ProfileFormData) => {
+  const onSubmit = async (data: ProfileFormData) => {
     setIsLoading(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      await updateProfile({ fullName: data.fullName.trim(), phone: data.phone?.trim(), bio: data.bio?.trim() });
       toast.success('Profile updated successfully');
       setIsEditing(false);
-      reset();
+      reset({ ...data, fullName: data.fullName.trim(), phone: data.phone?.trim(), bio: data.bio?.trim() });
     } catch (error: any) {
       toast.error(error.message || 'Failed to update profile');
     } finally {
@@ -183,7 +184,7 @@ export const ProfilePage: React.FC = () => {
     }
     try {
       await api.users.uploadProviderCertificate(certificateForm);
-      const refreshed = await api.users.getProfile(String(user?.id || ''));
+      const refreshed = await api.users.getMe();
       const profile = refreshed.data?.providerProfile || emptyProviderProfile;
       setProviderProfile({
         ...providerProfile,
@@ -341,7 +342,10 @@ export const ProfilePage: React.FC = () => {
                   <Input {...register('fullName', { required: 'Full name is required' })} label="Full Name" error={errors.fullName?.message} />
                   <Input {...register('email', { required: 'Email is required' })} type="email" label="Email" disabled error={errors.email?.message} />
                   <Input {...register('phone')} label="Phone Number" placeholder="+84 9xx xxx xxx" error={errors.phone?.message} />
-                  <Input {...register('location')} label="Location" placeholder="City, Country" error={errors.location?.message} />
+                  <label className="block">
+                    <span className="block text-sm font-medium text-dark-700 mb-2">Bio</span>
+                    <textarea {...register('bio')} rows={4} className="w-full rounded-xl border border-dark-200 px-4 py-3" />
+                  </label>
                   <div className="flex gap-4 pt-6 border-t border-dark-100">
                     <Button type="button" variant="outline" onClick={() => { setIsEditing(false); reset(); }} className="flex-1">Cancel</Button>
                     <Button type="submit" disabled={isLoading} className="flex-1">{isLoading ? 'Saving...' : 'Save Changes'}</Button>
@@ -360,6 +364,10 @@ export const ProfilePage: React.FC = () => {
                   <div className="p-4 bg-dark-50 rounded-xl">
                     <p className="text-sm text-dark-500">Phone</p>
                     <p className="font-semibold text-dark-900">{user.phone || '-'}</p>
+                  </div>
+                  <div className="p-4 bg-dark-50 rounded-xl">
+                    <p className="text-sm text-dark-500">Bio</p>
+                    <p className="font-semibold text-dark-900">{user.bio || '-'}</p>
                   </div>
                 </div>
               )}

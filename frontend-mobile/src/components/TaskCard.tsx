@@ -28,6 +28,18 @@ interface TaskCardProps {
   isSaved?: boolean;
 }
 
+function getTaskCardImageUrl(imageUrl: string): string {
+  try {
+    const url = new URL(imageUrl);
+    if (url.protocol !== "https:" || url.hostname !== "res.cloudinary.com" ||
+      !/^\/[^/]+\/image\/upload\//.test(url.pathname)) return imageUrl;
+    url.pathname = url.pathname.replace("/image/upload/", "/image/upload/w_400,f_auto,q_auto/");
+    return url.toString();
+  } catch {
+    return imageUrl;
+  }
+}
+
 export function TaskCard({
   task,
   onView,
@@ -63,7 +75,7 @@ export function TaskCard({
       </View>
 
       {task.imageUrls && task.imageUrls.length > 0 ? (
-        <Image source={{ uri: task.imageUrls[0] }} style={styles.taskImage} resizeMode="cover" />
+        <Image source={{ uri: getTaskCardImageUrl(task.imageUrls[0]) }} style={styles.taskImage} resizeMode="cover" />
       ) : (
         <View style={styles.placeholderImage}>
           <Text style={styles.placeholderIcon}>{getCategoryIcon(task.category)}</Text>

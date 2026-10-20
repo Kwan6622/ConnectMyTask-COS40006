@@ -29,6 +29,7 @@ function mapApiUser(raw: any): User {
     name: raw?.name || raw?.fullName || "User",
     email: raw?.email || "",
     role,
+    status: raw?.status || undefined,
     accountType: role === "PROVIDER" ? "service_provider" : "client",
     phone: raw?.phone || undefined,
     phoneNumber: raw?.phone || undefined,
@@ -174,16 +175,24 @@ export const useAuthStore = create<AuthStore>()(
   clearError: () => set({ error: null }),
 
   updateProfile: async (data: Partial<User>) => {
-    set((state) => ({
-      user: state.user
-        ? {
-            ...state.user,
-            ...data,
-            fullName: data.fullName || data.name || getDisplayName(state.user),
-            name: data.name || data.fullName || getDisplayName(state.user),
-          }
-        : state.user,
-    }));
+    set({ isLoading: true, error: null });
+    try {
+      const response = await api.users.updateProfile({
+        name: data.fullName || data.name,
+        phone: data.phoneNumber || data.phone,
+        bio: data.bio,
+      });
+      set((state) => ({
+        user: state.user
+          ? { ...state.user, ...mapApiUser(response.data?.user), fullName: response.data?.user?.name || getDisplayName(state.user) }
+          : state.user,
+        isLoading: false,
+      }));
+    } catch (error: any) {
+      const message = error?.response?.data?.message || error?.message || "Failed to update profile";
+      set({ error: message, isLoading: false });
+      throw error;
+    }
   },
 
   updateProfilePhoto: async (profilePhotoUrl: string) => {

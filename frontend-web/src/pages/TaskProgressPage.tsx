@@ -22,6 +22,12 @@ import { useTaskStore } from '../stores/task.store';
 import { api } from '../services/api';
 import { formatDate, formatRelativeTime } from '../utils';
 import { uploadImageToCloudinary } from '../utils/cloudinaryUpload';
+import {
+  AWAITING_DEPOSIT_MESSAGE,
+  LOCATION_VERIFICATION_MESSAGE,
+  isVerificationCurrent,
+  useTaskLocationVerification,
+} from '../hooks/useTaskLocationVerification';
 
 const statusStyle: Record<string, { dot: string; chip: string; label: string }> = {
   ASSIGNED: {
@@ -114,6 +120,20 @@ export const TaskProgressPage: React.FC = () => {
   const [isSubmittingDispute, setIsSubmittingDispute] = useState(false);
   const [updatingSubtaskId, setUpdatingSubtaskId] = useState<string | number | null>(null);
 
+  const role = String(user?.role || '').toUpperCase();
+  const isRequester = role === 'REQUESTER' || role === 'CLIENT';
+  const isProvider = role === 'PROVIDER';
+  const isOwner = String(user?.id || '') === String(currentTask?.createdById || '');
+  const isAssignedProvider = String(user?.id || '') === String(currentTask?.assignedProviderId || '');
+  const providerTaskIsActive = Boolean(
+    currentTask && ['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION'].includes(currentTask.status)
+  );
+  const shouldCheckVerification = Boolean(id && isProvider && isAssignedProvider && providerTaskIsActive);
+  const {
+    isValid: isLocationVerified,
+    refresh: refreshLocationVerification,
+  } = useTaskLocationVerification(id, shouldCheckVerification);
+
   useEffect(() => {
     if (!user) {
       navigate('/login');
@@ -147,7 +167,8 @@ export const TaskProgressPage: React.FC = () => {
     if ((escrowState === 'success' || paymentState === 'success') && sessionId) {
       api.payment
         .confirmSession(sessionId)
-        .then(() => {
+        .then((response) => {
+          if (response.data?.status !== 'SUCCESS') throw new Error('Payment is awaiting Stripe confirmation. Please refresh shortly.');
           toast.success(escrowState === 'success' ? 'Escrow deposit confirmed' : 'Payment successful');
           fetchTaskProgress(id);
           setSearchParams({}, { replace: true });
@@ -166,24 +187,28 @@ export const TaskProgressPage: React.FC = () => {
     }
   }, [fetchTaskProgress, id, searchParams, setSearchParams, user]);
 
-  const role = String(user?.role || '').toUpperCase();
-  const isRequester = role === 'REQUESTER' || role === 'CLIENT';
-  const isProvider = role === 'PROVIDER';
-  const isOwner = String(user?.id || '') === String(currentTask?.createdById || '');
-  const isAssignedProvider = String(user?.id || '') === String(currentTask?.assignedProviderId || '');
   const canViewProgress = Boolean(currentTask && (isOwner || isAssignedProvider));
-  const canManageProgress = Boolean(
+  const canManageProgressBase = Boolean(
     isProvider &&
       isAssignedProvider &&
       currentTask &&
+      currentTask.escrowStatus === 'HELD' &&
       ['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION'].includes(currentTask.status)
   );
-  const canConfirmCompletion = Boolean(isRequester && isOwner && currentTask?.status === 'PENDING_CONFIRMATION');
+  const canManageProgress = canManageProgressBase && isLocationVerified;
+  const providerBlockMessage = isProvider && isAssignedProvider && providerTaskIsActive
+    ? currentTask?.escrowStatus !== 'HELD'
+      ? AWAITING_DEPOSIT_MESSAGE
+      : !isLocationVerified
+        ? LOCATION_VERIFICATION_MESSAGE
+        : null
+    : null;
+  const canConfirmCompletion = Boolean(isRequester && isOwner && currentTask?.escrowStatus === 'HELD' && ['PENDING_CONFIRMATION', 'COMPLETED'].includes(String(currentTask?.status)));
   const canDepositEscrow = Boolean(
     isRequester &&
       isOwner &&
       currentTask &&
-      ['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION', 'DISPUTED'].includes(currentTask.status) &&
+      currentTask.status === 'ASSIGNED' &&
       ['NONE', 'PENDING_DEPOSIT'].includes(String(currentTask.escrowStatus || 'NONE'))
   );
   const canOpenDispute = Boolean(
@@ -199,10 +224,17 @@ export const TaskProgressPage: React.FC = () => {
 
   useEffect(() => {
     if (!id || !canViewProgress) return;
+    let refreshInFlight = false;
     const timer = window.setInterval(() => {
-      fetchTaskProgress(id).catch(() => {
-        // keep silent during background refresh
-      });
+      if (refreshInFlight) return;
+      refreshInFlight = true;
+      fetchTaskProgress(id)
+        .catch(() => {
+          // keep silent during background refresh
+        })
+        .finally(() => {
+          refreshInFlight = false;
+        });
     }, 15000);
     return () => window.clearInterval(timer);
   }, [canViewProgress, fetchTaskProgress, id]);
@@ -230,8 +262,13 @@ export const TaskProgressPage: React.FC = () => {
 
   const handleSubmitProgress = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!id || !canManageProgress) {
-      toast.error('Only assigned provider can update progress');
+    if (!id || !canManageProgressBase) {
+      toast.error(currentTask?.escrowStatus !== 'HELD' ? AWAITING_DEPOSIT_MESSAGE : 'Only assigned provider can update progress');
+      return;
+    }
+    const latestVerification = await refreshLocationVerification();
+    if (!isVerificationCurrent(latestVerification)) {
+      toast.error(LOCATION_VERIFICATION_MESSAGE);
       return;
     }
 
@@ -284,8 +321,13 @@ export const TaskProgressPage: React.FC = () => {
   };
 
   const handleUpdateSubtaskStatus = async (subtaskId: string | number, status: 'PENDING' | 'IN_PROGRESS' | 'DONE') => {
-    if (!id || !canManageProgress) {
-      toast.error('Only assigned provider can update subtask checklist');
+    if (!id || !canManageProgressBase) {
+      toast.error(currentTask?.escrowStatus !== 'HELD' ? AWAITING_DEPOSIT_MESSAGE : 'Only assigned provider can update subtask checklist');
+      return;
+    }
+    const latestVerification = await refreshLocationVerification();
+    if (!isVerificationCurrent(latestVerification)) {
+      toast.error(LOCATION_VERIFICATION_MESSAGE);
       return;
     }
     setUpdatingSubtaskId(subtaskId);
@@ -331,6 +373,7 @@ export const TaskProgressPage: React.FC = () => {
         flow: 'ESCROW_DEPOSIT',
       });
       const paymentUrl = response.data?.paymentUrl;
+      if (!paymentUrl && response.data?.status === 'SUCCESS') { await fetchTaskProgress(id); return; }
       if (!paymentUrl) throw new Error('No payment URL returned');
       window.location.href = paymentUrl;
     } catch (error: any) {
@@ -665,6 +708,18 @@ export const TaskProgressPage: React.FC = () => {
           </div>
 
           <div className="xl:col-span-4 space-y-6">
+            {providerBlockMessage && (
+              <Card className="p-6 border border-amber-200 bg-amber-50 shadow-lg">
+                <div className="flex items-start gap-3">
+                  <ExclamationTriangleIcon className="w-6 h-6 text-amber-600 flex-shrink-0" />
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900">Provider work locked</h2>
+                    <p className="mt-1 text-sm font-medium text-amber-800">{providerBlockMessage}</p>
+                  </div>
+                </div>
+              </Card>
+            )}
+
             <Card className="p-6 border-0 shadow-lg">
               <h2 className="text-lg font-bold text-slate-900 mb-4">Task Team</h2>
               <div className="space-y-4">
@@ -738,6 +793,7 @@ export const TaskProgressPage: React.FC = () => {
 
             <Card className="p-6 border-0 shadow-lg">
               <h2 className="text-lg font-bold text-slate-900 mb-4">Payment & Escrow</h2>
+              <p>{providerBlockMessage || (currentTask.escrowStatus === 'HELD' ? 'Escrow FUNDED.' : currentTask.status === 'ASSIGNED' ? AWAITING_DEPOSIT_MESSAGE : 'Payment state is confirmed by the backend.')}</p>
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Escrow status</span>

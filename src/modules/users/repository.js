@@ -19,11 +19,41 @@ async function getUserById(id) {
   });
 }
 
-async function updateProfilePhoto(id, profilePhotoUrl) {
-  return prisma.user.update({
+async function getPublicUserById(id) {
+  return prisma.user.findUnique({
     where: { id },
-    data: { profilePhotoUrl },
+    select: {
+      id: true, name: true, role: true, profilePhotoUrl: true, rating: true, bio: true,
+      providerProfile: {
+        select: {
+          specialties: true, district: true, city: true, safetyComplianceAgreed: true, shortBio: true,
+          certificates: {
+            where: { verificationStatus: 'VERIFIED' },
+            select: { id: true, title: true, certificateType: true, verificationStatus: true, uploadedAt: true, verifiedAt: true },
+            orderBy: [{ uploadedAt: 'desc' }, { id: 'desc' }],
+          },
+        },
+      },
+    },
   });
+}
+
+function toSafePrivateUser(user) {
+  const { passwordHash: _passwordHash, failedLoginAttempts: _failedLoginAttempts, lockoutUntil: _lockoutUntil, tokenVersion: _tokenVersion, ...safe } = user;
+  return safe;
+}
+
+async function updateProfile(id, data) {
+  const user = await prisma.user.update({
+    where: { id },
+    data,
+    include: {
+      providerProfile: {
+        include: { certificates: { orderBy: [{ uploadedAt: 'desc' }, { id: 'desc' }] } },
+      },
+    },
+  });
+  return toSafePrivateUser(user);
 }
 
 async function upsertProviderProfile(userId, data) {
@@ -110,7 +140,9 @@ async function getLatestProviderRatingsSummary(providerId) {
 module.exports = {
   createUser,
   getUserById,
-  updateProfilePhoto,
+  getPublicUserById,
+  toSafePrivateUser,
+  updateProfile,
   upsertProviderProfile,
   getProviderProfileByUserId,
   createProviderCertificate,

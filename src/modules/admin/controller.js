@@ -18,6 +18,22 @@ async function getTasks(req, res, next) {
   }
 }
 
+async function getUsers(req, res, next) {
+  try {
+    res.json(await adminService.getUsers(req.user));
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function updateUserStatus(req, res, next) {
+  try {
+    res.json(await adminService.updateUserStatus(req.params.id, req.body?.status, req.user));
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function getSuspiciousTasks(req, res, next) {
   try {
     const result = await adminService.getSuspiciousTasks(req.user);
@@ -101,6 +117,8 @@ async function releasePayment(req, res, next) {
 
 module.exports = {
   getStats,
+  getUsers,
+  updateUserStatus,
   getTasks,
   getSuspiciousTasks,
   deleteTask,

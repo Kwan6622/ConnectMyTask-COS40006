@@ -33,7 +33,7 @@ async function createUser(payload) {
 }
 
 async function getUserById(id) {
-  const user = await userRepository.getUserById(id);
+  const user = await userRepository.getPublicUserById(id);
   if (!user) {
     const err = new Error('User not found');
     err.statusCode = 404;
@@ -49,6 +49,13 @@ async function getUserById(id) {
     ...user,
     providerRatingSummary,
   };
+}
+
+async function getMyProfile(currentUser) {
+  assertAuthenticated(currentUser);
+  const user = await userRepository.getUserById(currentUser.id);
+  if (!user) throw Object.assign(new Error('User not found'), { statusCode: 404 });
+  return userRepository.toSafePrivateUser(user);
 }
 
 async function updateProviderProfile(currentUser, payload) {
@@ -119,20 +126,27 @@ async function getProviderRatingSummary(userId) {
   return userRepository.getLatestProviderRatingsSummary(userId);
 }
 
-async function updateProfilePhoto(userId, profilePhotoUrl) {
+async function updateProfile(userId, payload) {
   const user = await userRepository.getUserById(userId);
   if (!user) {
     const err = new Error('User not found');
     err.statusCode = 404;
     throw err;
   }
-  return userRepository.updateProfilePhoto(userId, profilePhotoUrl);
+  const data = {
+    ...(Object.prototype.hasOwnProperty.call(payload, 'name') ? { name: payload.name } : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, 'phone') ? { phone: payload.phone || null } : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, 'bio') ? { bio: payload.bio || null } : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, 'profilePhotoUrl') ? { profilePhotoUrl: payload.profilePhotoUrl } : {}),
+  };
+  return userRepository.updateProfile(userId, data);
 }
 
 module.exports = {
   createUser,
   getUserById,
-  updateProfilePhoto,
+  getMyProfile,
+  updateProfile,
   updateProviderProfile,
   addProviderCertificate,
   verifyProviderCertificate,

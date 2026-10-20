@@ -64,3 +64,6 @@ __pycache__/
 
 # iOS dependencies
 **/Pods/
+.neon
+.test-credentials.local.json
+PROJECT_ENV_BACKUP_PRIVATE.txt

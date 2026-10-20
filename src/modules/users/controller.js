@@ -19,15 +19,22 @@ async function getUserById(req, res, next) {
   }
 }
 
-async function updateProfilePhoto(req, res, next) {
+async function updateProfile(req, res, next) {
   try {
     const userId = req.user?.id;
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized', message: 'Missing token' });
     }
-    const { profilePhotoUrl } = req.body;
-    const user = await userService.updateProfilePhoto(userId, profilePhotoUrl);
+    const user = await userService.updateProfile(userId, req.body);
     res.json({ user });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getMyProfile(req, res, next) {
+  try {
+    res.json(await userService.getMyProfile(req.user));
   } catch (err) {
     next(err);
   }
@@ -74,7 +81,8 @@ async function getProviderRatingSummary(req, res, next) {
 module.exports = {
   createUser,
   getUserById,
-  updateProfilePhoto,
+  updateProfile,
+  getMyProfile,
   updateProviderProfile,
   addProviderCertificate,
   verifyProviderCertificate,

@@ -24,19 +24,62 @@ async function getStats(currentUser) {
   return adminRepository.getAdminStats();
 }
 
+async function getUsers(currentUser) {
+  assertAdmin(currentUser);
+  return adminRepository.listUsers();
+}
+
+async function updateUserStatus(userIdRaw, statusRaw, currentUser) {
+  assertAdmin(currentUser);
+  const userId = parseId(userIdRaw, 'user id');
+  const status = String(statusRaw || '').toUpperCase();
+  if (!['ACTIVE', 'SUSPENDED'].includes(status)) {
+    throw Object.assign(new Error('Status must be ACTIVE or SUSPENDED'), { statusCode: 400 });
+  }
+  const user = await adminRepository.getUserForAdmin(userId);
+  if (!user) throw Object.assign(new Error('User not found'), { statusCode: 404 });
+  if (user.id === currentUser.id || String(user.role).toUpperCase() === 'ADMIN') {
+    throw Object.assign(new Error('Admin accounts cannot be suspended from this dashboard'), { statusCode: 409 });
+  }
+  if (user.status === status) return user;
+  return adminRepository.updateUserStatus(userId, status);
+}
+
+function withGpsStatus(task, now = new Date()) {
+  const latest = task.locationVerifications?.[0] || null;
+  const isValid = Boolean(latest
+    && !latest.revokedAt
+    && latest.expiresAt > now
+    && latest.siteVersion === Number(task.siteVersion || 1)
+    && latest.providerId === task.assignedProviderId
+    && task.escrowStatus === 'HELD'
+    && ['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION'].includes(task.status));
+  const { locationVerifications: _locationVerifications, siteAddress: _siteAddress, siteLatitude: _siteLatitude, siteLongitude: _siteLongitude, ...safeTask } = task;
+  return {
+    ...safeTask,
+    gpsVerificationStatus: !task.assignedProviderId ? 'NOT_REQUIRED' : isValid ? 'VERIFIED' : latest?.revokedAt ? 'REVOKED' : latest ? 'EXPIRED_OR_INVALID' : 'NOT_VERIFIED',
+    gpsVerificationExpiresAt: isValid ? latest.expiresAt : null,
+  };
+}
+
 async function getTasks(currentUser) {
   assertAdmin(currentUser);
-  return adminRepository.listAdminTasks();
+  return (await adminRepository.listAdminTasks()).map((task) => withGpsStatus(task));
 }
 
 async function getSuspiciousTasks(currentUser) {
   assertAdmin(currentUser);
-  return adminRepository.listAdminTasks({ suspiciousOnly: true });
+  return (await adminRepository.listAdminTasks({ suspiciousOnly: true })).map((task) => withGpsStatus(task));
 }
 
 async function deleteTask(taskIdRaw, currentUser) {
   assertAdmin(currentUser);
   const taskId = parseId(taskIdRaw, 'task id');
+  const task = await adminRepository.getTaskForAdmin(taskId);
+  if (!task) throw Object.assign(new Error('Task not found'), { statusCode: 404 });
+  if (['HELD', 'FROZEN'].includes(task.escrowStatus) || task.status === 'DISPUTED') {
+    throw Object.assign(new Error('Resolve active escrow or dispute before deleting this task'), { statusCode: 409 });
+  }
   return adminRepository.softDeleteTask(taskId, currentUser.id);
 }
 
@@ -96,6 +139,8 @@ async function releasePayment(paymentIdRaw, currentUser) {
 
 module.exports = {
   getStats,
+  getUsers,
+  updateUserStatus,
   getTasks,
   getSuspiciousTasks,
   deleteTask,

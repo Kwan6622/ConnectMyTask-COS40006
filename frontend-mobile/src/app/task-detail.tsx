@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Alert, Linking, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, AppState, Linking, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { MarketplaceShell } from "@/components/MarketplaceShell";
 import { Badge } from "@/components/Badge";
@@ -39,6 +39,12 @@ export default function TaskDetailScreen(): React.ReactElement {
 
   const [taskBids, setTaskBids] = useState<Bid[]>([]);
   const [paymentHistory, setPaymentHistory] = useState<any[]>([]);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && taskId) void fetchTaskById(taskId);
+    });
+    return () => subscription.remove();
+  }, [taskId, fetchTaskById]);
   const [isSubmittingBid, setIsSubmittingBid] = useState(false);
   const [assigningBidId, setAssigningBidId] = useState<string | number | null>(null);
   const [isCreatingPayment, setIsCreatingPayment] = useState(false);
@@ -173,7 +179,8 @@ export default function TaskDetailScreen(): React.ReactElement {
         await Linking.openURL(paymentUrl);
         Alert.alert("Redirecting", "Opening Stripe checkout.");
       } else {
-        Alert.alert("Payment initialized", "Payment session was created.");
+        await fetchTaskById(String(currentTask.id));
+        Alert.alert("Payment status", response.data?.status === 'SUCCESS' ? "Escrow funding confirmed." : "Awaiting Stripe confirmation.");
       }
     } catch (error: any) {
       const message = error?.response?.data?.message || "Cannot initialize payment for this task.";
@@ -281,20 +288,17 @@ export default function TaskDetailScreen(): React.ReactElement {
         </View>
       </Card>
 
+      {currentTask?.status === 'ASSIGNED' && currentTask.escrowStatus !== 'HELD' && <Text>Awaiting requester deposit</Text>}
       {isRequesterUser ? (
         <Card title="Payment / Escrow">
+          <Text>{currentTask?.escrowStatus === 'HELD' ? 'Escrow FUNDED — provider may start work after GPS verification.' : currentTask?.status === 'ASSIGNED' ? 'Awaiting requester deposit' : `Escrow: ${currentTask?.escrowStatus || 'NONE'}`}</Text>
+          <Text>Agreed escrow amount: {formatCurrency(Number(currentTask?.escrowAmount || 0))}</Text>
           <View style={styles.actionRow}>
             <Button
               title={isCreatingPayment ? "Processing..." : "Deposit Escrow"}
               onPress={() => void createPayment("ESCROW_DEPOSIT")}
               loading={isCreatingPayment}
-              style={styles.actionButton}
-            />
-            <Button
-              title={isCreatingPayment ? "Processing..." : "Pay Now"}
-              variant="outline"
-              onPress={() => void createPayment("DIRECT_PAYMENT")}
-              loading={isCreatingPayment}
+              disabled={String(currentTask?.createdById) !== String(user?.id) || currentTask?.status !== 'ASSIGNED' || !['NONE', 'PENDING_DEPOSIT'].includes(String(currentTask?.escrowStatus || 'NONE'))}
               style={styles.actionButton}
             />
           </View>

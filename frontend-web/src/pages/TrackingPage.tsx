@@ -1,112 +1,85 @@
-import React, { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { Button } from '../components/common/Button';
-import { Card } from '../components/common/Card';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
-  MapPinIcon,
+  ArrowLeftIcon,
   ArrowPathIcon,
   CheckCircleIcon,
-  ExclamationTriangleIcon,
   ClockIcon,
-  SparklesIcon,
-  UserCircleIcon,
-  ArrowTrendingUpIcon,
+  ExclamationTriangleIcon,
+  MapPinIcon,
 } from '@heroicons/react/24/outline';
+import { Button } from '../components/common/Button';
+import { Card } from '../components/common/Card';
+import { api } from '../services/api';
+import type { TaskLocationVerificationStatus, TrackingLog } from '../types';
 
-interface Location {
-  latitude: number;
-  longitude: number;
-  accuracy: number;
-  timestamp: string;
-  speed?: number;
-}
-
-interface TrackingData {
-  taskId: string;
-  providerId: string;
-  currentLocation: Location;
-  taskLocation: Location;
-  distanceKm: number;
-  isAtLocation: boolean;
-  estimatedArrival?: string;
-  routePath: Location[];
-}
+const REFRESH_INTERVAL_MS = 5000;
 
 export const TrackingPage: React.FC = () => {
   const { taskId } = useParams<{ taskId: string }>();
-  const [trackingData, setTrackingData] = useState<TrackingData | null>(null);
+  const navigate = useNavigate();
+  const [latest, setLatest] = useState<TrackingLog | null>(null);
+  const [history, setHistory] = useState<TrackingLog[]>([]);
+  const [verification, setVerification] = useState<TaskLocationVerificationStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
-  useEffect(() => {
-    fetchTrackingData();
+  const validTaskId = Boolean(taskId && /^[1-9]\d*$/.test(taskId));
 
-    if (autoRefresh) {
-      const interval = setInterval(fetchTrackingData, 5000);
-      return () => clearInterval(interval);
+  const fetchTrackingData = useCallback(async (showError = false) => {
+    if (!taskId || !validTaskId) {
+      setErrorMessage('Invalid or missing task ID');
+      setIsLoading(false);
+      return;
     }
-  }, [taskId, autoRefresh]);
-
-  const fetchTrackingData = async () => {
-    if (!taskId) return;
-
+    setIsRefreshing(true);
     try {
-      const mockData: TrackingData = {
-        taskId,
-        providerId: 'provider-123',
-        currentLocation: {
-          latitude: 10.762622,
-          longitude: 106.660172,
-          accuracy: 15,
-          timestamp: new Date().toISOString(),
-          speed: 45,
-        },
-        taskLocation: {
-          latitude: 10.776589,
-          longitude: 106.700981,
-          accuracy: 5,
-          timestamp: new Date().toISOString(),
-        },
-        distanceKm: 3.2,
-        isAtLocation: false,
-        estimatedArrival: new Date(Date.now() + 12 * 60 * 1000).toISOString(),
-        routePath: [
-          {
-            latitude: 10.762622,
-            longitude: 106.660172,
-            accuracy: 15,
-            timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-          },
-          {
-            latitude: 10.768234,
-            longitude: 106.675234,
-            accuracy: 12,
-            timestamp: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
-          },
-          {
-            latitude: 10.762622,
-            longitude: 106.660172,
-            accuracy: 15,
-            timestamp: new Date().toISOString(),
-          },
-        ],
-      };
-
-      setTrackingData(mockData);
+      const [latestResponse, historyResponse, verificationResponse] = await Promise.all([
+        api.tracking.getLatest(taskId),
+        api.tracking.getHistory(taskId),
+        api.tracking.getVerification(taskId),
+      ]);
+      setLatest((latestResponse.data || null) as TrackingLog | null);
+      setHistory(Array.isArray(historyResponse.data) ? historyResponse.data as TrackingLog[] : []);
+      setVerification(verificationResponse.data as TaskLocationVerificationStatus);
+      setErrorMessage(null);
       setLastUpdate(new Date());
-    } catch (error) {
-      toast.error('Failed to fetch tracking data');
+    } catch (error: unknown) {
+      const apiError = error as { response?: { data?: { message?: string } } };
+      const message = apiError.response?.data?.message || 'Failed to load tracking data';
+      setErrorMessage(message);
+      if (showError) toast.error(message);
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
-  };
+  }, [taskId, validTaskId]);
 
-  const handleManualRefresh = () => {
-    setIsLoading(true);
-    fetchTrackingData();
-  };
+  useEffect(() => {
+    void fetchTrackingData();
+  }, [fetchTrackingData]);
+
+  useEffect(() => {
+    if (!validTaskId) return;
+    const handleFocus = () => void fetchTrackingData();
+    const handleVisible = () => {
+      if (document.visibilityState === 'visible') void fetchTrackingData();
+    };
+    const timer = autoRefresh
+      ? window.setInterval(() => void fetchTrackingData(), REFRESH_INTERVAL_MS)
+      : undefined;
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisible);
+    return () => {
+      if (timer) window.clearInterval(timer);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisible);
+    };
+  }, [autoRefresh, fetchTrackingData, validTaskId]);
 
   if (isLoading) {
     return (
@@ -119,263 +92,139 @@ export const TrackingPage: React.FC = () => {
     );
   }
 
-  if (!trackingData) {
+  if (!validTaskId || (errorMessage && !latest && history.length === 0 && !verification)) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <Card className="text-center py-16">
-          <div className="text-6xl mb-4">🗺️</div>
-          <h2 className="text-2xl font-bold text-dark-900 mb-2">No tracking data</h2>
-          <p className="text-dark-600">Tracking data is not available at the moment.</p>
+      <div className="container mx-auto px-4 py-8 max-w-2xl">
+        <Card className="text-center py-12">
+          <ExclamationTriangleIcon className="w-12 h-12 text-amber-500 mx-auto mb-3" />
+          <h2 className="text-2xl font-bold text-dark-900 mb-2">Tracking unavailable</h2>
+          <p className="text-dark-600 mb-6">{errorMessage || 'Invalid or missing task ID'}</p>
+          <Button onClick={() => navigate('/browse-tasks')}>Back to tasks</Button>
         </Card>
       </div>
     );
   }
 
-  const estimatedArrivalDate = trackingData.estimatedArrival
-    ? new Date(trackingData.estimatedArrival)
-    : null;
-
   return (
     <div className="min-h-screen bg-dark-50 py-8">
       <div className="container mx-auto px-4 max-w-5xl">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold text-dark-900 mb-2 flex items-center gap-3">
-            <ArrowTrendingUpIcon className="w-8 h-8 text-primary-600" />
-            Real-Time Tracking
-          </h1>
-          <p className="text-dark-600">Track your service provider&apos;s location</p>
+        <Button variant="ghost" onClick={() => navigate(`/tasks/${taskId}/progress`)} className="mb-4">
+          <ArrowLeftIcon className="w-5 h-5 mr-2" />
+          Back to Task Progress
+        </Button>
+
+        <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-bold text-dark-900 flex items-center gap-3">
+              <MapPinIcon className="w-8 h-8 text-primary-600" />
+              Task GPS Tracking
+            </h1>
+            <p className="text-dark-600 mt-2">Live data recorded by the assigned provider&apos;s mobile app.</p>
+          </div>
+          <Button variant="outline" onClick={() => void fetchTrackingData(true)} disabled={isRefreshing}>
+            <ArrowPathIcon className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Map Area */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Map Card */}
-            <Card className="overflow-hidden">
-              <div className="h-80 flex items-center justify-center bg-gradient-to-br from-primary-100 via-blue-50 to-accent-100 relative">
-                {/* Animated background */}
-                <div className="absolute inset-0 overflow-hidden">
-                  <div className="absolute top-1/4 left-1/4 w-32 h-32 bg-primary-500/10 rounded-full blur-2xl animate-float" />
-                  <div className="absolute bottom-1/4 right-1/4 w-40 h-40 bg-accent-500/10 rounded-full blur-2xl animate-float" style={{ animationDelay: '1s' }} />
-                </div>
-
-                <div className="text-center relative z-10">
-                  <div className="inline-flex items-center justify-center w-20 h-20 bg-white rounded-2xl shadow-xl mb-4 animate-bounce-soft">
-                    <MapPinIcon className="w-10 h-10 text-primary-600" />
-                  </div>
-                  <p className="text-dark-600 text-lg mb-2">Map view would be displayed here</p>
-                  <div className="flex items-center justify-center gap-2 text-sm text-dark-500">
-                    <span className="flex items-center gap-1">
-                      <span className="w-2 h-2 bg-primary-500 rounded-full animate-pulse" />
-                      Provider location
-                    </span>
-                    <span className="text-dark-300">|</span>
-                    <span className="flex items-center gap-1">
-                      <span className="w-2 h-2 bg-success-500 rounded-full" />
-                      Task location
-                    </span>
-                  </div>
-                </div>
-
-                {/* Location markers */}
-                <div className="absolute top-1/3 left-1/3 transform -translate-x-1/2 -translate-y-1/2">
-                  <div className="relative">
-                    <div className="w-4 h-4 bg-primary-500 rounded-full border-2 border-white shadow-lg" />
-                    <div className="absolute inset-0 w-4 h-4 bg-primary-500 rounded-full animate-ping opacity-50" />
-                  </div>
-                </div>
-
-                <div className="absolute bottom-1/3 right-1/3 transform -translate-x-1/2 translate-y-1/2">
-                  <div className="relative">
-                    <div className="w-4 h-4 bg-success-500 rounded-full border-2 border-white shadow-lg" />
-                  </div>
-                </div>
-              </div>
-            </Card>
-
-            {/* Route History */}
-            <Card>
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-2 bg-primary-100 rounded-lg">
-                  <MapPinIcon className="w-5 h-5 text-primary-600" />
-                </div>
-                <h2 className="text-lg font-bold text-dark-900">Route History</h2>
-              </div>
-              <div className="space-y-4">
-                {trackingData.routePath.map((location, index) => (
-                  <div
-                    key={index}
-                    className="flex items-start gap-4 pb-4 border-b border-dark-100 last:border-0 last:pb-0"
-                  >
-                    <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-accent-600 flex items-center justify-center text-white text-sm font-bold shadow-lg">
-                      {index + 1}
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm text-dark-600 mb-1">
-                        {new Date(location.timestamp).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          second: '2-digit',
-                        })}
-                      </p>
-                      <p className="text-sm text-dark-500">
-                        {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
-                        {location.speed && (
-                          <span className="ml-2 text-primary-600 font-medium">
-                            • Speed: {location.speed} km/h
-                          </span>
-                        )}
-                      </p>
-                    </div>
-                    {index === trackingData.routePath.length - 1 && (
-                      <span className="badge-primary">Current</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </Card>
+        {errorMessage && (
+          <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            {errorMessage}. Showing the last successfully loaded data.
           </div>
+        )}
 
-          {/* Sidebar */}
-          <div className="space-y-6">
-            {/* Status Card */}
-            <Card
-              className={`border-2 ${
-                trackingData.isAtLocation
-                  ? 'border-success-200 bg-success-50/50'
-                  : 'border-yellow-200 bg-yellow-50/50'
-              }`}
-            >
-              <div className="flex items-center gap-3 mb-4">
-                {trackingData.isAtLocation ? (
-                  <div className="p-3 bg-success-100 rounded-xl">
-                    <CheckCircleIcon className="w-8 h-8 text-success-600" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-6">
+            <Card className="p-6">
+              <h2 className="text-lg font-bold text-dark-900 mb-4">Latest provider location</h2>
+              {latest ? (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="rounded-xl bg-dark-50 p-4">
+                    <p className="text-xs uppercase text-dark-500">Latitude</p>
+                    <p className="font-semibold text-dark-900 mt-1">{Number(latest.lat).toFixed(6)}</p>
                   </div>
-                ) : (
-                  <div className="p-3 bg-yellow-100 rounded-xl">
-                    <ExclamationTriangleIcon className="w-8 h-8 text-yellow-600" />
+                  <div className="rounded-xl bg-dark-50 p-4">
+                    <p className="text-xs uppercase text-dark-500">Longitude</p>
+                    <p className="font-semibold text-dark-900 mt-1">{Number(latest.lng).toFixed(6)}</p>
                   </div>
-                )}
-                <div>
-                  <h2 className="text-lg font-bold text-dark-900">
-                    {trackingData.isAtLocation ? 'At Location' : 'En Route'}
-                  </h2>
-                  <p className={`text-sm ${trackingData.isAtLocation ? 'text-success-700' : 'text-yellow-700'}`}>
-                    {trackingData.isAtLocation
-                      ? 'Provider has arrived'
-                      : `Provider is ${trackingData.distanceKm.toFixed(1)} km away`}
-                  </p>
+                  <div className="rounded-xl bg-dark-50 p-4">
+                    <p className="text-xs uppercase text-dark-500">Accuracy</p>
+                    <p className="font-semibold text-dark-900 mt-1">
+                      {latest.accuracy == null ? 'Not recorded' : `±${Math.round(Number(latest.accuracy))} m`}
+                    </p>
+                  </div>
+                  <div className="sm:col-span-3 flex items-center gap-2 text-sm text-dark-600">
+                    <ClockIcon className="w-4 h-4" />
+                    Captured {new Date(latest.timestamp).toLocaleString()}
+                  </div>
                 </div>
-              </div>
-              {!trackingData.isAtLocation && (
-                <div className="w-full bg-white/60 rounded-full h-2 mb-2">
-                  <div
-                    className="bg-gradient-to-r from-yellow-400 to-yellow-600 h-2 rounded-full transition-all duration-500"
-                    style={{ width: `${Math.min(100 - (trackingData.distanceKm / 10) * 100, 100)}%` }}
-                  />
-                </div>
+              ) : (
+                <p className="text-dark-600">No GPS updates have been recorded for this task.</p>
               )}
             </Card>
 
-            {/* Distance & Time */}
-            <Card>
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-2 bg-primary-100 rounded-lg">
-                  <SparklesIcon className="w-5 h-5 text-primary-600" />
-                </div>
-                <h2 className="text-lg font-bold text-dark-900">Details</h2>
-              </div>
-              <div className="space-y-5">
-                <div className="flex items-center justify-between p-4 bg-dark-50 rounded-xl">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-blue-100 rounded-lg">
-                      <MapPinIcon className="w-5 h-5 text-blue-600" />
-                    </div>
-                    <span className="text-dark-600">Distance</span>
-                  </div>
-                  <span className="text-2xl font-bold text-dark-900">{trackingData.distanceKm.toFixed(1)} km</span>
-                </div>
-
-                {estimatedArrivalDate && !trackingData.isAtLocation && (
-                  <div className="flex items-center justify-between p-4 bg-dark-50 rounded-xl">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-accent-100 rounded-lg">
-                        <ClockIcon className="w-5 h-5 text-accent-600" />
+            <Card className="p-6">
+              <h2 className="text-lg font-bold text-dark-900 mb-4">Location history</h2>
+              {history.length === 0 ? (
+                <p className="text-dark-600">No location history is available.</p>
+              ) : (
+                <div className="space-y-3">
+                  {history.map((location, index) => (
+                    <div key={location.id} className="flex items-start gap-4 rounded-xl border border-dark-100 p-4">
+                      <div className="w-9 h-9 flex-shrink-0 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center font-semibold">
+                        {index + 1}
                       </div>
-                      <span className="text-dark-600">Est. Arrival</span>
+                      <div>
+                        <p className="font-medium text-dark-900">
+                          {Number(location.lat).toFixed(6)}, {Number(location.lng).toFixed(6)}
+                        </p>
+                        <p className="text-sm text-dark-500 mt-1">
+                          {new Date(location.timestamp).toLocaleString()}
+                          {location.accuracy != null ? ` · ±${Math.round(Number(location.accuracy))} m` : ''}
+                        </p>
+                      </div>
                     </div>
-                    <span className="text-xl font-semibold text-dark-900">
-                      {estimatedArrivalDate.toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                  </div>
-                )}
+                  ))}
+                </div>
+              )}
+            </Card>
+          </div>
 
-                <div className="flex items-center justify-between p-4 bg-dark-50 rounded-xl">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-success-100 rounded-lg">
-                      <SparklesIcon className="w-5 h-5 text-success-600" />
-                    </div>
-                    <span className="text-dark-600">Accuracy</span>
-                  </div>
-                  <span className="text-xl font-semibold text-dark-900">±{trackingData.currentLocation.accuracy} m</span>
+          <div className="space-y-6">
+            <Card className={`p-6 border-2 ${verification?.isValid ? 'border-success-200 bg-success-50/50' : 'border-amber-200 bg-amber-50/50'}`}>
+              <div className="flex items-center gap-3">
+                {verification?.isValid
+                  ? <CheckCircleIcon className="w-9 h-9 text-success-600" />
+                  : <ExclamationTriangleIcon className="w-9 h-9 text-amber-600" />}
+                <div>
+                  <h2 className="text-lg font-bold text-dark-900">
+                    {verification?.isValid ? 'Location verified' : 'Not verified'}
+                  </h2>
+                  <p className="text-sm text-dark-600">
+                    {verification?.isValid
+                      ? `${verification.distanceMeters ?? 0} m from the task site`
+                      : 'Verification must be completed in the mobile app.'}
+                  </p>
                 </div>
               </div>
+              {verification?.expiresAt && (
+                <p className="text-xs text-dark-500 mt-4">Expires {new Date(verification.expiresAt).toLocaleString()}</p>
+              )}
             </Card>
 
-            {/* Last Update */}
-            <Card>
-              <p className="text-sm text-dark-500 mb-4">
-                Last update: <span className="font-medium text-dark-700">{lastUpdate?.toLocaleTimeString()}</span>
+            <Card className="p-6">
+              <p className="text-sm text-dark-500">
+                Last refresh: <span className="font-medium text-dark-700">{lastUpdate?.toLocaleTimeString() || 'Never'}</span>
               </p>
-              <div className="space-y-3">
-                <Button
-                  onClick={handleManualRefresh}
-                  variant="outline"
-                  className="w-full"
-                  disabled={isLoading}
-                >
-                  <ArrowPathIcon className="w-4 h-4 mr-2" />
-                  Refresh
-                </Button>
-                <label className="flex items-center gap-3 cursor-pointer p-3 hover:bg-dark-50 rounded-xl transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={autoRefresh}
-                    onChange={(e) => setAutoRefresh(e.target.checked)}
-                    className="w-5 h-5 text-primary-600 rounded focus:ring-primary-500"
-                  />
-                  <span className="text-dark-700">Auto-refresh every 5s</span>
-                </label>
-              </div>
-            </Card>
-
-            {/* Provider Info */}
-            <Card>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-primary-100 rounded-lg">
-                  <UserCircleIcon className="w-5 h-5 text-primary-600" />
-                </div>
-                <h2 className="text-lg font-bold text-dark-900">Provider</h2>
-              </div>
-              <div className="flex items-center gap-4 p-4 bg-dark-50 rounded-xl mb-4">
-                <div className="w-14 h-14 bg-gradient-to-br from-primary-500 to-accent-600 rounded-2xl flex items-center justify-center text-white text-xl font-bold shadow-lg">
-                  J
-                </div>
-                <div className="flex-1">
-                  <p className="font-semibold text-dark-900">John Doe</p>
-                  <div className="flex items-center gap-1 text-sm text-dark-600">
-                    <span className="text-yellow-500">⭐</span>
-                    <span className="font-medium">4.8</span>
-                    <span className="text-dark-400">(42 reviews)</span>
-                  </div>
-                </div>
-              </div>
-              <Button className="w-full" variant="outline">
-                Contact Provider
-              </Button>
+              <label className="mt-4 flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={autoRefresh}
+                  onChange={(event) => setAutoRefresh(event.target.checked)}
+                  className="w-5 h-5 text-primary-600 rounded focus:ring-primary-500"
+                />
+                <span className="text-dark-700">Auto-refresh every 5s</span>
+              </label>
             </Card>
           </div>
         </div>
@@ -383,4 +232,3 @@ export const TrackingPage: React.FC = () => {
     </div>
   );
 };
-

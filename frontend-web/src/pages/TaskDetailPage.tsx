@@ -21,6 +21,11 @@ import { useAuthStore } from '../stores/auth.store';
 import { useTaskStore } from '../stores/task.store';
 import { api } from '../services/api';
 import { formatVnd } from '../utils';
+import {
+  AWAITING_DEPOSIT_MESSAGE,
+  LOCATION_VERIFICATION_MESSAGE,
+  useTaskLocationVerification,
+} from '../hooks/useTaskLocationVerification';
 
 function formatStatus(status: string) {
   if (status === 'POSTED') return 'OPEN';
@@ -64,6 +69,17 @@ export const TaskDetailPage: React.FC = () => {
   const [reviewScore, setReviewScore] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+
+  const userRole = String(user?.role || '').toUpperCase();
+  const isProvider = userRole === 'PROVIDER';
+  const isRequester = userRole === 'REQUESTER' || userRole === 'CLIENT';
+  const isOwner = String(user?.id || '') === String(currentTask?.createdById || currentTask?.clientId || '');
+  const isAssignedProvider = String(user?.id || '') === String(currentTask?.assignedProviderId || '');
+  const providerTaskIsActive = Boolean(
+    currentTask && ['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION'].includes(currentTask.status)
+  );
+  const shouldCheckVerification = Boolean(id && isProvider && isAssignedProvider && providerTaskIsActive);
+  const { isValid: isLocationVerified } = useTaskLocationVerification(id, shouldCheckVerification);
 
   useEffect(() => {
     if (id) {
@@ -136,7 +152,8 @@ export const TaskDetailPage: React.FC = () => {
     if (paymentState === 'success' && sessionId) {
       api.payment
         .confirmSession(sessionId)
-        .then(() => {
+        .then((response) => {
+          if (response.data?.status !== 'SUCCESS') throw new Error('Payment is awaiting Stripe confirmation. Please refresh shortly.');
           toast.success('Payment successful');
           fetchTaskById(id);
           setSearchParams({}, { replace: true });
@@ -181,11 +198,6 @@ export const TaskDetailPage: React.FC = () => {
 
   const task = currentTask;
   const requester = task.createdBy || task.client;
-  const isOwner = String(user?.id || '') === String(task.createdById || task.clientId || '');
-  const userRole = String(user?.role || '').toUpperCase();
-  const isProvider = userRole === 'PROVIDER';
-  const isRequester = userRole === 'REQUESTER' || userRole === 'CLIENT';
-  const isAssignedProvider = String(user?.id || '') === String(task.assignedProviderId || '');
   const isTaskSaved = savedTaskIds.some((savedId) => String(savedId) === String(task.id));
   const latestProgressUpdate = task.progressUpdates?.[0];
   const bidCount = task._count?.bids ?? task.bids?.length ?? 0;
@@ -200,13 +212,21 @@ export const TaskDetailPage: React.FC = () => {
   );
   const canAssignProvider = Boolean(isOwner && ['OPEN', 'BIDDING'].includes(task.status));
   const canViewProgress = Boolean(task.assignedProviderId && (isOwner || isAssignedProvider));
-  const canManageProgress = Boolean(
-    isProvider && isAssignedProvider && ['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION'].includes(task.status)
+  const canManageProgressBase = Boolean(
+    isProvider && isAssignedProvider && task.escrowStatus === 'HELD' && ['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION'].includes(task.status)
   );
-  const canPay = Boolean(isOwner && ['COMPLETED', 'AWAITING_PAYMENT'].includes(task.status));
+  const canManageProgress = canManageProgressBase && isLocationVerified;
+  const providerBlockMessage = isProvider && isAssignedProvider && providerTaskIsActive
+    ? task.escrowStatus !== 'HELD'
+      ? AWAITING_DEPOSIT_MESSAGE
+      : !isLocationVerified
+        ? LOCATION_VERIFICATION_MESSAGE
+        : null
+    : null;
+  const canPay = false; // Work is prepaid through escrow; completion releases that deposit.
   const canDepositEscrow = Boolean(
     isOwner &&
-      ['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION', 'DISPUTED'].includes(task.status) &&
+      task.status === 'ASSIGNED' &&
       ['NONE', 'PENDING_DEPOSIT'].includes(String(task.escrowStatus || 'NONE'))
   );
   const canOpenDispute = Boolean(
@@ -356,6 +376,7 @@ export const TaskDetailPage: React.FC = () => {
         flow: 'ESCROW_DEPOSIT',
       });
       const paymentUrl = response.data?.paymentUrl;
+      if (!paymentUrl && response.data?.status === 'SUCCESS') { await fetchTaskById(String(task.id)); setIsDepositingEscrow(false); return; }
       if (!paymentUrl) throw new Error('No payment URL returned');
       window.location.href = paymentUrl;
     } catch (error: any) {
@@ -754,13 +775,17 @@ export const TaskDetailPage: React.FC = () => {
               </Card>
             )}
 
-            {(canDepositEscrow || canPay) && (
+            {(isOwner || isAssignedProvider) && (
               <Card>
                 <h2 className="text-lg font-bold text-dark-900 mb-3">Payment & Escrow</h2>
                 <p className="text-sm text-dark-600 mb-4">
-                  Escrow status: <span className="font-semibold text-dark-900">{task.escrowStatus || 'NONE'}</span>
+                  Escrow status: <span className="font-semibold text-dark-900">{task.escrowStatus === 'HELD' ? 'FUNDED' : task.escrowStatus || 'NONE'}</span>
                   {' '}| Payment status: <span className="font-semibold text-dark-900">{task.paymentStatus || 'UNPAID'}</span>
                 </p>
+                <p className="text-sm text-dark-600 mb-4">
+                  Agreed escrow amount: <span className="font-semibold text-dark-900">{formatVnd(Number(task.escrowAmount || 0))}</span>
+                </p>
+                {providerBlockMessage && <p className="mb-3 text-sm font-medium text-amber-700">{providerBlockMessage}</p>}
                 {canDepositEscrow && (
                   <Button className="w-full mb-2" onClick={handleDepositEscrow} disabled={isDepositingEscrow}>
                     {isDepositingEscrow ? 'Redirecting...' : 'Deposit Escrow'}
@@ -771,6 +796,9 @@ export const TaskDetailPage: React.FC = () => {
                     {isProcessingPayment ? 'Redirecting...' : 'Pay Now'}
                   </Button>
                 )}
+                <Button variant="outline" className="w-full mt-2" onClick={() => navigate(`/tracking/${task.id}`)}>
+                  View GPS Tracking
+                </Button>
               </Card>
             )}
 

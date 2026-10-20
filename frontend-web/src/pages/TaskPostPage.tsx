@@ -29,8 +29,9 @@ interface TaskFormData {
   description: string;
   category: string;
   location: string;
-  latitude?: number;
-  longitude?: number;
+  siteAddress: string;
+  siteLatitude: number;
+  siteLongitude: number;
   budget?: number;
   maxBids?: number;
   deadline?: string;
@@ -173,6 +174,7 @@ export const TaskPostPage: React.FC = () => {
     try {
       const taskData = {
         ...data,
+        district: data.location,
         budget: data.budget ? Number(data.budget) : undefined,
         maxBids: data.maxBids ? Number(data.maxBids) : undefined,
         // Backend schema accepts number or undefined. Do not send null.
@@ -445,6 +447,39 @@ export const TaskPostPage: React.FC = () => {
                       <p className="text-sm text-red-600 flex items-center gap-1">
                         <span>⚠️</span> {errors.location.message}
                       </p>
+                    )}
+                    <Input
+                      placeholder="Precise task address (private until assignment)"
+                      {...register('siteAddress', { required: 'Precise task address is required' })}
+                      className="h-12 text-lg border-gray-200"
+                    />
+                    {errors.siteAddress && <p className="text-sm text-red-600">{errors.siteAddress.message}</p>}
+                    <div className="grid grid-cols-2 gap-3">
+                      <Input
+                        type="number"
+                        step="any"
+                        placeholder="Latitude"
+                        {...register('siteLatitude', {
+                          valueAsNumber: true,
+                          required: 'Latitude is required',
+                          min: { value: -90, message: 'Invalid latitude' },
+                          max: { value: 90, message: 'Invalid latitude' },
+                        })}
+                      />
+                      <Input
+                        type="number"
+                        step="any"
+                        placeholder="Longitude"
+                        {...register('siteLongitude', {
+                          valueAsNumber: true,
+                          required: 'Longitude is required',
+                          min: { value: -180, message: 'Invalid longitude' },
+                          max: { value: 180, message: 'Invalid longitude' },
+                        })}
+                      />
+                    </div>
+                    {(errors.siteLatitude || errors.siteLongitude) && (
+                      <p className="text-sm text-red-600">Valid task coordinates are required.</p>
                     )}
                     <div className="bg-green-50 rounded-lg p-3 border border-green-100">
                       <p className="text-sm text-green-700 flex items-center gap-2">

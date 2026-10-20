@@ -30,6 +30,7 @@ export type MarketplaceRouteKey =
   | "tracking"
   | "suggested"
   | "notifications"
+  | "support"
   | "admin";
 
 export function MarketplaceHeader({
@@ -92,6 +93,7 @@ export function MarketplaceHeader({
       { key: "saved" as const, label: "Saved Tasks", route: "/saved-tasks", visible: isProvider(user) },
       { key: "myBids" as const, label: "My Bids", route: "/my-bids", visible: isProvider(user) },
       { key: "notifications" as const, label: "Notifications", route: "/notifications", visible: isRequester(user) || isProvider(user) },
+      { key: "support" as const, label: "Support", route: "/support", visible: isAuthenticated },
       { key: "progress" as const, label: "Task Progress", route: "/task-progress", visible: isRequester(user) || isProvider(user) },
       { key: "admin" as const, label: "Admin Dashboard", route: "/admin-dashboard", visible: isAdmin(user) },
     ],
@@ -133,6 +135,7 @@ export function MarketplaceHeader({
       | "/provider-dashboard"
       | "/my-bids"
       | "/notifications"
+      | "/support"
       | "/admin-dashboard"
   ): void => {
     if (!isAuthenticated) {
@@ -311,6 +314,7 @@ export function MarketplaceHeader({
           {isRequester(user) ? <PanelAction label="My Posted Tasks" onPress={() => handleProtectedOpen("/my-posted-tasks")} /> : null}
           {isProvider(user) ? <PanelAction label="My Bids" onPress={() => handleProtectedOpen("/my-bids")} /> : null}
           <PanelAction label="Notifications" onPress={() => handleProtectedOpen("/notifications")} />
+          <PanelAction label="Support" onPress={() => handleProtectedOpen("/support")} />
           <PanelAction label="Saved Tasks" onPress={() => handleProtectedOpen("/saved-tasks")} />
           <Pressable
             onPress={() => {

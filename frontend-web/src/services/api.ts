@@ -120,7 +120,9 @@ class ApiService {
   // User APIs
   users = {
     getProfile: (id: string) => this.api.get(`/users/${id}`),
-    updateProfile: (id: string, data: any) => this.api.put(`/users/${id}`, data),
+    getMe: () => this.api.get('/users/me'),
+    updateProfile: (data: { name?: string; phone?: string | null; bio?: string | null; profilePhotoUrl?: string }) =>
+      this.api.patch('/users/me', data),
     getRating: (id: string) => this.api.get(`/users/${id}/rating`),
     getReviews: (id: string) => this.api.get(`/users/${id}/reviews`),
     updateProfilePhoto: (profilePhotoUrl: string) =>
@@ -148,9 +150,10 @@ class ApiService {
 
   // Tracking APIs
   tracking = {
-    getTracking: (taskId: string) => this.api.get(`/tracking/${taskId}`),
+    getLatest: (taskId: string) => this.api.get(`/tracking/tasks/${taskId}/latest`),
     updateLocation: (data: any) => this.api.post('/tracking/update', data),
-    getHistory: (taskId: string) => this.api.get(`/tracking/${taskId}/history`),
+    getHistory: (taskId: string) => this.api.get(`/tracking/tasks/${taskId}/history`),
+    getVerification: (taskId: string) => this.api.get(`/tracking/tasks/${taskId}/verification`),
   };
 
   // AI APIs
@@ -184,6 +187,16 @@ class ApiService {
   };
 
   // Notification APIs
+  support = {
+    list: (params?: Record<string, string | number>) => this.api.get('/support/tickets', { params }),
+    create: (data: Record<string, unknown>) => this.api.post('/support/tickets', data),
+    get: (id: number) => this.api.get(`/support/tickets/${id}`),
+    messages: (id: number, page = 1) => this.api.get(`/support/tickets/${id}/messages`, { params: { page } }),
+    activity: (id: number, page = 1) => this.api.get(`/support/tickets/${id}/activity`, { params: { page } }),
+    reply: (id: number, data: Record<string, unknown>) => this.api.post(`/support/tickets/${id}/messages`, data),
+    update: (id: number, data: Record<string, string>) => this.api.patch(`/support/tickets/${id}`, data),
+  };
+
   notifications = {
     contactClient: (data: { taskId: number }) =>
       this.api.post('/notifications/contact', data),
@@ -203,6 +216,9 @@ class ApiService {
   // Admin APIs
   admin = {
     getStats: () => this.api.get('/admin/stats'),
+    getUsers: () => this.api.get('/admin/users'),
+    updateUserStatus: (userId: string | number, status: 'ACTIVE' | 'SUSPENDED') =>
+      this.api.patch(`/admin/users/${userId}/status`, { status }),
     getTasks: () => this.api.get('/admin/tasks'),
     getSuspiciousTasks: () => this.api.get('/admin/tasks/suspicious'),
     deleteTask: (taskId: string | number) => this.api.delete(`/admin/tasks/${taskId}`),
@@ -213,6 +229,12 @@ class ApiService {
     getPayments: () => this.api.get('/admin/payments'),
     getEscrowPayments: () => this.api.get('/admin/payments/escrow'),
     releasePayment: (paymentId: string | number) => this.api.patch(`/admin/payments/${paymentId}/release`),
+    getDisputes: () => this.api.get('/tasks/disputes/all'),
+    reviewDispute: (
+      taskId: string | number,
+      disputeId: string | number,
+      data: { status: 'UNDER_REVIEW' | 'RESOLVED' | 'REJECTED' | 'CLOSED'; resolution?: string; action?: 'NONE' | 'REFUND_ESCROW' | 'RELEASE_ESCROW' | 'FORCE_CANCEL' }
+    ) => this.api.patch(`/tasks/${taskId}/disputes/${disputeId}/review`, data),
   };
 
   // Platform public stats APIs

@@ -265,6 +265,7 @@ export const Header: React.FC = () => {
                 Admin
               </Link>
             )}
+            {user && <Link to="/support" className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${isActive('/support') ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:text-blue-600 hover:bg-gray-50'}`}>Support</Link>}
           </nav>
 
           {/* Right Side */}
@@ -438,6 +439,7 @@ export const Header: React.FC = () => {
                       <UserCircleIcon className="w-4 h-4 mr-3 text-gray-400" />
                       <span className="text-sm font-medium">Profile</span>
                     </Link>
+                    <Link to="/support" onClick={() => setShowMenu(false)} className="flex items-center px-4 py-3 hover:bg-gray-50 text-sm font-medium">Support</Link>
                     <Link
                       to={isProvider ? '/provider-dashboard' : '/requester-dashboard'}
                       className="flex items-center px-4 py-3 hover:bg-gray-50 transition-colors"
@@ -564,6 +566,7 @@ export const Header: React.FC = () => {
         {showMobileMenu && (
           <div className="lg:hidden border-t border-gray-100 py-4 animate-in slide-in-from-top-2 duration-200">
             <nav className="flex flex-col space-y-2">
+              {user && <Link to="/support" onClick={() => setShowMobileMenu(false)} className="px-4 py-2 rounded-lg font-medium text-gray-600">Support</Link>}
               <Link 
                 to="/browse-tasks" 
                 className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${

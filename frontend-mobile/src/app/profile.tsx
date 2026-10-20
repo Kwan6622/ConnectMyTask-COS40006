@@ -75,7 +75,7 @@ export default function ProfilePage(): React.ReactElement {
 
     async function loadProfileData() {
       try {
-        const response = await api.users.getProfile(resolvedUserId);
+        const response = await api.users.getMe();
         const payload = response.data || {};
         const profile = payload.providerProfile || emptyProviderProfile;
 
@@ -168,17 +168,19 @@ export default function ProfilePage(): React.ReactElement {
   };
 
   const handleSaveProfile = async (): Promise<void> => {
-    await updateProfile({
-      fullName: fullName.trim(),
-      name: fullName.trim(),
-      email: email.trim(),
-      phone: phoneNumber.trim(),
-      phoneNumber: phoneNumber.trim(),
-      location: location.trim(),
-      bio: bio.trim(),
-    });
-    setIsEditing(false);
-    Alert.alert("Profile saved", "Your profile information was updated.");
+    try {
+      await updateProfile({
+        fullName: fullName.trim(),
+        name: fullName.trim(),
+        phone: phoneNumber.trim(),
+        phoneNumber: phoneNumber.trim(),
+        bio: bio.trim(),
+      });
+      setIsEditing(false);
+      Alert.alert("Profile saved", "Your profile information was updated.");
+    } catch (error: any) {
+      Alert.alert("Save failed", error?.response?.data?.message || error?.message || "Cannot update profile.");
+    }
   };
 
   const handleSaveProviderTrust = async (): Promise<void> => {
@@ -217,7 +219,7 @@ export default function ProfilePage(): React.ReactElement {
         certificateType: certificateType.trim(),
         fileUrl: certificateFileUrl.trim(),
       });
-      const refreshed = await api.users.getProfile(user?.id || "");
+      const refreshed = await api.users.getMe();
       const profile = refreshed.data?.providerProfile || emptyProviderProfile;
       setProviderCertificates(Array.isArray(profile.certificates) ? profile.certificates : []);
       setCertificateTitle("");
@@ -410,9 +412,8 @@ export default function ProfilePage(): React.ReactElement {
         {isEditing ? (
           <View style={styles.form}>
             <Input label="Full Name" value={fullName} onChangeText={setFullName} />
-            <Input label="Email" value={email} onChangeText={setEmail} />
+            <InfoRow label="Email" value={email || "-"} />
             <Input label="Phone Number" value={phoneNumber} onChangeText={setPhoneNumber} />
-            <Input label="Location" value={location} onChangeText={setLocation} />
             <Input label="Bio" value={bio} onChangeText={setBio} multiline numberOfLines={4} />
             <Button title="Save Changes" onPress={() => void handleSaveProfile()} />
           </View>

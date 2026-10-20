@@ -97,15 +97,24 @@ export const useAuthStore = create<AuthState>()(
       updateProfile: async (data) => {
         set({ isLoading: true, error: null });
         try {
-          // Simulate API call - replace with actual API call
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          const response = await api.users.updateProfile({
+            name: data.fullName || data.name,
+            phone: data.phone,
+            bio: data.bio,
+          });
           set((state) => ({
-            user: state.user ? { ...state.user, ...data } : null,
+            user: state.user
+              ? {
+                  ...state.user,
+                  ...response.data.user,
+                  fullName: response.data.user?.name || state.user.fullName,
+                }
+              : null,
             isLoading: false,
           }));
         } catch (error: any) {
           set({
-            error: error.message || 'Failed to update profile',
+            error: error?.response?.data?.message || error.message || 'Failed to update profile',
             isLoading: false
           });
           throw error;

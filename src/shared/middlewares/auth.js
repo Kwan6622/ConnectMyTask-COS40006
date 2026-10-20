@@ -1,7 +1,8 @@
 const jwt = require('jsonwebtoken');
 const { env } = require('../../config/env');
+const { prisma } = require('../../database/prisma');
 
-function authenticate(req, res, next) {
+async function authenticate(req, res, next) {
   const authHeader = req.headers.authorization || '';
   const [, token] = authHeader.split(' ');
 
@@ -11,7 +12,14 @@ function authenticate(req, res, next) {
 
   try {
     const payload = jwt.verify(token, env.JWT_SECRET);
-    req.user = payload;
+    const user = await prisma.user.findUnique({
+      where: { id: Number(payload.id) },
+      select: { id: true, email: true, role: true, status: true, tokenVersion: true },
+    });
+    if (!user || user.status === 'SUSPENDED' || Number(payload.tokenVersion || 0) !== Number(user.tokenVersion || 0)) {
+      return res.status(401).json({ error: 'Unauthorized', message: 'Session is no longer active' });
+    }
+    req.user = user;
     return next();
   } catch (err) {
     return res.status(401).json({ error: 'Unauthorized', message: 'Invalid token' });
@@ -40,6 +48,7 @@ function signToken(user) {
     id: user.id,
     email: user.email,
     role: user.role,
+    tokenVersion: Number(user.tokenVersion || 0),
   };
 
   const token = jwt.sign(payload, env.JWT_SECRET, {

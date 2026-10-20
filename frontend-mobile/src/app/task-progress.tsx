@@ -1,15 +1,19 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import * as Location from "expo-location";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { MarketplaceShell } from "@/components/MarketplaceShell";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { Input } from "@/components/Input";
 import { useAuthStore } from "@/store/authStore";
 import { useTaskStore } from "@/store/taskStore";
+import { api } from "@/services/api";
+import { TaskLocationVerification } from "@/types";
 import { colors, radius } from "@/theme/tokens";
 import { uploadImageToCloudinary } from "@/utils/cloudinaryUpload";
+import { buildLocationEvidence, buildVerificationEvidence, isVerificationCurrent } from "@/utils/locationVerification";
 import {
   formatCurrency,
   formatDate,
@@ -71,6 +75,9 @@ export default function TaskProgressPage(): React.ReactElement {
   const [disputeDescription, setDisputeDescription] = useState("");
   const [disputeImages, setDisputeImages] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [updatingSubtaskId, setUpdatingSubtaskId] = useState<string | number | null>(null);
+  const [verification, setVerification] = useState<TaskLocationVerification | null>(null);
+  const [isVerifyingLocation, setIsVerifyingLocation] = useState(false);
+  const [locationError, setLocationError] = useState("");
 
   useEffect(() => {
     if (!isAuthenticated || !user) return;
@@ -104,16 +111,20 @@ export default function TaskProgressPage(): React.ReactElement {
   const isProviderView = isProvider(user);
   const isOwner = currentTask ? String(currentTask.createdById) === String(user?.id) : false;
   const isAssignedProvider = currentTask ? String(currentTask.assignedProviderId) === String(user?.id) : false;
+  const locationVerified = isVerificationCurrent(verification);
   const canManageProgress =
     isProviderView &&
     isAssignedProvider &&
     currentTask != null &&
+    currentTask.escrowStatus === 'HELD' &&
+    locationVerified &&
     ["ASSIGNED", "IN_PROGRESS", "PENDING_CONFIRMATION"].includes(String(currentTask.status));
   const canConfirm =
     isRequesterView &&
     isOwner &&
     currentTask != null &&
-    String(currentTask.status) === "PENDING_CONFIRMATION";
+    currentTask.escrowStatus === 'HELD' &&
+    ["PENDING_CONFIRMATION", "COMPLETED"].includes(String(currentTask.status));
   const canOpenDispute =
     currentTask != null &&
     (isOwner || isAssignedProvider) &&
@@ -121,6 +132,89 @@ export default function TaskProgressPage(): React.ReactElement {
   const summaryProgress = Math.max(0, Math.min(100, taskProgressSummary?.progressPercent ?? 0));
   const totalSubtasks = taskSubtasks.length;
   const doneSubtasks = taskSubtasks.filter((item) => item.status === "DONE").length;
+
+  const refreshVerification = useCallback(async (): Promise<TaskLocationVerification | null> => {
+    if (!selectedTaskId || !currentTask || (!isOwner && !isAssignedProvider)) return null;
+    try {
+      const response = await api.tracking.getVerification(selectedTaskId);
+      setVerification(response.data);
+      return response.data;
+    } catch {
+      setVerification(null);
+      return null;
+    }
+  }, [currentTask, isAssignedProvider, isOwner, selectedTaskId]);
+
+  useEffect(() => {
+    void refreshVerification();
+    const interval = setInterval(() => void refreshVerification(), 15000);
+    return () => clearInterval(interval);
+  }, [refreshVerification]);
+
+  useEffect(() => {
+    if (!verification?.isValid || !verification.expiresAt) return;
+    const delay = new Date(verification.expiresAt).getTime() - Date.now();
+    if (delay <= 0) {
+      setVerification((current) => current ? { ...current, isValid: false } : current);
+      return;
+    }
+    const timeout = setTimeout(() => {
+      setVerification((current) => current ? { ...current, isValid: false } : current);
+    }, Math.min(delay + 25, 2147483647));
+    return () => clearTimeout(timeout);
+  }, [verification?.expiresAt, verification?.isValid]);
+
+  useFocusEffect(useCallback(() => {
+    void refreshVerification();
+    if (selectedTaskId) void fetchTaskProgress(selectedTaskId);
+  }, [fetchTaskProgress, refreshVerification, selectedTaskId]));
+
+  const verifyLocation = async (): Promise<void> => {
+    if (!selectedTaskId || !isAssignedProvider || currentTask?.escrowStatus !== 'HELD') return;
+    setIsVerifyingLocation(true);
+    setLocationError("");
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') throw new Error('Foreground GPS permission was denied.');
+      const point = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const response = await api.tracking.verify(
+        selectedTaskId,
+        buildVerificationEvidence(point.coords, point.timestamp)
+      );
+      setVerification(response.data);
+      await fetchTaskProgress(selectedTaskId);
+      Alert.alert('Location verified', `You are within ${response.data.distanceMeters} m of the task site.`);
+    } catch (error: any) {
+      const message = error?.response?.data?.message || error?.message || 'Location verification failed.';
+      setLocationError(message);
+      Alert.alert('Verification failed', message);
+    } finally {
+      setIsVerifyingLocation(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedTaskId || !isAssignedProvider || !locationVerified) return;
+    let stopped = false;
+    let subscription: Location.LocationSubscription | undefined;
+    void Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.High, timeInterval: 30000, distanceInterval: 20 },
+      point => {
+        try {
+          void api.tracking.update({
+            taskId: Number(selectedTaskId),
+            ...buildLocationEvidence(point.coords, point.timestamp),
+          }).catch(() => {});
+        } catch {
+          // Ignore unusable sensor samples; backend remains the source of truth.
+        }
+      }
+    ).then(value => {
+      if (stopped) value.remove();
+      else subscription = value;
+    }).catch(() => {});
+    return () => { stopped = true; subscription?.remove(); };
+  }, [isAssignedProvider, locationVerified, selectedTaskId]);
 
   const pickImage = async (target: "proof" | "dispute"): Promise<void> => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -139,6 +233,15 @@ export default function TaskProgressPage(): React.ReactElement {
 
   const publishProgressUpdate = async (): Promise<void> => {
     if (!selectedTaskId || !currentTask) return;
+    if (currentTask.escrowStatus !== 'HELD') {
+      Alert.alert('Work blocked', 'Awaiting requester deposit');
+      return;
+    }
+    const latestVerification = await refreshVerification();
+    if (!isVerificationCurrent(latestVerification)) {
+      Alert.alert('Work blocked', 'Please verify your location on the mobile app');
+      return;
+    }
     if (!note.trim()) {
       Alert.alert("Work summary required", "Add a note before publishing progress.");
       return;
@@ -196,7 +299,16 @@ export default function TaskProgressPage(): React.ReactElement {
     subtaskId: string | number,
     status: "PENDING" | "IN_PROGRESS" | "DONE"
   ): Promise<void> => {
-    if (!selectedTaskId || !canManageProgress) return;
+    if (!selectedTaskId || !currentTask) return;
+    if (currentTask.escrowStatus !== 'HELD') {
+      Alert.alert('Work blocked', 'Awaiting requester deposit');
+      return;
+    }
+    const latestVerification = await refreshVerification();
+    if (!isVerificationCurrent(latestVerification)) {
+      Alert.alert('Work blocked', 'Please verify your location on the mobile app');
+      return;
+    }
     setUpdatingSubtaskId(subtaskId);
     try {
       await updateTaskSubtaskStatus(selectedTaskId, subtaskId, status);
@@ -303,6 +415,7 @@ export default function TaskProgressPage(): React.ReactElement {
               <View style={styles.summaryCopy}>
                 <Text style={styles.currentTaskTitle}>{currentTask.title}</Text>
                 <Text style={styles.currentTaskBody}>{currentTask.description}</Text>
+                <Text>{currentTask.escrowStatus === 'HELD' ? 'Escrow FUNDED' : 'Awaiting requester deposit'}</Text>
               </View>
               <View style={styles.summaryBadge}>
                 <Text style={styles.summaryBadgeText}>{formatTaskStatusLabel(currentTask.status)}</Text>
@@ -408,6 +521,26 @@ export default function TaskProgressPage(): React.ReactElement {
                   </View>
                 ))}
               </View>
+            </Card>
+          ) : null}
+
+          {isAssignedProvider ? (
+            <Card title="Task Location Verification">
+              <Text>{currentTask.siteAddress || 'Requester has not provided a precise task address.'}</Text>
+              <Text>
+                {locationVerified
+                  ? `Verified until ${formatDateTime(verification?.expiresAt || '')}`
+                  : currentTask.escrowStatus !== 'HELD'
+                    ? 'Awaiting requester deposit'
+                    : 'Verify within 1 km before starting or updating work.'}
+              </Text>
+              {locationError ? <Text style={styles.errorText}>{locationError}</Text> : null}
+              <Button
+                title={isVerifyingLocation ? "Verifying..." : locationVerified ? "Verify Again" : "Verify GPS Location"}
+                onPress={() => void verifyLocation()}
+                loading={isVerifyingLocation}
+                disabled={currentTask.escrowStatus !== 'HELD'}
+              />
             </Card>
           ) : null}
 
@@ -860,6 +993,11 @@ const styles = StyleSheet.create({
     color: colors.dark[500],
     fontSize: 14,
     lineHeight: 20,
+  },
+  errorText: {
+    color: colors.danger[700],
+    fontSize: 13,
+    lineHeight: 18,
   },
   promptBox: {
     alignItems: "center",

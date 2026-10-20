@@ -1,6 +1,7 @@
 const taskRepository = require('./repository');
 const notificationRepository = require('../notifications/repository');
 const paymentService = require('../payments/service');
+const trackingService = require('../tracking/service');
 const { evaluateTaskRisk } = require('./riskEvaluator');
 const { generateSuggestedSubtasks } = require('./subtaskTemplates');
 const { isSameDistrict, isNearbyDistrict } = require('./districtAdjacency');
@@ -36,6 +37,22 @@ const SPECIALTY_CATEGORY_KEYWORDS = {
 
 function normalizeRole(role) {
   return String(role || '').toUpperCase();
+}
+
+function toPublicTask(task) {
+  if (!task) return task;
+  const {
+    siteAddress: _siteAddress,
+    siteLatitude: _siteLatitude,
+    siteLongitude: _siteLongitude,
+    siteVersion: _siteVersion,
+    trackingLogs: _trackingLogs,
+    locationVerifications: _locationVerifications,
+    ...safe
+  } = task;
+  // Legacy location may contain a precise address; never expose it as a public fallback.
+  const district = task.district || 'District not provided';
+  return { ...safe, district, location: district };
 }
 
 function isRequesterRole(role) {
@@ -269,43 +286,7 @@ async function notifyTaskParties(task, notificationData) {
 }
 
 async function ensureOverdueState(task) {
-  if (!task?.id || !task?.dueDate) {
-    return task;
-  }
-
-  const now = new Date();
-  const shouldBeOverdue = now.getTime() > new Date(task.dueDate).getTime() && isTaskActiveForOverdue(task.status);
-
-  if (shouldBeOverdue && !task.isOverdue) {
-    const updated = await taskRepository.updateTask(task.id, {
-      isOverdue: true,
-      overdueNotifiedAt: task.overdueNotifiedAt || now,
-    });
-
-    // Notify once when crossing overdue threshold.
-    if (!task.overdueNotifiedAt) {
-      await notifyTaskParties(updated, {
-        message: `Task "${task.title}" is overdue. Please update progress or open a dispute if needed.`,
-      });
-      await logActivity(
-        task.id,
-        null,
-        'OVERDUE_TRIGGERED',
-        `Task became overdue at ${now.toISOString()}.`,
-        {
-          dueDate: task.dueDate,
-        }
-      );
-    }
-
-    return {
-      ...task,
-      isOverdue: true,
-      overdueNotifiedAt: now,
-    };
-  }
-
-  return task;
+  return (await hydrateTaskListWithOverdue([task]))[0];
 }
 
 async function hydrateTaskWithOverdue(task) {
@@ -314,15 +295,35 @@ async function hydrateTaskWithOverdue(task) {
 }
 
 async function hydrateTaskListWithOverdue(tasks) {
-  const enriched = [];
-  for (const task of tasks) {
-    // Keep this sequential to avoid notification races when multiple readers hit at the same time.
-    // Capstone scope: task lists are small.
-    // eslint-disable-next-line no-await-in-loop
-    const nextTask = await ensureOverdueState(task);
-    enriched.push(nextTask);
+  const now = new Date();
+  const candidates = tasks.filter((task) => task?.id && task.dueDate && !task.isOverdue &&
+    now.getTime() > new Date(task.dueDate).getTime() && isTaskActiveForOverdue(task.status));
+  if (!candidates.length) return tasks;
+
+  const { newlyNotified, marked } = await taskRepository.markTasksOverdue(candidates.map((task) => task.id), now);
+  const claimedById = new Map(newlyNotified.map((task) => [task.id, task]));
+  const markedById = new Map(marked.map((task) => [task.id, task]));
+  const missedIds = candidates.filter((task) => !markedById.has(task.id)).map((task) => task.id);
+  if (missedIds.length) {
+    const currentStates = await taskRepository.getTaskOverdueStates(missedIds);
+    for (const state of currentStates) {
+      if (state.isOverdue) markedById.set(state.id, state);
+    }
   }
-  return enriched;
+  for (const task of candidates) {
+    const updated = claimedById.get(task.id);
+    if (!updated) continue;
+    await notifyTaskParties(updated, {
+      message: `Task "${task.title}" is overdue. Please update progress or open a dispute if needed.`,
+    });
+    await logActivity(task.id, null, 'OVERDUE_TRIGGERED', `Task became overdue at ${now.toISOString()}.`, {
+      dueDate: task.dueDate,
+    });
+  }
+
+  return tasks.map((task) => markedById.has(task.id)
+    ? { ...task, isOverdue: true, overdueNotifiedAt: markedById.get(task.id).overdueNotifiedAt }
+    : task);
 }
 
 function buildProviderTrustMap(ratingStats) {
@@ -373,35 +374,35 @@ async function autoAssignExpiredBiddingTasks() {
   const ratingStats = await taskRepository.getProviderRatingStats(allProviderIds);
   const trustMap = buildProviderTrustMap(ratingStats);
 
-  for (const task of expiredTasks) {
-    const bestBid = pickBestBidWithTrust(task.bids, trustMap);
-    if (!bestBid) continue;
+  for (let i = 0; i < expiredTasks.length; i += 4) {
+    const results = await Promise.allSettled(expiredTasks.slice(i, i + 4).map(async (task) => {
+      const bestBid = pickBestBidWithTrust(task.bids, trustMap);
+      if (!bestBid) return;
 
-    // eslint-disable-next-line no-await-in-loop
-    const acceptedBid = await taskRepository.autoAssignProviderFromBid(task.id, bestBid.id);
-    if (!acceptedBid) continue;
+      const acceptedBid = await taskRepository.autoAssignProviderFromBid(task.id, bestBid.id);
+      if (!acceptedBid) return;
 
-    // eslint-disable-next-line no-await-in-loop
-    await notificationRepository.createNotification({
-      recipientId: acceptedBid.providerId,
-      senderId: null,
-      taskId: task.id,
-      message: `Your bid was auto-selected after bidding deadline for task "${task.title}".`,
-    });
-    // eslint-disable-next-line no-await-in-loop
-    await notificationRepository.createNotification({
-      recipientId: task.createdById,
-      senderId: acceptedBid.providerId,
-      taskId: task.id,
-      message: `Task "${task.title}" was auto-assigned after 24h bidding window. Please deposit escrow to start work.`,
-    });
-    // eslint-disable-next-line no-await-in-loop
-    await logActivity(task.id, null, 'AUTO_ASSIGNED_AFTER_BIDDING_WINDOW', 'System auto-assigned provider after 24h bidding window.', {
-      bidId: acceptedBid.id,
-      providerId: acceptedBid.providerId,
-      selectedBidPrice: acceptedBid.price,
-      ranking: 'lowest-bid first, then higher rating/review-count as tie-break in close bids',
-    });
+      await notificationRepository.createNotification({
+        recipientId: acceptedBid.providerId,
+        senderId: null,
+        taskId: task.id,
+        message: `Your bid was auto-selected after bidding deadline for task "${task.title}".`,
+      });
+      await notificationRepository.createNotification({
+        recipientId: task.createdById,
+        senderId: acceptedBid.providerId,
+        taskId: task.id,
+        message: `Task "${task.title}" was auto-assigned after 24h bidding window. Please deposit escrow to start work.`,
+      });
+      await logActivity(task.id, null, 'AUTO_ASSIGNED_AFTER_BIDDING_WINDOW', 'System auto-assigned provider after 24h bidding window.', {
+        bidId: acceptedBid.id,
+        providerId: acceptedBid.providerId,
+        selectedBidPrice: acceptedBid.price,
+        ranking: 'lowest-bid first, then higher rating/review-count as tie-break in close bids',
+      });
+    }));
+    const failure = results.find((result) => result.status === 'rejected');
+    if (failure) throw failure.reason;
   }
   } finally {
     autoAssignRunning = false;
@@ -415,14 +416,14 @@ function triggerAutoAssignExpiredBiddingTasks() {
 }
 
 async function getTaskById(id) {
-  triggerAutoAssignExpiredBiddingTasks();
+  if (!require('../../database/taskTransaction').inTaskTransaction()) triggerAutoAssignExpiredBiddingTasks();
   const task = await taskRepository.getTaskById(id);
   if (!task) {
     const err = new Error('Task not found');
     err.statusCode = 404;
     throw err;
   }
-  const hydratedTask = await hydrateTaskWithOverdue(task);
+  const hydratedTask = require('../../database/taskTransaction').inTaskTransaction() ? task : await hydrateTaskWithOverdue(task);
   const bidCount = hydratedTask?._count?.bids || 0;
   const taskMaxBids = Math.min(Number(hydratedTask?.maxBids || DEFAULT_MAX_BIDS), GLOBAL_MAX_BIDS);
   const biddingEndsAt = hydratedTask?.biddingEndsAt ? new Date(hydratedTask.biddingEndsAt) : null;
@@ -438,6 +439,10 @@ async function getTaskById(id) {
       bidCount >= GLOBAL_MAX_BIDS,
     biddingWindowHours: BIDDING_WINDOW_HOURS,
   };
+}
+
+async function getPublicTaskById(id) {
+  return toPublicTask(await getTaskById(id));
 }
 
 async function createTask(payload, currentUser) {
@@ -459,7 +464,11 @@ async function createTask(payload, currentUser) {
     category: payload.category,
     budget: payload.budget,
     maxBids: parseMaxBids(payload.maxBids),
-    location: payload.location,
+    location: payload.district,
+    district: payload.district,
+    siteAddress: payload.siteAddress,
+    siteLatitude: payload.siteLatitude,
+    siteLongitude: payload.siteLongitude,
     imageUrls: payload.imageUrls || [],
     dueDate,
     createdById: currentUser.id,
@@ -469,8 +478,10 @@ async function createTask(payload, currentUser) {
     riskLevel: risk.riskLevel,
   };
 
-  const task = await taskRepository.createTask(createPayload);
-  const suggestedSubtasks = await generateSuggestedSubtasks(payload.category, payload.title, payload.description);
+  const [task, suggestedSubtasks] = await Promise.all([
+    taskRepository.createTask(createPayload),
+    generateSuggestedSubtasks(payload.category, payload.title, payload.description),
+  ]);
   await taskRepository.createSubtasksForTask(task.id, suggestedSubtasks);
 
   await logActivity(task.id, currentUser.id, 'TASK_CREATED', 'Requester posted a new task.', {
@@ -496,7 +507,7 @@ async function listTasks(filters) {
     const isOverdueUnassigned = Boolean(task?.isOverdue) && !task?.assignedProviderId;
     return !isAssigned && !isOverdueUnassigned;
   });
-  return [...browseEligibleTasks].sort(compareTasksForBrowse);
+  return [...browseEligibleTasks].sort(compareTasksForBrowse).map(toPublicTask);
 }
 
 async function updateTaskStatus(id, status, currentUser) {
@@ -516,11 +527,12 @@ async function updateTaskStatus(id, status, currentUser) {
       throw err;
     }
 
-    if (task.escrowStatus !== 'HELD' && status !== 'ASSIGNED') {
+    if (task.escrowStatus !== 'HELD') {
       const err = new Error('Requester must deposit escrow before provider can change progress status');
       err.statusCode = 400;
       throw err;
     }
+    await trackingService.requireValidVerification(task, currentUser.id);
 
     const allowedProviderStatuses = ['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION'];
     if (!allowedProviderStatuses.includes(status)) {
@@ -529,6 +541,10 @@ async function updateTaskStatus(id, status, currentUser) {
       throw err;
     }
 
+    if (status === task.status) return task;
+    if (!((task.status === 'ASSIGNED' && status === 'IN_PROGRESS') || (task.status === 'IN_PROGRESS' && status === 'PENDING_CONFIRMATION'))) {
+      throw Object.assign(new Error('Invalid provider status transition'), { statusCode: 409 });
+    }
     const updatedTask = await taskRepository.updateTaskStatus(id, status);
     await logActivity(id, currentUser.id, 'STATUS_CHANGED', `Provider changed status to ${status}.`, {
       from: task.status,
@@ -544,40 +560,15 @@ async function updateTaskStatus(id, status, currentUser) {
       throw err;
     }
 
-    const allowedRequesterStatuses = ['OPEN', 'CANCELLED', 'COMPLETED', 'AWAITING_PAYMENT', 'PAID'];
-    if (!allowedRequesterStatuses.includes(status)) {
-      const err = new Error('Requesters can only set OPEN, CANCELLED, COMPLETED, AWAITING_PAYMENT, or PAID');
-      err.statusCode = 400;
-      throw err;
-    }
+    if (status === 'CANCELLED') return cancelTask(id, 'Requester cancelled task', currentUser);
+    if (status === 'COMPLETED') return confirmTaskCompletion(id, currentUser);
+    if (status === task.status) return task;
+    throw Object.assign(new Error('Use the dedicated cancellation or completion endpoint'), { statusCode: 409 });
 
-    if (status === 'COMPLETED' && task.status !== 'PENDING_CONFIRMATION') {
-      const err = new Error('Task must be pending confirmation before completing');
-      err.statusCode = 400;
-      throw err;
-    }
-
-    if (status === 'AWAITING_PAYMENT' && task.status !== 'COMPLETED') {
-      const err = new Error('Task must be COMPLETED before awaiting payment');
-      err.statusCode = 400;
-      throw err;
-    }
-
-    const updatedTask = await taskRepository.updateTaskStatus(id, status);
-    await logActivity(id, currentUser.id, 'STATUS_CHANGED', `Requester changed status to ${status}.`, {
-      from: task.status,
-      to: status,
-    });
-    return updatedTask;
   }
 
   if (role === 'ADMIN') {
-    const updatedTask = await taskRepository.updateTaskStatus(id, status);
-    await logActivity(id, currentUser.id, 'STATUS_CHANGED', `Admin changed status to ${status}.`, {
-      from: task.status,
-      to: status,
-    });
-    return updatedTask;
+    throw Object.assign(new Error('Use the dedicated dispute or settlement action'), { statusCode: 409 });
   }
 
   const err = new Error('Forbidden');
@@ -596,7 +587,24 @@ async function updateTask(id, payload, currentUser) {
 
   validateImageUrls(payload.imageUrls);
 
+  const editable = ['title', 'description', 'category', 'budget', 'location', 'district', 'siteAddress', 'siteLatitude', 'siteLongitude', 'dueDate', 'deadline', 'maxBids', 'imageUrls'];
+  if (Object.keys(payload).some(key => !editable.includes(key))) throw Object.assign(new Error('Protected task fields cannot be edited'), { statusCode: 400 });
+  if (!['OPEN', 'BIDDING'].includes(task.status)) throw Object.assign(new Error('Assigned task terms cannot be edited'), { statusCode: 409 });
   const updatePayload = { ...payload };
+  const siteKeys = ['location', 'district', 'siteAddress', 'siteLatitude', 'siteLongitude'];
+  const siteChanged = siteKeys.some(key => Object.prototype.hasOwnProperty.call(payload, key));
+  if (siteChanged) {
+    const nextSite = {
+      district: payload.district ?? payload.location ?? task.district ?? task.location,
+      siteAddress: payload.siteAddress ?? task.siteAddress,
+      siteLatitude: payload.siteLatitude ?? task.siteLatitude,
+      siteLongitude: payload.siteLongitude ?? task.siteLongitude,
+    };
+    if (!nextSite.district || !nextSite.siteAddress || !Number.isFinite(nextSite.siteLatitude) || !Number.isFinite(nextSite.siteLongitude)) {
+      throw Object.assign(new Error('Complete task address and coordinates are required'), { statusCode: 400 });
+    }
+    Object.assign(updatePayload, nextSite, { location: nextSite.district, siteVersion: Number(task.siteVersion || 1) + 1 });
+  }
   if (Object.prototype.hasOwnProperty.call(payload, 'dueDate') || Object.prototype.hasOwnProperty.call(payload, 'deadline')) {
     updatePayload.dueDate = parseDueDate(payload.dueDate || payload.deadline);
   }
@@ -627,6 +635,7 @@ async function updateTask(id, payload, currentUser) {
   updatePayload.riskLevel = risk.riskLevel;
 
   const updatedTask = await taskRepository.updateTask(id, updatePayload);
+  if (siteChanged) await trackingService.revokeTaskVerification(id, 'TASK_SITE_CHANGED');
   await logActivity(id, currentUser.id, 'TASK_UPDATED', 'Requester updated task details.', {
     fields: Object.keys(updatePayload),
     riskLevel: risk.riskLevel,
@@ -647,7 +656,8 @@ async function unsaveTask(userId, taskId) {
 }
 
 async function listSavedTasks(userId) {
-  return taskRepository.listSavedTasksForUser(userId);
+  const saved = await taskRepository.listSavedTasksForUser(userId);
+  return saved.map(item => ({ ...item, task: toPublicTask(item.task) }));
 }
 
 async function assignProvider(taskId, bidId, currentUser) {
@@ -743,7 +753,7 @@ async function listSuggestedTasksForProvider(currentUser) {
       const statusScore = scoreStatusPriority(task);
       const total = specialtyScore + districtScore + statusScore;
       return {
-        ...task,
+        ...toPublicTask(task),
         suggestionScore: total,
       };
     })
@@ -763,12 +773,14 @@ async function getTaskProgress(taskId, currentUser) {
     throw err;
   }
 
-  const updates = await taskRepository.listProgressUpdatesForTask(taskId);
-  const subtasks = await taskRepository.listSubtasksForTask(taskId);
+  const [updates, subtasks, disputes, activities, payments] = await Promise.all([
+    taskRepository.listProgressUpdatesForTask(taskId),
+    taskRepository.listSubtasksForTask(taskId),
+    taskRepository.listDisputesForTask(taskId),
+    taskRepository.listTaskActivity(taskId, 120),
+    taskRepository.listPaymentTransactionsForTask(taskId),
+  ]);
   const latestUpdate = updates[0] || null;
-  const disputes = await taskRepository.listDisputesForTask(taskId);
-  const activities = await taskRepository.listTaskActivity(taskId, 120);
-  const payments = await taskRepository.listPaymentTransactionsForTask(taskId);
 
   return {
     task,
@@ -806,6 +818,8 @@ async function updateTaskSubtaskStatus(taskId, subtaskId, payload, currentUser) 
     err.statusCode = 403;
     throw err;
   }
+  if (task.escrowStatus !== 'HELD') throw Object.assign(new Error('Requester must fund escrow before progress updates'), { statusCode: 409 });
+  await trackingService.requireValidVerification(task, currentUser.id);
   if (!['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION'].includes(task.status)) {
     const err = new Error('Subtask updates are only allowed for active assigned tasks');
     err.statusCode = 400;
@@ -825,6 +839,7 @@ async function updateTaskSubtaskStatus(taskId, subtaskId, payload, currentUser) 
     err.statusCode = 400;
     throw err;
   }
+  if (task.status === 'ASSIGNED') await taskRepository.updateTaskStatus(taskId, 'IN_PROGRESS');
 
   const subtasks = await taskRepository.listSubtasksForTask(taskId);
   const doneCount = subtasks.filter((item) => item.status === 'DONE').length;
@@ -868,6 +883,7 @@ async function createTaskProgressUpdate(taskId, payload, currentUser) {
     err.statusCode = 400;
     throw err;
   }
+  await trackingService.requireValidVerification(task, currentUser.id);
 
   if (!['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION'].includes(task.status)) {
     const err = new Error('Task progress can only be updated for active assigned tasks');
@@ -897,7 +913,7 @@ async function createTaskProgressUpdate(taskId, payload, currentUser) {
   let nextStatus = task.status;
   if (markAsCompleted) {
     nextStatus = 'PENDING_CONFIRMATION';
-  } else if (['ASSIGNED', 'PENDING_CONFIRMATION'].includes(task.status)) {
+  } else if (task.status === 'ASSIGNED') {
     nextStatus = 'IN_PROGRESS';
   }
 
@@ -953,7 +969,8 @@ async function confirmTaskCompletion(taskId, currentUser) {
     throw err;
   }
 
-  if (task.status !== 'PENDING_CONFIRMATION') {
+  if (task.status === 'PAID' && task.escrowStatus === 'RELEASED') return { success: true, task };
+  if (!['PENDING_CONFIRMATION', 'COMPLETED'].includes(task.status)) {
     const err = new Error('Task must be pending confirmation before requester confirmation');
     err.statusCode = 400;
     throw err;
@@ -1050,6 +1067,7 @@ async function openTaskDispute(taskId, payload, currentUser) {
   }
 
   const updatedTask = await taskRepository.updateTask(taskId, nextTaskData);
+  await trackingService.revokeTaskVerification(taskId, 'TASK_DISPUTED');
 
   await logActivity(taskId, currentUser.id, 'DISPUTE_OPENED', `Dispute opened: ${payload.reason}.`, {
     disputeId: dispute.id,
@@ -1115,10 +1133,11 @@ async function reviewDisputeByAdmin(taskId, disputeId, payload, currentUser) {
     });
   } else if (task.status === 'DISPUTED' && ['REJECTED', 'CLOSED'].includes(payload.status)) {
     const progressCount = await taskRepository.countProgressUpdatesForTask(taskId);
+    const funded = await require('../payments/repository').findLatestSuccessfulEscrowDeposit(taskId);
     task = await taskRepository.updateTask(taskId, {
-      status: progressCount > 0 ? 'IN_PROGRESS' : 'ASSIGNED',
-      escrowStatus: task.escrowStatus === 'FROZEN' ? 'HELD' : task.escrowStatus,
-      paymentStatus: task.paymentStatus === 'FROZEN' ? 'ESCROW_HELD' : task.paymentStatus,
+      status: funded && progressCount > 0 ? 'IN_PROGRESS' : 'ASSIGNED',
+      escrowStatus: task.escrowStatus === 'FROZEN' ? (funded ? 'HELD' : 'PENDING_DEPOSIT') : task.escrowStatus,
+      paymentStatus: task.paymentStatus === 'FROZEN' ? (funded ? 'ESCROW_HELD' : 'ESCROW_PENDING') : task.paymentStatus,
     });
   }
 
@@ -1176,10 +1195,11 @@ async function cancelTask(taskId, reason, currentUser) {
       status: 'CANCELLED',
       canceledAt: new Date(),
       cancellationReason: reason,
-      paymentStatus: task.paymentStatus === 'ESCROW_PENDING' ? 'REFUNDED' : task.paymentStatus,
-      escrowStatus: task.escrowStatus === 'PENDING_DEPOSIT' ? 'REFUNDED' : task.escrowStatus,
+      paymentStatus: task.paymentStatus === 'ESCROW_PENDING' ? 'UNPAID' : task.paymentStatus,
+      escrowStatus: task.escrowStatus === 'PENDING_DEPOSIT' ? 'NONE' : task.escrowStatus,
     });
   }
+  await trackingService.revokeTaskVerification(taskId, 'TASK_CANCELLED');
 
   await logActivity(taskId, currentUser.id, 'TASK_CANCELLED', 'Requester cancelled task.', {
     reason,
@@ -1209,6 +1229,7 @@ module.exports = {
   createTask,
   listTasks,
   getTaskById,
+  getPublicTaskById,
   updateTaskStatus,
   updateTask,
   saveTask,
@@ -1229,3 +1250,9 @@ module.exports = {
   cancelTask,
   listAllDisputesForAdmin,
 };
+
+// The same task lock also serializes payment confirmation, refund and GPS writes.
+for (const name of ['updateTaskStatus', 'updateTask', 'updateTaskSubtaskStatus', 'createTaskProgressUpdate', 'confirmTaskCompletion', 'openTaskDispute', 'reviewDisputeByAdmin', 'cancelTask']) {
+  const action = module.exports[name];
+  module.exports[name] = (taskId, ...args) => require('../../database/taskTransaction').withTaskLock(taskId, () => action(taskId, ...args));
+}

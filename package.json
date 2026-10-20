@@ -4,6 +4,7 @@
   "description": "Backend system for ConnectMyTask capstone project",
   "main": "src/server.js",
   "scripts": {
+    "build": "prisma generate",
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "mobile:start": "npm --prefix frontend-mobile run start",
@@ -16,7 +17,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
-    "prisma:seed": "node database/prisma/seed.js"
+    "prisma:seed": "node database/prisma/seed.js",
+    "prisma:seed:test": "node database/prisma/seed-test-accounts.js"
   },
   "keywords": [
     "express",
@@ -30,6 +32,8 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@neon/config": "^1.9.2",
+    "@neon/env": "^1.6.3",
     "@prisma/client": "^6.19.2",
     "axios": "^1.13.5",
     "bcryptjs": "^3.0.3",

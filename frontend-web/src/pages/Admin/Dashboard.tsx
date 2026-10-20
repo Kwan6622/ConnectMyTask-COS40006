@@ -7,7 +7,7 @@ import { api } from '../../services/api';
 import { formatVnd } from '../../utils';
 import toast from 'react-hot-toast';
 
-type AdminTab = 'overview' | 'tasks' | 'certificates' | 'payments' | 'disputes';
+type AdminTab = 'overview' | 'users' | 'tasks' | 'certificates' | 'payments' | 'disputes' | 'support';
 
 export const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -18,27 +18,47 @@ export const AdminDashboard: React.FC = () => {
   const [suspiciousTasks, setSuspiciousTasks] = useState<any[]>([]);
   const [certificates, setCertificates] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [disputes, setDisputes] = useState<any[]>([]);
+  const [supportTickets, setSupportTickets] = useState<any[]>([]);
+  const [taskStatusFilter, setTaskStatusFilter] = useState('ALL');
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const isAdmin = String(user?.role || '').toUpperCase() === 'ADMIN';
 
   const loadAdminData = async () => {
     setIsLoading(true);
+    setLoadError(null);
     try {
-      const [statsRes, tasksRes, suspiciousRes, certsRes, paymentsRes] = await Promise.all([
+      const results = await Promise.allSettled([
         api.admin.getStats(),
+        api.admin.getUsers(),
         api.admin.getTasks(),
         api.admin.getSuspiciousTasks(),
         api.admin.getCertificates(),
         api.admin.getPayments(),
+        api.admin.getDisputes(),
+        api.support.list({ limit: 50 }),
       ]);
-      setStats(statsRes.data || null);
-      setTasks(tasksRes.data || []);
-      setSuspiciousTasks(suspiciousRes.data || []);
-      setCertificates(certsRes.data || []);
-      setPayments(paymentsRes.data || []);
+      const data = (index: number) => {
+        const result = results[index];
+        return result?.status === 'fulfilled' ? result.value.data : undefined;
+      };
+      if (data(0) !== undefined) setStats(data(0) || null);
+      if (data(1) !== undefined) setUsers(data(1) || []);
+      if (data(2) !== undefined) setTasks(data(2) || []);
+      if (data(3) !== undefined) setSuspiciousTasks(data(3) || []);
+      if (data(4) !== undefined) setCertificates(data(4) || []);
+      if (data(5) !== undefined) setPayments(data(5) || []);
+      if (data(6) !== undefined) setDisputes(data(6) || []);
+      if (data(7) !== undefined) setSupportTickets(data(7)?.items || []);
+      const failedCount = results.filter((result) => result.status === 'rejected').length;
+      if (failedCount) setLoadError(`${failedCount} admin section${failedCount === 1 ? '' : 's'} could not be loaded. Available sections remain usable.`);
     } catch (error: any) {
-      toast.error(error?.response?.data?.message || 'Failed to load admin data');
+      const message = error?.response?.data?.message || 'Failed to load admin data';
+      setLoadError(message);
+      toast.error(message);
     } finally {
       setIsLoading(false);
     }
@@ -54,10 +74,12 @@ export const AdminDashboard: React.FC = () => {
 
   const tabs: Array<{ id: AdminTab; label: string }> = [
     { id: 'overview', label: 'Overview' },
+    { id: 'users', label: 'Users' },
     { id: 'tasks', label: 'Tasks' },
     { id: 'certificates', label: 'Certificates' },
     { id: 'payments', label: 'Payments / Escrow' },
     { id: 'disputes', label: 'Disputes / Reports' },
+    { id: 'support', label: 'Support' },
   ];
 
   const overviewCards = useMemo(() => ([
@@ -67,11 +89,13 @@ export const AdminDashboard: React.FC = () => {
     { label: 'Escrow-held Payments', value: stats?.escrowHeldPayments ?? 0 },
     { label: 'Pending Certificates', value: stats?.pendingCertificates ?? 0 },
     { label: 'Disputes', value: stats?.disputes ?? 0 },
+    { label: 'Open Support Tickets', value: stats?.openSupportTickets ?? 0 },
     { label: 'Escrow Held Amount', value: formatVnd(stats?.totalEscrowHeldAmount ?? 0) },
     { label: 'Platform Revenue (20%)', value: formatVnd(stats?.totalPlatformRevenue ?? 0) },
   ]), [stats]);
 
   const handleDeleteTask = async (taskId: string | number) => {
+    if (!window.confirm('Soft-delete this task? Active escrow and disputes cannot be overridden.')) return;
     try {
       await api.admin.deleteTask(taskId);
       toast.success('Task soft-deleted');
@@ -106,6 +130,7 @@ export const AdminDashboard: React.FC = () => {
   };
 
   const handleReleasePayment = async (paymentId: string | number) => {
+    if (!window.confirm('Release this funded escrow using the existing settlement rules?')) return;
     try {
       await api.admin.releasePayment(paymentId);
       toast.success('Escrow released');
@@ -114,6 +139,31 @@ export const AdminDashboard: React.FC = () => {
       toast.error(error?.response?.data?.message || 'Failed to release escrow');
     }
   };
+
+  const handleUserStatus = async (target: any) => {
+    const nextStatus = target.status === 'SUSPENDED' ? 'ACTIVE' : 'SUSPENDED';
+    if (!window.confirm(`${nextStatus === 'SUSPENDED' ? 'Suspend' : 'Reactivate'} ${target.email}?`)) return;
+    try {
+      await api.admin.updateUserStatus(target.id, nextStatus);
+      toast.success(`User is now ${nextStatus.toLowerCase()}`);
+      await loadAdminData();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Failed to update user status');
+    }
+  };
+
+  const handleDispute = async (dispute: any, status: 'UNDER_REVIEW' | 'CLOSED') => {
+    if (!window.confirm(`Set dispute #${dispute.id} to ${status}? No payment override will be performed.`)) return;
+    try {
+      await api.admin.reviewDispute(dispute.taskId, dispute.id, { status, action: 'NONE' });
+      toast.success('Dispute updated');
+      await loadAdminData();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Failed to update dispute');
+    }
+  };
+
+  const filteredTasks = taskStatusFilter === 'ALL' ? tasks : tasks.filter((task) => task.status === taskStatusFilter);
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4">
@@ -134,6 +184,13 @@ export const AdminDashboard: React.FC = () => {
           ))}
         </div>
 
+        {loadError && (
+          <Card className="p-4 mb-6 border border-red-200 bg-red-50">
+            <p className="text-sm text-red-700">{loadError}</p>
+            <Button className="mt-2" variant="outline" onClick={loadAdminData}>Retry</Button>
+          </Card>
+        )}
+
         {tab === 'overview' && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {overviewCards.map((card) => (
@@ -145,19 +202,46 @@ export const AdminDashboard: React.FC = () => {
           </div>
         )}
 
+        {tab === 'users' && (
+          <Card className="p-4">
+            <p className="font-semibold text-gray-900 mb-3">Users</p>
+            <div className="space-y-3">
+              {users.map((item) => (
+                <div key={item.id} className="border rounded-lg p-3 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">{item.name} <span className="text-xs text-gray-500">{item.role}</span></p>
+                    <p className="text-sm text-gray-600">{item.email}</p>
+                    <p className="text-xs text-gray-500">Status: {item.status} · Created tasks: {item._count?.tasksCreated || 0} · Disputes: {item._count?.disputesOpened || 0}</p>
+                  </div>
+                  {item.role !== 'ADMIN' && <Button variant="outline" onClick={() => handleUserStatus(item)}>{item.status === 'SUSPENDED' ? 'Reactivate' : 'Suspend'}</Button>}
+                </div>
+              ))}
+              {users.length === 0 && !isLoading && <p className="text-sm text-gray-500">No users found.</p>}
+            </div>
+          </Card>
+        )}
+
         {tab === 'tasks' && (
           <div className="space-y-4">
             <Card className="p-4">
-              <p className="font-semibold text-gray-900 mb-2">All Tasks</p>
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <p className="font-semibold text-gray-900">All Tasks</p>
+                <select value={taskStatusFilter} onChange={(event) => setTaskStatusFilter(event.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                  <option value="ALL">All statuses</option>
+                  {['OPEN', 'BIDDING', 'ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION', 'COMPLETED', 'DISPUTED', 'CANCELLED'].map((status) => <option key={status}>{status}</option>)}
+                </select>
+              </div>
               <div className="space-y-2 max-h-[300px] overflow-auto">
-                {tasks.map((task) => (
+                {filteredTasks.map((task) => (
                   <div key={task.id} className="border rounded-lg p-3">
                     <p className="font-semibold">{task.title}</p>
                     <p className="text-xs text-gray-500">{task.category} • {task.status}</p>
                     <p className="text-xs text-gray-500">Requester: {task.createdBy?.name || '-'}</p>
+                    <p className="text-xs text-gray-500">Provider: {task.assignedProvider?.name || 'Unassigned'} · Escrow: {task.escrowStatus || 'NONE'} · Payment: {task.paymentStatus || 'UNPAID'}</p>
+                    <p className="text-xs text-gray-500">GPS: {task.gpsVerificationStatus || 'NOT_REQUIRED'} · Disputes: {task._count?.disputes || 0}</p>
                   </div>
                 ))}
-                {tasks.length === 0 && <p className="text-sm text-gray-500">No tasks found.</p>}
+                {filteredTasks.length === 0 && <p className="text-sm text-gray-500">No tasks found.</p>}
               </div>
             </Card>
             <Card className="p-4">
@@ -226,8 +310,29 @@ export const AdminDashboard: React.FC = () => {
         )}
 
         {tab === 'disputes' && (
-          <Card className="p-6">
-            <p className="text-sm text-gray-600">Use task detail + dispute management flow to resolve disputes. Live dispute count is shown in Overview.</p>
+          <Card className="p-4">
+            <p className="font-semibold text-gray-900 mb-3">Disputes</p>
+            <div className="space-y-3">
+              {disputes.map((dispute) => (
+                <div key={dispute.id} className="border rounded-lg p-3">
+                  <p className="font-semibold">{dispute.task?.title || `Task #${dispute.taskId}`}</p>
+                  <p className="text-sm text-gray-700">{dispute.reason}: {dispute.description || 'No description'}</p>
+                  <p className="text-xs text-gray-500">Status: {dispute.status} · Escrow: {dispute.task?.escrowStatus || 'NONE'} · Opened by: {dispute.openedBy?.name || '-'}</p>
+                  {['OPEN', 'UNDER_REVIEW'].includes(dispute.status) && <div className="flex gap-2 mt-2"><Button variant="outline" onClick={() => handleDispute(dispute, 'UNDER_REVIEW')}>Review</Button><Button variant="outline" onClick={() => handleDispute(dispute, 'CLOSED')}>Close (no settlement)</Button></div>}
+                </div>
+              ))}
+              {disputes.length === 0 && <p className="text-sm text-gray-500">No disputes.</p>}
+            </div>
+          </Card>
+        )}
+
+        {tab === 'support' && (
+          <Card className="p-4">
+            <div className="flex items-center justify-between mb-3"><p className="font-semibold text-gray-900">Support Tickets</p><Button variant="outline" onClick={() => navigate('/support')}>Open Support Center</Button></div>
+            <div className="space-y-3">
+              {supportTickets.map((ticket) => <div key={ticket.id} className="border rounded-lg p-3"><p className="font-semibold">{ticket.subject}</p><p className="text-xs text-gray-500">{ticket.category} · {ticket.priority} · {ticket.status} · {ticket.requester?.name || '-'}</p></div>)}
+              {supportTickets.length === 0 && <p className="text-sm text-gray-500">No support tickets.</p>}
+            </div>
           </Card>
         )}
       </div>

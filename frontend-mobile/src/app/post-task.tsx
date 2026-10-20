@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { MarketplaceShell } from "@/components/MarketplaceShell";
 import { Badge } from "@/components/Badge";
@@ -17,7 +18,7 @@ import { uploadImageToCloudinary } from "@/utils/cloudinaryUpload";
 import { formatCategoryLabel, formatCurrency, isRequester } from "@/utils/taskUtils";
 import { api } from "@/services/api";
 
-type FieldErrors = Partial<Record<"title" | "description" | "location" | "budget" | "maxBids" | "dueDate", string>>;
+type FieldErrors = Partial<Record<"title" | "description" | "location" | "siteAddress" | "coordinates" | "budget" | "maxBids" | "dueDate", string>>;
 
 type AiBudgetSuggestion = {
   suggestedBudget: number;
@@ -42,6 +43,9 @@ function validateForm({
   title,
   description,
   location,
+  siteAddress,
+  siteLatitude,
+  siteLongitude,
   budget,
   maxBids,
   dueDate,
@@ -49,6 +53,9 @@ function validateForm({
   title: string;
   description: string;
   location: string;
+  siteAddress: string;
+  siteLatitude: string;
+  siteLongitude: string;
   budget: string;
   maxBids: string;
   dueDate: string;
@@ -57,6 +64,14 @@ function validateForm({
   if (!title.trim()) next.title = "Task title is required.";
   if (!description.trim()) next.description = "Description is required.";
   if (!location.trim()) next.location = "Location is required.";
+  if (!siteAddress.trim()) next.siteAddress = "Precise task address is required.";
+  const latitude = Number(siteLatitude);
+  const longitude = Number(siteLongitude);
+  if (!siteLatitude.trim() || !siteLongitude.trim()
+    || !Number.isFinite(latitude) || latitude < -90 || latitude > 90
+    || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+    next.coordinates = "Capture or enter valid task coordinates.";
+  }
 
   const budgetValue = parseVndInput(budget);
   if (!budget.trim()) {
@@ -99,6 +114,10 @@ export default function PostTaskScreen(): React.ReactElement {
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<TaskCategory>(TaskCategory.DELIVERY);
   const [location, setLocation] = useState("");
+  const [siteAddress, setSiteAddress] = useState("");
+  const [siteLatitude, setSiteLatitude] = useState("");
+  const [siteLongitude, setSiteLongitude] = useState("");
+  const [isCapturingSite, setIsCapturingSite] = useState(false);
   const [budget, setBudget] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [maxBids, setMaxBids] = useState("30");
@@ -127,6 +146,28 @@ export default function PostTaskScreen(): React.ReactElement {
 
     if (result.canceled || !result.assets?.[0]) return;
     setSelectedImages((current) => [...current, result.assets[0]].slice(0, 3));
+  };
+
+  const captureTaskCoordinates = async (): Promise<void> => {
+    setIsCapturingSite(true);
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') throw new Error('Foreground location permission is required.');
+      const point = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      setSiteLatitude(String(point.coords.latitude));
+      setSiteLongitude(String(point.coords.longitude));
+      if (!siteAddress.trim()) {
+        const [address] = await Location.reverseGeocodeAsync(point.coords);
+        if (address) {
+          setSiteAddress([address.name, address.street, address.district, address.city]
+            .filter(Boolean).join(', '));
+        }
+      }
+    } catch (error: any) {
+      Alert.alert('Location unavailable', error?.message || 'Could not capture task coordinates.');
+    } finally {
+      setIsCapturingSite(false);
+    }
   };
 
   const handleGetAiBudgetSuggestion = async (): Promise<void> => {
@@ -179,7 +220,9 @@ export default function PostTaskScreen(): React.ReactElement {
       return;
     }
 
-    const validation = validateForm({ title, description, location, budget, maxBids, dueDate });
+    const validation = validateForm({
+      title, description, location, siteAddress, siteLatitude, siteLongitude, budget, maxBids, dueDate,
+    });
     setErrors(validation);
     setFormError("");
     if (Object.keys(validation).length > 0) return;
@@ -212,6 +255,10 @@ export default function PostTaskScreen(): React.ReactElement {
         aiSuggestedPrice: aiSuggestion?.suggestedBudget,
         maxBids: Number(maxBids || 30),
         location: location.trim(),
+        district: location.trim(),
+        siteAddress: siteAddress.trim(),
+        siteLatitude: Number(siteLatitude),
+        siteLongitude: Number(siteLongitude),
         createdById,
         imageUrls,
         dueDate: dueDate.trim() || undefined,
@@ -325,11 +372,37 @@ export default function PostTaskScreen(): React.ReactElement {
           </View>
 
           <Input
-            label="Location*"
+            label="Public District*"
             placeholder="Example: District 1, Ho Chi Minh City"
             value={location}
             onChangeText={setLocation}
             error={errors.location}
+          />
+          <Input
+            label="Precise Task Address*"
+            placeholder="Only assigned provider and requester can access this"
+            value={siteAddress}
+            onChangeText={setSiteAddress}
+            error={errors.siteAddress}
+          />
+          <Input
+            label="Task Latitude*"
+            keyboardType="numbers-and-punctuation"
+            value={siteLatitude}
+            onChangeText={setSiteLatitude}
+          />
+          <Input
+            label="Task Longitude*"
+            keyboardType="numbers-and-punctuation"
+            value={siteLongitude}
+            onChangeText={setSiteLongitude}
+            error={errors.coordinates}
+          />
+          <Button
+            title={isCapturingSite ? "Capturing..." : "Use Current GPS for Task Site"}
+            variant="outline"
+            loading={isCapturingSite}
+            onPress={() => void captureTaskCoordinates()}
           />
 
           <View style={styles.aiSuggestionBox}>

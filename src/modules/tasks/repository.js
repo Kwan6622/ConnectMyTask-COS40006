@@ -1,4 +1,4 @@
-const { prisma } = require('../../database/prisma');
+const { prisma } = require('../../database/taskTransaction');
 
 const requesterSelect = {
   id: true,
@@ -153,6 +153,33 @@ async function updateTask(id, data) {
   return prisma.task.update({
     where: { id },
     data,
+  });
+}
+
+async function markTasksOverdue(taskIds, now) {
+  if (!taskIds.length) return { newlyNotified: [], marked: [] };
+  const where = {
+    id: { in: taskIds },
+    isDeleted: false,
+    isOverdue: false,
+    dueDate: { lt: now },
+    status: { in: ['OPEN', 'BIDDING', 'ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION', 'DISPUTED'] },
+  };
+  const newlyNotified = await prisma.task.updateManyAndReturn({
+    where: { ...where, overdueNotifiedAt: null },
+    data: { isOverdue: true, overdueNotifiedAt: now },
+  });
+  const previouslyNotified = await prisma.task.updateManyAndReturn({
+    where: { ...where, overdueNotifiedAt: { not: null } },
+    data: { isOverdue: true },
+  });
+  return { newlyNotified, marked: [...newlyNotified, ...previouslyNotified] };
+}
+
+async function getTaskOverdueStates(taskIds) {
+  return prisma.task.findMany({
+    where: { id: { in: taskIds } },
+    select: { id: true, isOverdue: true, overdueNotifiedAt: true },
   });
 }
 
@@ -359,6 +386,25 @@ async function assignProviderFromBid(taskId, bidId) {
       throw err;
     }
 
+    const claimed = await tx.task.updateMany({
+      where: { id: taskId, isDeleted: false, status: { in: ['OPEN', 'BIDDING'] }, assignedProviderId: null },
+      data: {
+        assignedProviderId: bid.providerId,
+        status: 'ASSIGNED',
+        biddingEndsAt: new Date(),
+        escrowStatus: 'PENDING_DEPOSIT',
+        paymentStatus: 'ESCROW_PENDING',
+        escrowAmount: bid.price,
+        escrowHeldAt: null,
+        escrowReleasedAt: null,
+      },
+    });
+    if (!claimed.count) {
+      const err = new Error('Task is no longer available for assignment');
+      err.statusCode = 409;
+      throw err;
+    }
+
     const acceptedBid = await tx.bid.update({
       where: { id: bidId },
       data: { status: 'ACCEPTED' },
@@ -370,20 +416,6 @@ async function assignProviderFromBid(taskId, bidId) {
         id: { not: bidId },
       },
       data: { status: 'REJECTED' },
-    });
-
-    await tx.task.update({
-      where: { id: taskId },
-      data: {
-        assignedProviderId: acceptedBid.providerId,
-        status: 'ASSIGNED',
-        biddingEndsAt: new Date(),
-        escrowStatus: 'PENDING_DEPOSIT',
-        paymentStatus: 'ESCROW_PENDING',
-        escrowAmount: task.budget,
-        escrowHeldAt: null,
-        escrowReleasedAt: null,
-      },
     });
 
     return acceptedBid;
@@ -435,16 +467,35 @@ async function getProviderRatingStats(providerIds) {
 }
 
 async function autoAssignProviderFromBid(taskId, bidId) {
-  return prisma.$transaction(async (tx) => {
+  try {
+    return await prisma.$transaction(async (tx) => {
     const task = await tx.task.findUnique({ where: { id: taskId } });
     if (!task) return null;
-    if (task.assignedProviderId || task.status !== 'BIDDING') return null;
+    if (task.assignedProviderId || task.status !== 'BIDDING' || !task.biddingEndsAt || task.biddingEndsAt > new Date()) return null;
 
     const bid = await tx.bid.findUnique({ where: { id: bidId } });
-    if (!bid || bid.taskId !== taskId) return null;
+    if (!bid || bid.taskId !== taskId || bid.status !== 'PENDING') return null;
+
+    const claimed = await tx.task.updateMany({
+      where: {
+        id: taskId, isDeleted: false, status: 'BIDDING', assignedProviderId: null,
+        biddingEndsAt: { lte: new Date() },
+      },
+      data: {
+        assignedProviderId: bid.providerId,
+        status: 'ASSIGNED',
+        biddingEndsAt: new Date(),
+        escrowStatus: 'PENDING_DEPOSIT',
+        paymentStatus: 'ESCROW_PENDING',
+        escrowAmount: bid.price,
+        escrowHeldAt: null,
+        escrowReleasedAt: null,
+      },
+    });
+    if (!claimed.count) return null;
 
     const acceptedBid = await tx.bid.update({
-      where: { id: bidId },
+      where: { id: bidId, taskId, status: 'PENDING' },
       data: { status: 'ACCEPTED' },
     });
 
@@ -457,22 +508,12 @@ async function autoAssignProviderFromBid(taskId, bidId) {
       data: { status: 'REJECTED' },
     });
 
-    await tx.task.update({
-      where: { id: taskId },
-      data: {
-        assignedProviderId: acceptedBid.providerId,
-        status: 'ASSIGNED',
-        biddingEndsAt: new Date(),
-        escrowStatus: 'PENDING_DEPOSIT',
-        paymentStatus: 'ESCROW_PENDING',
-        escrowAmount: task.budget,
-        escrowHeldAt: null,
-        escrowReleasedAt: null,
-      },
-    });
-
     return acceptedBid;
-  });
+    });
+  } catch (error) {
+    if (error.code === 'P2025') return null;
+    throw error;
+  }
 }
 
 async function listPaymentTransactionsForTask(taskId) {
@@ -607,6 +648,8 @@ module.exports = {
   getTaskById,
   updateTaskStatus,
   updateTask,
+  markTasksOverdue,
+  getTaskOverdueStates,
   saveTaskForUser,
   unsaveTaskForUser,
   listSavedTasksForUser,

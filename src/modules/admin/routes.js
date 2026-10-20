@@ -7,6 +7,8 @@ const router = express.Router();
 router.use(authenticate, requireRoles('ADMIN'));
 
 router.get('/stats', adminController.getStats);
+router.get('/users', adminController.getUsers);
+router.patch('/users/:id/status', adminController.updateUserStatus);
 router.get('/tasks', adminController.getTasks);
 router.get('/tasks/suspicious', adminController.getSuspiciousTasks);
 router.delete('/tasks/:id', adminController.deleteTask);

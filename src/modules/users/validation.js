@@ -10,9 +10,12 @@ const getUserParamsSchema = z.object({
   id: z.string().regex(/^\d+$/),
 });
 
-const updateProfilePhotoSchema = z.object({
-  profilePhotoUrl: z.string().url(),
-});
+const updateProfileSchema = z.object({
+  name: z.string().trim().min(2).max(120).optional(),
+  phone: z.string().trim().max(30).nullable().optional(),
+  bio: z.string().trim().max(500).nullable().optional(),
+  profilePhotoUrl: z.string().url().optional(),
+}).strict().refine((value) => Object.keys(value).length > 0, 'Provide at least one profile field');
 
 const updateProviderProfileSchema = z.object({
   address: z.string().trim().min(3).max(200).optional(),
@@ -41,7 +44,7 @@ const verifyProviderCertificateSchema = z.object({
 module.exports = {
   createUserSchema,
   getUserParamsSchema,
-  updateProfilePhotoSchema,
+  updateProfileSchema,
   updateProviderProfileSchema,
   createProviderCertificateSchema,
   certificateIdParamsSchema,

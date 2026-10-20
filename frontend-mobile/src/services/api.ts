@@ -99,6 +99,15 @@ apiClient.interceptors.response.use(
 );
 
 class ApiService {
+  support = {
+    list: (params?: Record<string, string | number>) => apiClient.get('/support/tickets', { params }),
+    create: (data: Record<string, unknown>) => apiClient.post('/support/tickets', data),
+    get: (id: number) => apiClient.get(`/support/tickets/${id}`),
+    messages: (id: number, page = 1) => apiClient.get(`/support/tickets/${id}/messages`, { params: { page } }),
+    activity: (id: number, page = 1) => apiClient.get(`/support/tickets/${id}/activity`, { params: { page } }),
+    reply: (id: number, data: Record<string, unknown>) => apiClient.post(`/support/tickets/${id}/messages`, data),
+    update: (id: number, data: Record<string, string>) => apiClient.patch(`/support/tickets/${id}`, data),
+  };
   auth = {
     login: (email: string, password: string) => apiClient.post("/auth/login", { email, password }),
     signup: (data: any) => apiClient.post("/auth/signup", data),
@@ -150,6 +159,29 @@ class ApiService {
     getSavedMe: () => apiClient.get("/tasks/saved/me"),
   };
 
+  tracking = {
+    verify: (taskId: string | number, data: {
+      requestId: string;
+      lat: number;
+      lng: number;
+      accuracy: number;
+      timestamp: string;
+    }) => apiClient.post(`/tracking/tasks/${taskId}/verify`, data),
+    getVerification: (taskId: string | number) =>
+      apiClient.get(`/tracking/tasks/${taskId}/verification`),
+    update: (data: {
+      taskId: number;
+      lat: number;
+      lng: number;
+      accuracy: number;
+      timestamp: string;
+    }) => apiClient.post('/tracking/update', data),
+    latest: (taskId: string | number) =>
+      apiClient.get(`/tracking/tasks/${taskId}/latest`),
+    history: (taskId: string | number) =>
+      apiClient.get(`/tracking/tasks/${taskId}/history`),
+  };
+
   bids = {
     getAll: (taskId: string | number) => apiClient.get(`/tasks/${taskId}/bids`),
     create: (taskId: string | number, data: any) => apiClient.post(`/tasks/${taskId}/bids`, data),
@@ -158,6 +190,9 @@ class ApiService {
 
   users = {
     getProfile: (id: string | number) => apiClient.get(`/users/${id}`),
+    getMe: () => apiClient.get('/users/me'),
+    updateProfile: (data: { name?: string; phone?: string | null; bio?: string | null; profilePhotoUrl?: string }) =>
+      apiClient.patch('/users/me', data),
     updateProfilePhoto: (profilePhotoUrl: string) => apiClient.patch("/users/me", { profilePhotoUrl }),
     updateProviderProfile: (data: {
       address?: string;
@@ -219,6 +254,9 @@ class ApiService {
 
   admin = {
     getStats: () => apiClient.get("/admin/stats"),
+    getUsers: () => apiClient.get("/admin/users"),
+    updateUserStatus: (userId: string | number, status: "ACTIVE" | "SUSPENDED") =>
+      apiClient.patch(`/admin/users/${userId}/status`, { status }),
     getTasks: () => apiClient.get("/admin/tasks"),
     getSuspiciousTasks: () => apiClient.get("/admin/tasks/suspicious"),
     deleteTask: (taskId: string | number) => apiClient.delete(`/admin/tasks/${taskId}`),
@@ -229,6 +267,12 @@ class ApiService {
     getPayments: () => apiClient.get("/admin/payments"),
     getEscrowPayments: () => apiClient.get("/admin/payments/escrow"),
     releasePayment: (paymentId: string | number) => apiClient.patch(`/admin/payments/${paymentId}/release`),
+    getDisputes: () => apiClient.get("/tasks/disputes/all"),
+    reviewDispute: (
+      taskId: string | number,
+      disputeId: string | number,
+      data: { status: "UNDER_REVIEW" | "RESOLVED" | "REJECTED" | "CLOSED"; resolution?: string; action?: "NONE" | "REFUND_ESCROW" | "RELEASE_ESCROW" | "FORCE_CANCEL" }
+    ) => apiClient.patch(`/tasks/${taskId}/disputes/${disputeId}/review`, data),
   };
 }
 

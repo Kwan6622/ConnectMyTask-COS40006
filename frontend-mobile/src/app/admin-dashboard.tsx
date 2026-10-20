@@ -9,7 +9,7 @@ import { useAuthStore } from "@/store/authStore";
 import { colors, radius } from "@/theme/tokens";
 import { formatCurrency, isAdmin } from "@/utils/taskUtils";
 
-type AdminTab = "overview" | "tasks" | "certificates" | "payments" | "disputes";
+type AdminTab = "overview" | "users" | "tasks" | "certificates" | "payments" | "disputes" | "support";
 
 export default function AdminDashboardScreen(): React.ReactElement {
   const router = useRouter();
@@ -22,25 +22,44 @@ export default function AdminDashboardScreen(): React.ReactElement {
   const [suspiciousTasks, setSuspiciousTasks] = useState<any[]>([]);
   const [certificates, setCertificates] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [disputes, setDisputes] = useState<any[]>([]);
+  const [supportTickets, setSupportTickets] = useState<any[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const loadAdminData = useCallback(async () => {
     setIsLoading(true);
+    setLoadError(null);
     try {
-      const [statsRes, tasksRes, suspiciousRes, certsRes, paymentsRes] = await Promise.all([
+      const results = await Promise.allSettled([
         api.admin.getStats(),
+        api.admin.getUsers(),
         api.admin.getTasks(),
         api.admin.getSuspiciousTasks(),
         api.admin.getCertificates(),
         api.admin.getPayments(),
+        api.admin.getDisputes(),
+        api.support.list({ limit: 50 }),
       ]);
-      setStats(statsRes.data || null);
-      setTasks(Array.isArray(tasksRes.data) ? tasksRes.data : []);
-      setSuspiciousTasks(Array.isArray(suspiciousRes.data) ? suspiciousRes.data : []);
-      setCertificates(Array.isArray(certsRes.data) ? certsRes.data : []);
-      setPayments(Array.isArray(paymentsRes.data) ? paymentsRes.data : []);
+      const data = (index: number): any => {
+        const result = results[index];
+        return result?.status === "fulfilled" ? result.value.data : undefined;
+      };
+      if (data(0) !== undefined) setStats(data(0) || null);
+      if (data(1) !== undefined) setUsers(Array.isArray(data(1)) ? data(1) : []);
+      if (data(2) !== undefined) setTasks(Array.isArray(data(2)) ? data(2) : []);
+      if (data(3) !== undefined) setSuspiciousTasks(Array.isArray(data(3)) ? data(3) : []);
+      if (data(4) !== undefined) setCertificates(Array.isArray(data(4)) ? data(4) : []);
+      if (data(5) !== undefined) setPayments(Array.isArray(data(5)) ? data(5) : []);
+      if (data(6) !== undefined) setDisputes(Array.isArray(data(6)) ? data(6) : []);
+      if (data(7) !== undefined) setSupportTickets(Array.isArray(data(7)?.items) ? data(7).items : []);
+      const failedCount = results.filter((result) => result.status === "rejected").length;
+      if (failedCount) setLoadError(`${failedCount} admin section${failedCount === 1 ? "" : "s"} could not be loaded. Available sections remain usable.`);
     } catch (error: any) {
-      Alert.alert("Admin load failed", error?.response?.data?.message || "Cannot load admin dashboard data.");
+      const message = error?.response?.data?.message || "Cannot load admin dashboard data.";
+      setLoadError(message);
+      Alert.alert("Admin load failed", message);
     } finally {
       setIsLoading(false);
     }
@@ -59,6 +78,7 @@ export default function AdminDashboardScreen(): React.ReactElement {
       { label: "Escrow-held Payments", value: String(stats?.escrowHeldPayments ?? 0) },
       { label: "Pending Certificates", value: String(stats?.pendingCertificates ?? 0) },
       { label: "Disputes", value: String(stats?.disputes ?? 0) },
+      { label: "Open Support Tickets", value: String(stats?.openSupportTickets ?? 0) },
       { label: "Escrow Held Amount", value: formatCurrency(Number(stats?.totalEscrowHeldAmount ?? 0)) },
       { label: "Platform Revenue (20%)", value: formatCurrency(Number(stats?.totalPlatformRevenue ?? 0)) },
     ],
@@ -126,6 +146,30 @@ export default function AdminDashboardScreen(): React.ReactElement {
     }
   };
 
+  const handleUserStatus = (target: any): void => {
+    const nextStatus: "ACTIVE" | "SUSPENDED" = target.status === "SUSPENDED" ? "ACTIVE" : "SUSPENDED";
+    Alert.alert(`${nextStatus === "SUSPENDED" ? "Suspend" : "Reactivate"} user`, target.email, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Confirm", style: nextStatus === "SUSPENDED" ? "destructive" : "default", onPress: () => void (async () => {
+        try {
+          await api.admin.updateUserStatus(target.id, nextStatus);
+          await loadAdminData();
+        } catch (error: any) {
+          Alert.alert("Update failed", error?.response?.data?.message || "Cannot update user status.");
+        }
+      })() },
+    ]);
+  };
+
+  const handleReviewDispute = async (dispute: any): Promise<void> => {
+    try {
+      await api.admin.reviewDispute(dispute.taskId, dispute.id, { status: "UNDER_REVIEW", action: "NONE" });
+      await loadAdminData();
+    } catch (error: any) {
+      Alert.alert("Review failed", error?.response?.data?.message || "Cannot update dispute.");
+    }
+  };
+
   return (
     <MarketplaceShell activeRoute="admin">
       <Card>
@@ -141,10 +185,12 @@ export default function AdminDashboardScreen(): React.ReactElement {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow}>
         {[
           { id: "overview", label: "Overview" },
+          { id: "users", label: "Users" },
           { id: "tasks", label: "Tasks" },
           { id: "certificates", label: "Certificates" },
           { id: "payments", label: "Payments / Escrow" },
           { id: "disputes", label: "Disputes / Reports" },
+          { id: "support", label: "Support" },
         ].map((item) => (
           <Pressable
             key={item.id}
@@ -155,6 +201,8 @@ export default function AdminDashboardScreen(): React.ReactElement {
           </Pressable>
         ))}
       </ScrollView>
+
+      {loadError ? <Card><Text style={styles.riskMeta}>{loadError}</Text><Button title="Retry" size="sm" variant="outline" onPress={() => void loadAdminData()} /></Card> : null}
 
       {tab === "overview" ? (
         <View style={styles.grid}>
@@ -167,6 +215,20 @@ export default function AdminDashboardScreen(): React.ReactElement {
         </View>
       ) : null}
 
+      {tab === "users" ? (
+        <Card title="Users">
+          <View style={styles.listWrap}>
+            {users.length === 0 ? <Text style={styles.emptyText}>No users found.</Text> : null}
+            {users.map((item) => <View key={String(item.id)} style={styles.listItem}>
+              <Text style={styles.itemTitle}>{item.name} · {item.role}</Text>
+              <Text style={styles.itemMeta}>{item.email}</Text>
+              <Text style={styles.itemMeta}>Status: {item.status} · Tasks: {item._count?.tasksCreated || 0} · Disputes: {item._count?.disputesOpened || 0}</Text>
+              {item.role !== "ADMIN" ? <Button title={item.status === "SUSPENDED" ? "Reactivate" : "Suspend"} size="sm" variant="outline" onPress={() => handleUserStatus(item)} /> : null}
+            </View>)}
+          </View>
+        </Card>
+      ) : null}
+
       {tab === "tasks" ? (
         <View style={styles.grid}>
           <Card title="All Tasks">
@@ -177,6 +239,9 @@ export default function AdminDashboardScreen(): React.ReactElement {
                   <Text style={styles.itemTitle}>{task.title}</Text>
                   <Text style={styles.itemMeta}>{task.category} · {task.status}</Text>
                   <Text style={styles.itemMeta}>Requester: {task.createdBy?.name || "-"}</Text>
+                  <Text style={styles.itemMeta}>Provider: {task.assignedProvider?.name || "Unassigned"}</Text>
+                  <Text style={styles.itemMeta}>Escrow: {task.escrowStatus || "NONE"} · Payment: {task.paymentStatus || "UNPAID"}</Text>
+                  <Text style={styles.itemMeta}>GPS: {task.gpsVerificationStatus || "NOT_REQUIRED"} · Disputes: {task._count?.disputes || 0}</Text>
                 </View>
               ))}
             </View>
@@ -255,10 +320,26 @@ export default function AdminDashboardScreen(): React.ReactElement {
       ) : null}
 
       {tab === "disputes" ? (
-        <Card>
-          <Text style={styles.disputeText}>
-            Use task detail + dispute workflow to resolve reports. Live dispute count appears in Overview.
-          </Text>
+        <Card title="Disputes">
+          <View style={styles.listWrap}>
+            {disputes.length === 0 ? <Text style={styles.emptyText}>No disputes.</Text> : null}
+            {disputes.map((dispute) => <View key={String(dispute.id)} style={styles.listItem}>
+              <Text style={styles.itemTitle}>{dispute.task?.title || `Task #${dispute.taskId}`}</Text>
+              <Text style={styles.itemMeta}>{dispute.reason}: {dispute.description || "No description"}</Text>
+              <Text style={styles.itemMeta}>Status: {dispute.status} · Escrow: {dispute.task?.escrowStatus || "NONE"}</Text>
+              {dispute.status === "OPEN" ? <Button title="Start Review" size="sm" variant="outline" onPress={() => void handleReviewDispute(dispute)} /> : null}
+            </View>)}
+          </View>
+        </Card>
+      ) : null}
+
+      {tab === "support" ? (
+        <Card title="Support Tickets">
+          <View style={styles.listWrap}>
+            {supportTickets.map((ticket) => <View key={String(ticket.id)} style={styles.listItem}><Text style={styles.itemTitle}>{ticket.subject}</Text><Text style={styles.itemMeta}>{ticket.category} · {ticket.priority} · {ticket.status}</Text></View>)}
+            {supportTickets.length === 0 ? <Text style={styles.emptyText}>No support tickets.</Text> : null}
+            <Button title="Open Support Center" variant="outline" onPress={() => router.push("/support")} />
+          </View>
         </Card>
       ) : null}
     </MarketplaceShell>

@@ -1,23 +1,25 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import './App.css';
 import { Header } from './components/layout/Header';
 import { Footer } from './components/layout/Footer';
-import { HomePage } from './pages/HomePage';
-import { LoginPage } from './pages/LoginPage';
-import { ProfilePage } from './pages/ProfilePage';
-import { TaskBrowsePage } from './pages/TaskBrowsePage';
-import { TaskDetailPage } from './pages/TaskDetailPage';
-import { TaskPostPage } from './pages/TaskPostPage';
-import { TrackingPage } from './pages/TrackingPage';
-import { SavedTasksPage } from './pages/SavedTasksPage';
-import { RequesterDashboardPage } from './pages/RequesterDashboardPage';
-import { ProviderDashboardPage } from './pages/ProviderDashboardPage';
-import { TaskProgressPage } from './pages/TaskProgressPage';
-import { RegisterPage } from './pages/Auth/RegisterPage';
-import { AdminDashboard } from './pages/Admin/Dashboard';
-import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
-import { TermsOfServicePage } from './pages/TermsOfServicePage';
-import { AboutPage } from './pages/AboutPage';
+const HomePage = lazy(() => import('./pages/HomePage').then((module) => ({ default: module.HomePage })));
+const LoginPage = lazy(() => import('./pages/LoginPage').then((module) => ({ default: module.LoginPage })));
+const ProfilePage = lazy(() => import('./pages/ProfilePage').then((module) => ({ default: module.ProfilePage })));
+const TaskBrowsePage = lazy(() => import('./pages/TaskBrowsePage').then((module) => ({ default: module.TaskBrowsePage })));
+const TaskDetailPage = lazy(() => import('./pages/TaskDetailPage').then((module) => ({ default: module.TaskDetailPage })));
+const TaskPostPage = lazy(() => import('./pages/TaskPostPage').then((module) => ({ default: module.TaskPostPage })));
+const TrackingPage = lazy(() => import('./pages/TrackingPage').then((module) => ({ default: module.TrackingPage })));
+const SavedTasksPage = lazy(() => import('./pages/SavedTasksPage').then((module) => ({ default: module.SavedTasksPage })));
+const RequesterDashboardPage = lazy(() => import('./pages/RequesterDashboardPage').then((module) => ({ default: module.RequesterDashboardPage })));
+const ProviderDashboardPage = lazy(() => import('./pages/ProviderDashboardPage').then((module) => ({ default: module.ProviderDashboardPage })));
+const TaskProgressPage = lazy(() => import('./pages/TaskProgressPage').then((module) => ({ default: module.TaskProgressPage })));
+const RegisterPage = lazy(() => import('./pages/Auth/RegisterPage').then((module) => ({ default: module.RegisterPage })));
+const AdminDashboard = lazy(() => import('./pages/Admin/Dashboard').then((module) => ({ default: module.AdminDashboard })));
+const SupportPage = lazy(() => import('./pages/SupportPage').then((module) => ({ default: module.SupportPage })));
+const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage').then((module) => ({ default: module.PrivacyPolicyPage })));
+const TermsOfServicePage = lazy(() => import('./pages/TermsOfServicePage').then((module) => ({ default: module.TermsOfServicePage })));
+const AboutPage = lazy(() => import('./pages/AboutPage').then((module) => ({ default: module.AboutPage })));
 import { ChatWidget } from './components/chat/ChatWidget';
 import { useAuthStore } from './stores/auth.store';
 
@@ -31,6 +33,7 @@ function App() {
       {!isAuthRoute && <Header />}
       <main className="flex-grow">
         <div className="page-content">
+          <Suspense fallback={<div aria-live="polite" className="p-6 text-center">Loading...</div>}>
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/home" element={<HomePage />} />
@@ -101,13 +104,15 @@ function App() {
               }
             />
             <Route
-              path="/tracking"
+              path="/tracking/:taskId"
               element={user ? <TrackingPage /> : <Navigate to="/" replace />}
             />
+            <Route path="/tracking" element={<Navigate to="/browse-tasks" replace />} />
             <Route
               path="/admin"
               element={user ? <AdminDashboard /> : <Navigate to="/" replace />}
             />
+            <Route path="/support" element={user ? <SupportPage /> : <Navigate to="/login" replace />} />
             <Route
               path="/about"
               element={<AboutPage />}
@@ -121,6 +126,7 @@ function App() {
               element={<TermsOfServicePage />}
             />
           </Routes>
+          </Suspense>
         </div>
       </main>
       {!isAuthRoute && <ChatWidget />}

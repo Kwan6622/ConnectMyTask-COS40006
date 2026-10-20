@@ -1,4 +1,4 @@
-const { prisma } = require('../../database/prisma');
+const { prisma } = require('../../database/taskTransaction');
 
 async function findUserById(id) {
   return prisma.user.findUnique({

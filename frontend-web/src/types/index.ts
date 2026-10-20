@@ -5,6 +5,7 @@ export interface User {
   fullName?: string;
   name?: string;
   role: 'CLIENT' | 'PROVIDER' | 'ADMIN' | 'REQUESTER';
+  status?: 'ACTIVE' | 'SUSPENDED';
   avatar?: string;
   profilePhotoUrl?: string;
   phone?: string;
@@ -159,6 +160,25 @@ export interface LocationUpdate {
   timestamp: string;
   distanceFromTask?: number;
   isAtLocation?: boolean;
+}
+
+export interface TrackingLog {
+  id: string | number;
+  taskId: string | number;
+  providerId: string | number;
+  lat: number;
+  lng: number;
+  accuracy?: number | null;
+  timestamp: string;
+  receivedAt?: string;
+}
+
+export interface TaskLocationVerificationStatus {
+  isValid: boolean;
+  verifiedAt: string | null;
+  expiresAt: string | null;
+  distanceMeters: number | null;
+  reason: string | null;
 }
 
 // AI Response Types

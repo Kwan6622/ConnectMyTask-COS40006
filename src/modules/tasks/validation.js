@@ -7,6 +7,10 @@ const createTaskSchema = z.object({
   budget: z.number().positive(),
   maxBids: z.number().int().min(1).max(100).optional(),
   location: z.string().min(1),
+  district: z.string().trim().min(2).max(120),
+  siteAddress: z.string().trim().min(5).max(500),
+  siteLatitude: z.number().finite().min(-90).max(90),
+  siteLongitude: z.number().finite().min(-180).max(180),
   dueDate: z.string().optional(),
   deadline: z.string().optional(),
   aiSuggestedPrice: z.number().positive().optional(),
@@ -100,6 +104,11 @@ const updateTaskSchema = z
     imageUrls: z.array(z.string().url()).max(3, 'Max 3 images per task').optional(),
     dueDate: z.string().optional(),
     maxBids: z.number().int().min(1).max(100).optional(),
+    location: z.string().trim().min(2).max(120).optional(),
+    district: z.string().trim().min(2).max(120).optional(),
+    siteAddress: z.string().trim().min(5).max(500).optional(),
+    siteLatitude: z.number().finite().min(-90).max(90).optional(),
+    siteLongitude: z.number().finite().min(-180).max(180).optional(),
   })
   .passthrough();
 

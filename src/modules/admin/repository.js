@@ -1,7 +1,7 @@
 const { prisma } = require('../../database/prisma');
 
 async function getAdminStats() {
-  const [totalUsers, activeTasks, suspiciousTasks, disputes, pendingCertificates, paymentAgg] = await Promise.all([
+  const [totalUsers, activeTasks, suspiciousTasks, disputes, pendingCertificates, openSupportTickets, heldAgg, releasedAgg] = await Promise.all([
     prisma.user.count(),
     prisma.task.count({
       where: {
@@ -29,17 +29,14 @@ async function getAdminStats() {
         verificationStatus: 'PENDING',
       },
     }),
+    prisma.supportTicket.count({ where: { status: { in: ['OPEN', 'IN_PROGRESS'] } } }),
     prisma.paymentTransaction.aggregate({
-      _sum: {
-        escrowHeldAmount: true,
-        providerPayoutAmount: true,
-        platformFeeAmount: true,
-      },
-      where: {
-        status: {
-          in: ['SUCCESS', 'REFUNDED'],
-        },
-      },
+      _sum: { escrowHeldAmount: true },
+      where: { status: 'SUCCESS', lifecycleStatus: 'ESCROW_HELD' },
+    }),
+    prisma.paymentTransaction.aggregate({
+      _sum: { providerPayoutAmount: true, platformFeeAmount: true },
+      where: { status: 'SUCCESS', lifecycleStatus: 'RELEASED' },
     }),
   ]);
 
@@ -55,12 +52,34 @@ async function getAdminStats() {
     suspiciousTasks,
     disputes,
     pendingCertificates,
+    openSupportTickets,
     escrowHeldPayments,
-    totalEscrowHeldAmount: Number(paymentAgg?._sum?.escrowHeldAmount || 0),
-    totalReleasedPayments: Number(paymentAgg?._sum?.providerPayoutAmount || 0),
-    totalPlatformRevenue: Number(paymentAgg?._sum?.platformFeeAmount || 0),
+    totalEscrowHeldAmount: Number(heldAgg?._sum?.escrowHeldAmount || 0),
+    totalReleasedPayments: Number(releasedAgg?._sum?.providerPayoutAmount || 0),
+    totalPlatformRevenue: Number(releasedAgg?._sum?.platformFeeAmount || 0),
   };
 }
+
+async function listUsers() {
+  return prisma.user.findMany({
+    select: {
+      id: true, name: true, email: true, role: true, status: true, createdAt: true,
+      _count: { select: { tasksCreated: true, tasksAssigned: true, disputesOpened: true, supportTickets: true } },
+    },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+  });
+}
+
+const getUserForAdmin = id => prisma.user.findUnique({
+  where: { id },
+  select: { id: true, name: true, email: true, role: true, status: true, createdAt: true },
+});
+
+const updateUserStatus = (id, status) => prisma.user.update({
+  where: { id },
+  data: { status, tokenVersion: { increment: 1 } },
+  select: { id: true, name: true, email: true, role: true, status: true, createdAt: true },
+});
 
 async function listAdminTasks({ suspiciousOnly = false } = {}) {
   return prisma.task.findMany({
@@ -78,12 +97,23 @@ async function listAdminTasks({ suspiciousOnly = false } = {}) {
       _count: {
         select: {
           bids: true,
+          disputes: true,
         },
+      },
+      locationVerifications: {
+        orderBy: [{ verifiedAt: 'desc' }, { id: 'desc' }],
+        take: 1,
+        select: { providerId: true, siteVersion: true, expiresAt: true, revokedAt: true },
       },
     },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
   });
 }
+
+const getTaskForAdmin = id => prisma.task.findFirst({
+  where: { id, isDeleted: false },
+  select: { id: true, status: true, escrowStatus: true },
+});
 
 async function softDeleteTask(taskId, adminId) {
   return prisma.task.update({
@@ -190,7 +220,11 @@ async function updateTaskById(taskId, data) {
 
 module.exports = {
   getAdminStats,
+  listUsers,
+  getUserForAdmin,
+  updateUserStatus,
   listAdminTasks,
+  getTaskForAdmin,
   softDeleteTask,
   markTaskReviewed,
   listCertificates,

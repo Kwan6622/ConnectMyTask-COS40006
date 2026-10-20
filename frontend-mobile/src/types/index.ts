@@ -48,6 +48,7 @@ export interface User {
   fullName?: string;
   name?: string;
   role: "CLIENT" | "PROVIDER" | "ADMIN" | "REQUESTER" | string;
+  status?: "ACTIVE" | "SUSPENDED";
   accountType?: AccountType;
   avatar?: string;
   profilePhotoUrl?: string;
@@ -122,6 +123,10 @@ export interface Task {
   category: TaskCategory | string;
   status: TaskStatus | string;
   location: string;
+  district?: string;
+  siteAddress?: string;
+  siteLatitude?: number;
+  siteLongitude?: number;
   dueDate?: string;
   deadline?: string;
   isOverdue?: boolean;
@@ -249,6 +254,14 @@ export interface TaskActivityLog {
   metadata?: Record<string, unknown> | null;
   actor?: User;
   createdAt: string;
+}
+
+export interface TaskLocationVerification {
+  isValid: boolean;
+  verifiedAt?: string | null;
+  expiresAt?: string | null;
+  distanceMeters?: number | null;
+  reason?: string | null;
 }
 
 export interface SignUpInput {

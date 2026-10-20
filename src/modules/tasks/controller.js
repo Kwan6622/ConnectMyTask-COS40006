@@ -21,7 +21,7 @@ async function listTasks(req, res, next) {
 async function getTaskById(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
-    const task = await taskService.getTaskById(id);
+    const task = await taskService.getPublicTaskById(id);
     res.json(task);
   } catch (err) {
     next(err);

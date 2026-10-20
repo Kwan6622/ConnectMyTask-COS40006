@@ -47,6 +47,19 @@ function computeSettlementBreakdown(totalAmount) {
   };
 }
 
+function getAgreedEscrowAmount(task) {
+  const acceptedBids = task?.bids || [];
+  if (acceptedBids.length !== 1 || acceptedBids[0].providerId !== task.assignedProviderId) {
+    throw Object.assign(new Error('Accepted bid requires reconciliation before escrow deposit'), { statusCode: 409 });
+  }
+
+  const amount = Number(acceptedBids[0].price || 0);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw Object.assign(new Error('Accepted bid amount is invalid'), { statusCode: 400 });
+  }
+  return amount;
+}
+
 async function createActivity(taskId, actorId, action, message, metadata) {
   await paymentsRepository.createTaskActivity({
     taskId,
@@ -117,6 +130,7 @@ function buildSuccessAndCancelUrls(taskId, flow) {
 
 async function createCheckoutPayment(payload, currentUser) {
   ensureStripeConfigured();
+  if (!env.STRIPE_WEBHOOK_SECRET) throw Object.assign(new Error('Stripe webhook must be configured before accepting payments'), { statusCode: 503 });
 
   const task = await paymentsRepository.getTaskById(payload.taskId);
   if (!task) {
@@ -138,9 +152,10 @@ async function createCheckoutPayment(payload, currentUser) {
   }
 
   const flow = getFlowFromPayload(task, payload);
+  if (flow !== 'ESCROW_DEPOSIT') throw Object.assign(new Error('Tasks must be funded through escrow before work starts'), { statusCode: 409 });
 
   if (flow === 'ESCROW_DEPOSIT') {
-    if (!['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION'].includes(task.status)) {
+    if (!task.assignedProviderId || task.status !== 'ASSIGNED' || task.isDeleted) {
       const err = new Error('Escrow deposit is only available after provider assignment');
       err.statusCode = 400;
       throw err;
@@ -152,7 +167,8 @@ async function createCheckoutPayment(payload, currentUser) {
       throw err;
     }
 
-    const amount = Number(task.escrowAmount || task.budget || 0);
+    // The accepted bid is the agreed contract price. The task budget remains the requester's estimate.
+    const amount = getAgreedEscrowAmount(task);
     const settlement = computeSettlementBreakdown(amount);
     if (!amount || amount <= 0) {
       const err = new Error('Task escrow amount is invalid');
@@ -162,6 +178,25 @@ async function createCheckoutPayment(payload, currentUser) {
 
     const currency = (env.STRIPE_CURRENCY || 'vnd').toLowerCase();
     const { successUrl, cancelUrl } = buildSuccessAndCancelUrls(task.id, flow);
+    const deposits = (await paymentsRepository.listPaymentsByTask(task.id)).filter(payment => payment.type === 'ESCROW_DEPOSIT');
+    const pending = deposits.find(payment => payment.status === 'PENDING');
+    if (pending && !pending.checkoutSessionId) throw Object.assign(new Error('Existing deposit requires reconciliation'), { statusCode: 409 });
+    if (pending?.checkoutSessionId) {
+      const existing = await stripe.checkout.sessions.retrieve(pending.checkoutSessionId);
+      const matchesAgreement = Number(pending.amount) === amount
+        && existing.amount_total === toStripeAmount(amount, currency)
+        && existing.currency === currency;
+      if (existing.status === 'open' && matchesAgreement) return { success: true, flow, paymentUrl: existing.url, sessionId: existing.id, transactionId: pending.id };
+      if (existing.status === 'open') {
+        const expired = await stripe.checkout.sessions.expire(existing.id);
+        if (expired.status !== 'expired') throw Object.assign(new Error('Previous Checkout requires reconciliation'), { statusCode: 409 });
+        await paymentsRepository.updatePaymentStatus(pending.id, { status: 'CANCELED', lifecycleStatus: 'FAILED' });
+      } else {
+        if (existing.payment_status === 'paid') return settleDeposit(existing, pending, task);
+        if (existing.status !== 'expired') throw Object.assign(new Error('Payment is still processing'), { statusCode: 409 });
+        await paymentsRepository.updatePaymentStatus(pending.id, { status: 'CANCELED', lifecycleStatus: 'FAILED' });
+      }
+    }
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
@@ -186,7 +221,7 @@ async function createCheckoutPayment(payload, currentUser) {
       },
       success_url: successUrl,
       cancel_url: cancelUrl,
-    });
+    }, { idempotencyKey: `escrow-${task.id}-${task.assignedProviderId}-${amount}-${currency}-${deposits.length}` });
 
     const paymentTransaction = await paymentsRepository.createPaymentTransaction({
       taskId: task.id,
@@ -207,6 +242,7 @@ async function createCheckoutPayment(payload, currentUser) {
       note: 'Escrow deposit initiated by requester',
       metadata: {
         flow,
+        currency,
       },
     });
 
@@ -230,88 +266,21 @@ async function createCheckoutPayment(payload, currentUser) {
     };
   }
 
-  if (!['COMPLETED', 'AWAITING_PAYMENT'].includes(task.status)) {
-    const err = new Error('Task must be COMPLETED or AWAITING_PAYMENT before direct payment');
-    err.statusCode = 400;
-    throw err;
-  }
-
-  const amount = Number(task.budget || 0);
-  const settlement = computeSettlementBreakdown(amount);
-  if (!amount || amount <= 0) {
-    const err = new Error('Task budget is invalid for payment');
-    err.statusCode = 400;
-    throw err;
-  }
-
-  const currency = (env.STRIPE_CURRENCY || 'vnd').toLowerCase();
-  const { successUrl, cancelUrl } = buildSuccessAndCancelUrls(task.id, flow);
-
-  if (task.status === 'COMPLETED') {
-    await paymentsRepository.updateTaskState(task.id, { status: 'AWAITING_PAYMENT' });
-  }
-
-  const session = await stripe.checkout.sessions.create({
-    mode: 'payment',
-    payment_method_types: ['card'],
-    line_items: [
-      {
-        quantity: 1,
-        price_data: {
-          currency,
-          unit_amount: toStripeAmount(amount, currency),
-          product_data: {
-            name: `Task payment: ${task.title}`,
-            description: `Requester payment for task #${task.id}`,
-          },
-        },
-      },
-    ],
-    metadata: {
-      taskId: String(task.id),
-      payerId: String(currentUser.id),
-      flow,
-    },
-    success_url: successUrl,
-    cancel_url: cancelUrl,
-  });
-
-  const paymentTransaction = await paymentsRepository.createPaymentTransaction({
-    taskId: task.id,
-    payerId: currentUser.id,
-    providerId: task.assignedProviderId || null,
-    amount,
-    totalAmount: settlement.totalAmount,
-    escrowHeldAmount: settlement.escrowHeldAmount,
-    platformFeeAmount: settlement.platformFeeAmount,
-    providerPayoutAmount: settlement.providerPayoutAmount,
-    method: 'STRIPE',
-    type: 'DIRECT_PAYMENT',
-    escrowStatus: 'NONE',
-    lifecycleStatus: 'RELEASED',
-    checkoutSessionId: session.id,
-    providerTransactionId: null,
-    status: 'PENDING',
-    note: 'Direct payment flow started',
-    metadata: {
-      flow,
-    },
-  });
-
-  return {
-    success: true,
-    flow,
-    paymentUrl: session.url,
-    sessionId: session.id,
-    transactionId: paymentTransaction.id,
-  };
 }
 
 async function confirmStripeSession(sessionId, currentUser) {
   ensureStripeConfigured();
 
+  // The transaction is keyed by the checkout session ID returned at creation.
+  // Handle lookup errors immediately so a faster database failure cannot become unhandled while Stripe responds.
+  const paymentLookup = paymentsRepository.getPaymentByCheckoutSessionId(sessionId)
+    .then((payment) => ({ payment }), (error) => ({ error }));
   const session = await stripe.checkout.sessions.retrieve(sessionId);
-  const payment = await paymentsRepository.getPaymentByCheckoutSessionId(session.id);
+  const lookup = session.id === sessionId
+    ? await paymentLookup
+    : { payment: await paymentsRepository.getPaymentByCheckoutSessionId(session.id) };
+  if (lookup.error) throw lookup.error;
+  const payment = lookup.payment;
   if (!payment) {
     const err = new Error('Payment transaction not found');
     err.statusCode = 404;
@@ -330,6 +299,10 @@ async function confirmStripeSession(sessionId, currentUser) {
     throw err;
   }
 
+  if (payment.type === 'ESCROW_DEPOSIT') return settleDeposit(session, payment, task);
+  if (payment.status === 'SUCCESS') return { success: true, status: 'SUCCESS', task };
+  if (!['COMPLETED', 'AWAITING_PAYMENT'].includes(task.status) || task.escrowStatus !== 'NONE') throw Object.assign(new Error('Legacy payment requires reconciliation'), { statusCode: 409 });
+
   if (session.payment_status === 'paid') {
     await paymentsRepository.updatePaymentStatus(payment.id, {
       status: 'SUCCESS',
@@ -338,31 +311,6 @@ async function confirmStripeSession(sessionId, currentUser) {
         ? session.payment_intent
         : payment.providerTransactionId,
     });
-
-    if (payment.type === 'ESCROW_DEPOSIT') {
-      const updatedTask = await paymentsRepository.updateTaskState(payment.taskId, {
-        escrowStatus: 'HELD',
-        paymentStatus: 'ESCROW_HELD',
-        escrowHeldAt: new Date(),
-      });
-      await paymentsRepository.updatePaymentStatus(payment.id, {
-        lifecycleStatus: 'ESCROW_HELD',
-        heldAt: new Date(),
-      });
-
-      await createActivity(updatedTask.id, currentUser.id, 'ESCROW_DEPOSIT_CONFIRMED', 'Escrow deposit payment confirmed.', {
-        transactionId: payment.id,
-        paymentIntent: session.payment_intent,
-      });
-
-      await notifyParticipants(
-        updatedTask,
-        `Escrow deposit confirmed for task "${updatedTask.title}". Provider can now continue work updates.`,
-        currentUser.id
-      );
-
-      return { success: true, status: 'SUCCESS', flow: 'ESCROW_DEPOSIT', task: updatedTask };
-    }
 
     const updatedTask = await paymentsRepository.updateTaskState(payment.taskId, {
       status: 'PAID',
@@ -419,6 +367,9 @@ async function releaseEscrowForTask(taskId, currentUser, options = {}) {
     const latestTask = await paymentsRepository.getTaskById(taskId);
     return { task: latestTask, transaction: existingRelease };
   }
+  if (!canAdminRelease && (task.status !== 'COMPLETED' || task.escrowStatus !== 'HELD')) throw Object.assign(new Error('Requester confirmation is required before release'), { statusCode: 409 });
+  const deposit = await paymentsRepository.findLatestSuccessfulEscrowDeposit(taskId);
+  if (!deposit) throw Object.assign(new Error('No confirmed escrow deposit'), { statusCode: 409 });
 
   if (!['HELD', 'FROZEN'].includes(task.escrowStatus)) {
     const err = new Error('Escrow is not available for release');
@@ -494,6 +445,7 @@ async function refundEscrowForTask(taskId, currentUser, options = {}) {
     err.statusCode = 403;
     throw err;
   }
+  if (task.escrowStatus === 'REFUNDED') return { task, transaction: (await paymentsRepository.listPaymentsByTask(task.id)).find(payment => payment.type === 'ESCROW_REFUND') };
 
   if (!['PENDING_DEPOSIT', 'HELD', 'FROZEN'].includes(task.escrowStatus)) {
     const err = new Error('Escrow is not refundable in current state');
@@ -511,17 +463,18 @@ async function refundEscrowForTask(taskId, currentUser, options = {}) {
 
   const latestDeposit = await paymentsRepository.findLatestSuccessfulEscrowDeposit(taskId);
 
+  if (!latestDeposit?.providerTransactionId) throw Object.assign(new Error('No confirmed Stripe deposit to refund'), { statusCode: 409 });
+  ensureStripeConfigured();
   let stripeRefundId = null;
   if (stripe && latestDeposit?.providerTransactionId) {
     try {
       const refund = await stripe.refunds.create({
         payment_intent: latestDeposit.providerTransactionId,
-      });
+      }, { idempotencyKey: `escrow-refund-${latestDeposit.id}` });
+      if (refund.status !== 'succeeded') throw new Error('Refund is not yet confirmed');
       stripeRefundId = refund.id;
     } catch (_error) {
-      // Keep platform state consistent even if Stripe refund API is temporarily unavailable.
-      // In real production, this should queue retry jobs.
-      stripeRefundId = null;
+      throw Object.assign(new Error('Stripe refund not confirmed; retry settlement'), { statusCode: 502 });
     }
   }
 
@@ -578,47 +531,26 @@ async function handleWebhook(signature, rawBody) {
   }
 
   const event = stripe.webhooks.constructEvent(rawBody, signature, env.STRIPE_WEBHOOK_SECRET);
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    const payment = await paymentsRepository.getPaymentByCheckoutSessionId(session.id);
-    if (payment && payment.status !== 'SUCCESS') {
-      await paymentsRepository.updatePaymentStatus(payment.id, {
-        status: 'SUCCESS',
-        paidAt: new Date(),
-        providerTransactionId: typeof session.payment_intent === 'string'
-          ? session.payment_intent
-          : payment.providerTransactionId,
-      });
-
-      const task = await paymentsRepository.getTaskById(payment.taskId);
-      if (!task) return;
-
-      if (payment.type === 'ESCROW_DEPOSIT') {
-        await paymentsRepository.updateTaskState(payment.taskId, {
-          escrowStatus: 'HELD',
-          paymentStatus: 'ESCROW_HELD',
-          escrowHeldAt: new Date(),
-        });
-        await paymentsRepository.updatePaymentStatus(payment.id, {
-          lifecycleStatus: 'ESCROW_HELD',
-          heldAt: new Date(),
-        });
-      } else if (payment.type === 'DIRECT_PAYMENT') {
-        await paymentsRepository.updateTaskState(payment.taskId, {
-          status: 'PAID',
-          paymentStatus: 'RELEASED',
-        });
+  const incoming = event.data.object;
+  const payment = await paymentsRepository.getPaymentByCheckoutSessionId(incoming.id);
+  if (!payment) return;
+  if (payment.type === 'ESCROW_DEPOSIT') {
+    return require('../../database/taskTransaction').withTaskLock(payment.taskId, async () => {
+      const fresh = await paymentsRepository.getPaymentByCheckoutSessionId(incoming.id);
+      if (['checkout.session.completed', 'checkout.session.async_payment_succeeded'].includes(event.type)) {
+        return settleDeposit(await stripe.checkout.sessions.retrieve(incoming.id), fresh, await paymentsRepository.getTaskById(payment.taskId));
       }
-    }
-  } else if (event.type === 'checkout.session.async_payment_failed') {
-    const session = event.data.object;
-    const payment = await paymentsRepository.getPaymentByCheckoutSessionId(session.id);
-    if (payment) {
-      await paymentsRepository.updatePaymentStatus(payment.id, {
-        status: 'FAILED',
-      });
-    }
+      if (['checkout.session.async_payment_failed', 'checkout.session.expired'].includes(event.type) && fresh.status === 'PENDING') {
+        const session = await stripe.checkout.sessions.retrieve(incoming.id);
+        if (session.payment_status === 'paid') return settleDeposit(session, fresh, await paymentsRepository.getTaskById(payment.taskId));
+        // Only terminal sessions permit a new attempt; open sessions remain reusable.
+        if (session.status === 'expired') await paymentsRepository.updatePaymentStatus(fresh.id, { status: 'FAILED', lifecycleStatus: 'FAILED' });
+      }
+    });
   }
+  // Legacy records use the same authenticated backend confirmation path.
+  if (event.type === 'checkout.session.completed') return module.exports.confirmStripeSession(incoming.id, { id: payment.payerId });
+  return;
 }
 
 async function listMyPayments(currentUser) {
@@ -666,4 +598,36 @@ module.exports = {
   listMyPayments,
   getTaskPaymentHistory,
   computeSettlementBreakdown,
+};
+
+async function settleDeposit(session, payment, task) {
+  if (!task) throw Object.assign(new Error('Task not found'), { statusCode: 404 });
+  if (payment.status === 'SUCCESS') return { success: true, status: 'SUCCESS', flow: 'ESCROW_DEPOSIT', task };
+  if (session.payment_status !== 'paid') return { success: false, status: 'PENDING', task };
+  const currency = payment.metadata?.currency || (env.STRIPE_CURRENCY || 'vnd').toLowerCase();
+  const agreedAmount = getAgreedEscrowAmount(task);
+  if (Number(payment.amount) !== agreedAmount || session.id !== payment.checkoutSessionId || session.amount_total !== toStripeAmount(agreedAmount, currency) || session.currency !== currency || session.metadata?.taskId !== String(task.id) || session.metadata?.payerId !== String(payment.payerId) || session.metadata?.flow !== 'ESCROW_DEPOSIT') {
+    throw Object.assign(new Error('Stripe payment details do not match escrow'), { statusCode: 409 });
+  }
+  if (task.status !== 'ASSIGNED' || task.isDeleted || task.assignedProviderId !== payment.providerId || !['NONE', 'PENDING_DEPOSIT'].includes(task.escrowStatus)) {
+    throw Object.assign(new Error('Late payment requires reconciliation; task remains blocked'), { statusCode: 409 });
+  }
+  const now = new Date();
+  await paymentsRepository.updatePaymentStatus(payment.id, { status: 'SUCCESS', escrowStatus: 'HELD', lifecycleStatus: 'ESCROW_HELD', paidAt: now, heldAt: now, providerTransactionId: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id });
+  const updated = await paymentsRepository.updateTaskState(task.id, { escrowStatus: 'HELD', paymentStatus: 'ESCROW_HELD', escrowHeldAt: now });
+  await createActivity(task.id, payment.payerId, 'ESCROW_DEPOSIT_CONFIRMED', 'Escrow funding confirmed by Stripe.', { transactionId: payment.id });
+  await notifyParticipants(updated, 'Escrow is funded. The assigned provider can start work.', payment.payerId);
+  return { success: true, status: 'SUCCESS', flow: 'ESCROW_DEPOSIT', task: updated };
+}
+
+const { withTaskLock } = require('../../database/taskTransaction');
+for (const name of ['releaseEscrowForTask', 'refundEscrowForTask']) {
+  const action = module.exports[name];
+  module.exports[name] = (taskId, ...args) => withTaskLock(taskId, () => action(taskId, ...args));
+}
+module.exports.createCheckoutPayment = (payload, user) => withTaskLock(payload.taskId, () => createCheckoutPayment(payload, user));
+module.exports.confirmStripeSession = async (sessionId, user) => {
+  const payment = await paymentsRepository.getPaymentByCheckoutSessionId(sessionId);
+  if (!payment || payment.payerId !== user?.id) throw Object.assign(new Error('Payment not found or forbidden'), { statusCode: 403 });
+  return withTaskLock(payment.taskId, () => confirmStripeSession(sessionId, user));
 };
