@@ -5,6 +5,7 @@ const trackingService = require('../tracking/service');
 const { evaluateTaskRisk } = require('./riskEvaluator');
 const { generateSuggestedSubtasks } = require('./subtaskTemplates');
 const { isSameDistrict, isNearbyDistrict } = require('./districtAdjacency');
+const { verifyAddress } = require('../geocoding/service');
 
 const GLOBAL_MAX_BIDS = 100;
 const DEFAULT_MAX_BIDS = 30;
@@ -39,7 +40,11 @@ function normalizeRole(role) {
   return String(role || '').toUpperCase();
 }
 
-function toPublicTask(task) {
+function canViewRisk(user) {
+  return ['PROVIDER', 'ADMIN'].includes(normalizeRole(user?.role));
+}
+
+function toPublicTask(task, viewer) {
   if (!task) return task;
   const {
     siteAddress: _siteAddress,
@@ -52,6 +57,11 @@ function toPublicTask(task) {
   } = task;
   // Legacy location may contain a precise address; never expose it as a public fallback.
   const district = task.district || 'District not provided';
+  if (!canViewRisk(viewer)) {
+    delete safe.isSuspicious;
+    delete safe.suspiciousReason;
+    delete safe.riskLevel;
+  }
   return { ...safe, district, location: district };
 }
 
@@ -445,9 +455,17 @@ async function getPublicTaskById(id) {
   return toPublicTask(await getTaskById(id));
 }
 
+async function getTaskForViewer(id, viewer) {
+  return toPublicTask(await getTaskById(id), viewer);
+}
+
 async function createTask(payload, currentUser) {
   assertRequesterRole(currentUser);
   validateImageUrls(payload.imageUrls);
+  const verifiedAddress = await verifyAddress({
+    district: payload.district,
+    streetName: payload.streetName || payload.siteAddress,
+  });
 
   const dueDate = parseDueDate(payload.dueDate || payload.deadline);
 
@@ -466,9 +484,9 @@ async function createTask(payload, currentUser) {
     maxBids: parseMaxBids(payload.maxBids),
     location: payload.district,
     district: payload.district,
-    siteAddress: payload.siteAddress,
-    siteLatitude: payload.siteLatitude,
-    siteLongitude: payload.siteLongitude,
+    siteAddress: verifiedAddress.address,
+    siteLatitude: verifiedAddress.latitude,
+    siteLongitude: verifiedAddress.longitude,
     imageUrls: payload.imageUrls || [],
     dueDate,
     createdById: currentUser.id,
@@ -494,10 +512,10 @@ async function createTask(payload, currentUser) {
     generatedSubtasks: suggestedSubtasks.length,
   });
 
-  return getTaskById(task.id);
+  return toPublicTask(await getTaskById(task.id), currentUser);
 }
 
-async function listTasks(filters) {
+async function listTasks(filters, viewer) {
   triggerAutoAssignExpiredBiddingTasks();
   const tasks = await taskRepository.listTasks(filters);
   const hydratedTasks = await hydrateTaskListWithOverdue(tasks);
@@ -507,7 +525,7 @@ async function listTasks(filters) {
     const isOverdueUnassigned = Boolean(task?.isOverdue) && !task?.assignedProviderId;
     return !isAssigned && !isOverdueUnassigned;
   });
-  return [...browseEligibleTasks].sort(compareTasksForBrowse).map(toPublicTask);
+  return [...browseEligibleTasks].sort(compareTasksForBrowse).map((task) => toPublicTask(task, viewer));
 }
 
 async function updateTaskStatus(id, status, currentUser) {
@@ -1230,6 +1248,7 @@ module.exports = {
   listTasks,
   getTaskById,
   getPublicTaskById,
+  getTaskForViewer,
   updateTaskStatus,
   updateTask,
   saveTask,

@@ -101,7 +101,14 @@ export function SupportPage() {
   }
   const input = 'w-full rounded-lg border border-gray-300 px-3 py-2';
   const button = 'rounded-lg bg-blue-600 px-4 py-2 text-white disabled:opacity-50';
-  const evidenceView = (urls: string[]) => urls.length ? <div className="flex flex-wrap gap-2">{urls.map((url) => <a key={url} href={url} target="_blank" rel="noreferrer" className="text-blue-600 underline">Evidence image</a>)}</div> : null;
+  const evidenceView = (urls: string[]) => urls.length ? <div className="flex flex-wrap gap-2">{urls.map((url, index) => <a key={url} href={url} target="_blank" rel="noreferrer" className="inline-flex items-center rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:border-blue-400 hover:bg-blue-100">Evidence image {index + 1}</a>)}</div> : null;
+  const filePicker = (target: 'ticket' | 'reply', files: FileList | null) => (
+    <label className="flex cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-700 transition hover:border-blue-400 hover:bg-blue-50">
+      <span className="rounded-lg border border-slate-200 bg-white px-3 py-2 font-semibold text-blue-700">Choose file</span>
+      <span>{files?.length ? `${files.length} file${files.length === 1 ? '' : 's'} selected` : 'Attach evidence images'}</span>
+      <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => void upload(e.target.files, target)} />
+    </label>
+  );
   return <div className="mx-auto max-w-5xl space-y-5 px-4 py-8">
     <h1 className="text-3xl font-bold">{admin ? 'Support tickets' : 'Customer support'}</h1>
     {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{error}</p>}
@@ -120,7 +127,7 @@ export function SupportPage() {
       {messages.map((message) => <article key={message.id} className="rounded-lg bg-gray-50 p-3"><p className="text-sm text-gray-600">{message.sender.name} · {new Date(message.createdAt).toLocaleString()}</p><p className="whitespace-pre-wrap">{message.body}</p>{evidenceView(message.evidenceUrls)}</article>)}
       {messages.length < messageTotal && <button type="button" onClick={() => void olderMessages()} className="text-blue-600">Load older replies</button>}
       {selected.status !== 'CLOSED' && <form onSubmit={sendReply} className="space-y-2"><textarea className={input} value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Write a reply" required maxLength={10000} rows={4} />
-        <input type="file" accept="image/*" multiple onChange={(e) => void upload(e.target.files, 'reply')} />{evidenceView(replyEvidence)}
+        {filePicker('reply', null)}{evidenceView(replyEvidence)}
         <button className={button} disabled={busy}>Send reply</button></form>}
       <h3 className="text-lg font-semibold">Activity</h3>
       {activities.map((item) => <p key={item.id} className="text-sm text-gray-600">{new Date(item.createdAt).toLocaleString()} · {item.actor.name}: {label(item.action)} {item.fromValue ? `${label(item.fromValue)} → ` : ''}{item.toValue && label(item.toValue)}</p>)}
@@ -133,7 +140,7 @@ export function SupportPage() {
         <label className="block">Description<textarea className={input} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} minLength={10} maxLength={10000} rows={5} required /></label>
         <div className="grid gap-3 sm:grid-cols-2"><label>Related task ID (optional)<input type="number" min="1" className={input} value={form.taskId} onChange={(e) => setForm({ ...form, taskId: e.target.value })} /></label>
           <label>Related payment ID (optional)<input type="number" min="1" className={input} value={form.paymentId} onChange={(e) => setForm({ ...form, paymentId: e.target.value })} /></label></div>
-        <label className="block">Evidence images (optional)<input type="file" accept="image/*" multiple onChange={(e) => void upload(e.target.files, 'ticket')} /></label>{evidenceView(evidence)}
+        <div className="space-y-2"><span className="block">Evidence images (optional)</span>{filePicker('ticket', null)}{evidenceView(evidence)}</div>
         <button className={button} disabled={busy}>Submit ticket</button></form>}
       <div className="grid gap-2 rounded-xl border bg-white p-4 sm:grid-cols-4"><input className={input} placeholder="Search tickets" value={filters.search} onChange={(e) => { setPage(1); setFilters({ ...filters, search: e.target.value }); }} />
         {(['status', 'category', 'priority'] as const).map((key) => <select key={key} className={input} value={filters[key]} onChange={(e) => { setPage(1); setFilters({ ...filters, [key]: e.target.value }); }}><option value="">All {key}</option>{(key === 'status' ? statuses : key === 'category' ? categories : priorities).map((value) => <option key={value} value={value}>{label(value)}</option>)}</select>)}</div>

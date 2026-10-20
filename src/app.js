@@ -20,6 +20,7 @@ const ratingRoutes = require('./modules/ratings/routes');
 const adminRoutes = require('./modules/admin/routes');
 const platformRoutes = require('./modules/platform/routes');
 const supportRoutes = require('./modules/support/routes');
+const geocodingRoutes = require('./modules/geocoding/routes');
 
 const app = express();
 
@@ -39,6 +40,7 @@ app.use(requestLogger);
 // Mount routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/tasks', geocodingRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/payments', paymentRoutes);
@@ -64,4 +66,3 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 module.exports = app;
-

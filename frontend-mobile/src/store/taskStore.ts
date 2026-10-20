@@ -52,6 +52,7 @@ interface TaskStore {
     aiSuggestedPrice?: number;
     location: string;
     district: string;
+    streetName?: string;
     siteAddress: string;
     siteLatitude: number;
     siteLongitude: number;

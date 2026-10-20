@@ -1,7 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { MarketplaceShell } from "@/components/MarketplaceShell";
 import { Badge } from "@/components/Badge";
@@ -17,8 +16,9 @@ import { TaskCategory } from "@/types";
 import { uploadImageToCloudinary } from "@/utils/cloudinaryUpload";
 import { formatCategoryLabel, formatCurrency, isRequester } from "@/utils/taskUtils";
 import { api } from "@/services/api";
+import { HO_CHI_MINH_WARD_GROUPS } from "@/constants/hoChiMinhWards";
 
-type FieldErrors = Partial<Record<"title" | "description" | "location" | "siteAddress" | "coordinates" | "budget" | "maxBids" | "dueDate", string>>;
+type FieldErrors = Partial<Record<"title" | "description" | "location" | "streetName" | "budget" | "maxBids" | "dueDate", string>>;
 
 type AiBudgetSuggestion = {
   suggestedBudget: number;
@@ -43,9 +43,7 @@ function validateForm({
   title,
   description,
   location,
-  siteAddress,
-  siteLatitude,
-  siteLongitude,
+  streetName,
   budget,
   maxBids,
   dueDate,
@@ -53,9 +51,7 @@ function validateForm({
   title: string;
   description: string;
   location: string;
-  siteAddress: string;
-  siteLatitude: string;
-  siteLongitude: string;
+  streetName: string;
   budget: string;
   maxBids: string;
   dueDate: string;
@@ -64,15 +60,7 @@ function validateForm({
   if (!title.trim()) next.title = "Task title is required.";
   if (!description.trim()) next.description = "Description is required.";
   if (!location.trim()) next.location = "Location is required.";
-  if (!siteAddress.trim()) next.siteAddress = "Precise task address is required.";
-  const latitude = Number(siteLatitude);
-  const longitude = Number(siteLongitude);
-  if (!siteLatitude.trim() || !siteLongitude.trim()
-    || !Number.isFinite(latitude) || latitude < -90 || latitude > 90
-    || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
-    next.coordinates = "Capture or enter valid task coordinates.";
-  }
-
+  if (streetName.trim().length < 3) next.streetName = "Enter at least 3 characters for the street name.";
   const budgetValue = parseVndInput(budget);
   if (!budget.trim()) {
     next.budget = "Budget is required.";
@@ -114,10 +102,11 @@ export default function PostTaskScreen(): React.ReactElement {
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<TaskCategory>(TaskCategory.DELIVERY);
   const [location, setLocation] = useState("");
-  const [siteAddress, setSiteAddress] = useState("");
-  const [siteLatitude, setSiteLatitude] = useState("");
-  const [siteLongitude, setSiteLongitude] = useState("");
-  const [isCapturingSite, setIsCapturingSite] = useState(false);
+  const [streetName, setStreetName] = useState("");
+  const [isDistrictMenuOpen, setIsDistrictMenuOpen] = useState(false);
+  const [verifiedCoordinates, setVerifiedCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [addressVerification, setAddressVerification] = useState<"idle" | "verifying" | "verified" | "error">("idle");
+  const [addressVerificationMessage, setAddressVerificationMessage] = useState("");
   const [budget, setBudget] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [maxBids, setMaxBids] = useState("30");
@@ -148,27 +137,41 @@ export default function PostTaskScreen(): React.ReactElement {
     setSelectedImages((current) => [...current, result.assets[0]].slice(0, 3));
   };
 
-  const captureTaskCoordinates = async (): Promise<void> => {
-    setIsCapturingSite(true);
-    try {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (permission.status !== 'granted') throw new Error('Foreground location permission is required.');
-      const point = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      setSiteLatitude(String(point.coords.latitude));
-      setSiteLongitude(String(point.coords.longitude));
-      if (!siteAddress.trim()) {
-        const [address] = await Location.reverseGeocodeAsync(point.coords);
-        if (address) {
-          setSiteAddress([address.name, address.street, address.district, address.city]
-            .filter(Boolean).join(', '));
-        }
-      }
-    } catch (error: any) {
-      Alert.alert('Location unavailable', error?.message || 'Could not capture task coordinates.');
-    } finally {
-      setIsCapturingSite(false);
+  useEffect(() => {
+    const street = streetName.trim();
+    if (!location || street.length < 3) {
+      setAddressVerification("idle");
+      setAddressVerificationMessage("");
+      setVerifiedCoordinates(null);
+      return;
     }
-  };
+
+    let cancelled = false;
+    setAddressVerification("verifying");
+    setAddressVerificationMessage("Verifying address...");
+    setVerifiedCoordinates(null);
+    const timer = setTimeout(async () => {
+      try {
+        const response = await api.tasks.verifyAddress({ district: location, streetName: street });
+        if (cancelled) return;
+        setVerifiedCoordinates({
+          latitude: Number(response.data.latitude),
+          longitude: Number(response.data.longitude),
+        });
+        setAddressVerification("verified");
+        setAddressVerificationMessage("Address verified successfully. GPS coordinates detected.");
+      } catch (error: any) {
+        if (cancelled) return;
+        setAddressVerification("error");
+        setAddressVerificationMessage(error?.response?.data?.message || "Unable to verify this address in Vietnam.");
+      }
+    }, 450);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [location, streetName]);
 
   const handleGetAiBudgetSuggestion = async (): Promise<void> => {
     if (!category || !location.trim()) {
@@ -221,11 +224,15 @@ export default function PostTaskScreen(): React.ReactElement {
     }
 
     const validation = validateForm({
-      title, description, location, siteAddress, siteLatitude, siteLongitude, budget, maxBids, dueDate,
+      title, description, location, streetName, budget, maxBids, dueDate,
     });
     setErrors(validation);
     setFormError("");
     if (Object.keys(validation).length > 0) return;
+    if (addressVerification !== "verified" || !verifiedCoordinates) {
+      setFormError(addressVerificationMessage || "Please verify the task address before posting.");
+      return;
+    }
 
     const createdById = Number(user.id);
     if (!Number.isFinite(createdById) || createdById <= 0) {
@@ -256,9 +263,10 @@ export default function PostTaskScreen(): React.ReactElement {
         maxBids: Number(maxBids || 30),
         location: location.trim(),
         district: location.trim(),
-        siteAddress: siteAddress.trim(),
-        siteLatitude: Number(siteLatitude),
-        siteLongitude: Number(siteLongitude),
+        streetName: streetName.trim(),
+        siteAddress: `${streetName.trim()}, ${location.trim()}, Ho Chi Minh City, Vietnam`,
+        siteLatitude: verifiedCoordinates.latitude,
+        siteLongitude: verifiedCoordinates.longitude,
         createdById,
         imageUrls,
         dueDate: dueDate.trim() || undefined,
@@ -371,39 +379,60 @@ export default function PostTaskScreen(): React.ReactElement {
             </View>
           </View>
 
+          <View style={styles.group}>
+            <Text style={styles.fieldLabel}>District*</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setIsDistrictMenuOpen((current) => !current)}
+              style={[styles.selectButton, errors.location ? styles.selectButtonError : null]}
+            >
+              <Text style={location ? styles.selectValue : styles.selectPlaceholder}>
+                {location || "Select district"}
+              </Text>
+              <Text style={styles.selectChevron}>{isDistrictMenuOpen ? "▲" : "▼"}</Text>
+            </Pressable>
+            {isDistrictMenuOpen ? (
+              <View style={styles.selectMenu}>
+                {HO_CHI_MINH_WARD_GROUPS.map((group) => (
+                  <View key={group.oldDistrict}>
+                    <View style={styles.oldDistrictOption}>
+                      <Text style={styles.oldDistrictOptionText}>{group.oldDistrict}</Text>
+                    </View>
+                    {group.wards.map((ward) => (
+                      <Pressable
+                        key={`${group.oldDistrict}-${ward}`}
+                        onPress={() => {
+                          setLocation(ward);
+                          setIsDistrictMenuOpen(false);
+                        }}
+                        style={styles.selectOption}
+                      >
+                        <Text style={styles.selectOptionText}>{ward}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ))}
+              </View>
+            ) : null}
+            {errors.location ? <Text style={styles.inputError}>{errors.location}</Text> : null}
+          </View>
           <Input
-            label="Public District*"
-            placeholder="Example: District 1, Ho Chi Minh City"
-            value={location}
-            onChangeText={setLocation}
-            error={errors.location}
+            label="Street name*"
+            placeholder="Example: Bui Dinh Tuy"
+            value={streetName}
+            onChangeText={setStreetName}
+            error={errors.streetName}
           />
-          <Input
-            label="Precise Task Address*"
-            placeholder="Only assigned provider and requester can access this"
-            value={siteAddress}
-            onChangeText={setSiteAddress}
-            error={errors.siteAddress}
-          />
-          <Input
-            label="Task Latitude*"
-            keyboardType="numbers-and-punctuation"
-            value={siteLatitude}
-            onChangeText={setSiteLatitude}
-          />
-          <Input
-            label="Task Longitude*"
-            keyboardType="numbers-and-punctuation"
-            value={siteLongitude}
-            onChangeText={setSiteLongitude}
-            error={errors.coordinates}
-          />
-          <Button
-            title={isCapturingSite ? "Capturing..." : "Use Current GPS for Task Site"}
-            variant="outline"
-            loading={isCapturingSite}
-            onPress={() => void captureTaskCoordinates()}
-          />
+          <Text
+            accessibilityLiveRegion="polite"
+            style={[
+              styles.addressVerification,
+              addressVerification === "verified" ? styles.addressVerified : null,
+              addressVerification === "error" ? styles.addressError : null,
+            ]}
+          >
+            {addressVerificationMessage}
+          </Text>
 
           <View style={styles.aiSuggestionBox}>
             <View style={styles.aiSuggestionHeader}>
@@ -514,6 +543,77 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: "700",
     color: colors.dark[700],
+  },
+  selectButton: {
+    minHeight: 52,
+    borderWidth: 1,
+    borderColor: colors.dark[200],
+    borderRadius: radius.md,
+    backgroundColor: colors.white,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  selectButtonError: {
+    borderColor: colors.danger[500],
+  },
+  selectValue: {
+    color: colors.dark[900],
+    fontSize: 16,
+  },
+  selectPlaceholder: {
+    color: colors.dark[400],
+    fontSize: 16,
+  },
+  selectChevron: {
+    color: colors.dark[500],
+    fontSize: 12,
+  },
+  selectMenu: {
+    maxHeight: 220,
+    borderWidth: 1,
+    borderColor: colors.dark[200],
+    borderRadius: radius.md,
+    backgroundColor: colors.white,
+    overflow: "hidden",
+  },
+  selectOption: {
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.dark[100],
+  },
+  oldDistrictOption: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: colors.dark[100],
+  },
+  oldDistrictOptionText: {
+    color: colors.dark[700],
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  selectOptionText: {
+    color: colors.dark[800],
+    fontSize: 15,
+  },
+  inputError: {
+    color: colors.danger[600],
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  addressVerification: {
+    minHeight: 20,
+    fontSize: 12,
+    lineHeight: 18,
+    color: colors.primary[700],
+  },
+  addressVerified: {
+    color: colors.success[700],
+  },
+  addressError: {
+    color: colors.danger[600],
   },
   tipBox: {
     borderRadius: radius.lg,

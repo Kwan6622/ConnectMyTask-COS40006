@@ -121,7 +121,7 @@ export default function TaskDetailScreen(): React.ReactElement {
 
   const submitBid = async (): Promise<void> => {
     if (!taskId) return;
-    const parsedAmount = Number(bidAmount);
+    const parsedAmount = Number(bidAmount.replace(/,/g, ""));
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       Alert.alert("Invalid bid", "Enter a valid bid amount greater than 0.");
       return;
@@ -329,7 +329,10 @@ export default function TaskDetailScreen(): React.ReactElement {
                 placeholder="e.g. 200000"
                 keyboardType="numeric"
                 value={bidAmount}
-                onChangeText={setBidAmount}
+                onChangeText={(value) => {
+                  const digits = value.replace(/\D/g, "");
+                  setBidAmount(digits.replace(/\B(?=(\d{3})+(?!\d))/g, ","));
+                }}
               />
               <Input
                 label="Message (optional)"

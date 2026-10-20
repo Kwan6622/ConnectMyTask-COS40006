@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { AIAssistantButton } from "@/components/AIAssistantButton";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
@@ -111,7 +110,6 @@ export default function SignInScreen(): React.ReactElement {
           </Card>
           </View>
         </ScrollView>
-        <AIAssistantButton />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

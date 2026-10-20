@@ -26,6 +26,11 @@ async function authenticate(req, res, next) {
   }
 }
 
+async function authenticateIfPresent(req, res, next) {
+  if (!req.headers.authorization) return next();
+  return authenticate(req, res, next);
+}
+
 function requireRoles(...allowedRoles) {
   const normalizedAllowedRoles = allowedRoles.map((role) => String(role).toUpperCase());
   return (req, res, next) => {
@@ -60,7 +65,7 @@ function signToken(user) {
 
 module.exports = {
   authenticate,
+  authenticateIfPresent,
   requireRoles,
   signToken,
 };
-

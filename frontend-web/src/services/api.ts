@@ -65,6 +65,7 @@ class ApiService {
 
   // Task APIs
   tasks = {
+    verifyAddress: (data: { district: string; streetName: string }) => this.api.post('/tasks/verify-address', data),
     getAll: (filters?: any) => this.api.get('/tasks', { params: filters }),
     getById: (id: string) => this.api.get(`/tasks/${id}`),
     create: (data: any) => this.api.post('/tasks', data),

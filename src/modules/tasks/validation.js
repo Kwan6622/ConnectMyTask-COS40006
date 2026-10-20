@@ -8,9 +8,10 @@ const createTaskSchema = z.object({
   maxBids: z.number().int().min(1).max(100).optional(),
   location: z.string().min(1),
   district: z.string().trim().min(2).max(120),
+  streetName: z.string().trim().min(3).max(200).optional(),
   siteAddress: z.string().trim().min(5).max(500),
-  siteLatitude: z.number().finite().min(-90).max(90),
-  siteLongitude: z.number().finite().min(-180).max(180),
+  siteLatitude: z.number().finite().min(-90).max(90).optional(),
+  siteLongitude: z.number().finite().min(-180).max(180).optional(),
   dueDate: z.string().optional(),
   deadline: z.string().optional(),
   aiSuggestedPrice: z.number().positive().optional(),
@@ -128,4 +129,3 @@ module.exports = {
   updateTaskSchema,
   taskSubtaskParamsSchema,
 };
-

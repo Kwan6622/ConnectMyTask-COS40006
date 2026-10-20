@@ -12,6 +12,7 @@ import {
 import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
 import { api } from '../services/api';
+import { useAuthStore } from '../stores/auth.store';
 import type { TaskLocationVerificationStatus, TrackingLog } from '../types';
 
 const REFRESH_INTERVAL_MS = 5000;
@@ -19,6 +20,7 @@ const REFRESH_INTERVAL_MS = 5000;
 export const TrackingPage: React.FC = () => {
   const { taskId } = useParams<{ taskId: string }>();
   const navigate = useNavigate();
+  const user = useAuthStore((state) => state.user);
   const [latest, setLatest] = useState<TrackingLog | null>(null);
   const [history, setHistory] = useState<TrackingLog[]>([]);
   const [verification, setVerification] = useState<TaskLocationVerificationStatus | null>(null);
@@ -29,6 +31,7 @@ export const TrackingPage: React.FC = () => {
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
   const validTaskId = Boolean(taskId && /^[1-9]\d*$/.test(taskId));
+  const isRequester = ['REQUESTER', 'CLIENT'].includes(String(user?.role || '').toUpperCase());
 
   const fetchTrackingData = useCallback(async (showError = false) => {
     if (!taskId || !validTaskId) {
@@ -191,26 +194,28 @@ export const TrackingPage: React.FC = () => {
           </div>
 
           <div className="space-y-6">
-            <Card className={`p-6 border-2 ${verification?.isValid ? 'border-success-200 bg-success-50/50' : 'border-amber-200 bg-amber-50/50'}`}>
-              <div className="flex items-center gap-3">
-                {verification?.isValid
-                  ? <CheckCircleIcon className="w-9 h-9 text-success-600" />
-                  : <ExclamationTriangleIcon className="w-9 h-9 text-amber-600" />}
-                <div>
-                  <h2 className="text-lg font-bold text-dark-900">
-                    {verification?.isValid ? 'Location verified' : 'Not verified'}
-                  </h2>
-                  <p className="text-sm text-dark-600">
-                    {verification?.isValid
-                      ? `${verification.distanceMeters ?? 0} m from the task site`
-                      : 'Verification must be completed in the mobile app.'}
-                  </p>
+            {!isRequester && (
+              <Card className={`p-6 border-2 ${verification?.isValid ? 'border-success-200 bg-success-50/50' : 'border-amber-200 bg-amber-50/50'}`}>
+                <div className="flex items-center gap-3">
+                  {verification?.isValid
+                    ? <CheckCircleIcon className="w-9 h-9 text-success-600" />
+                    : <ExclamationTriangleIcon className="w-9 h-9 text-amber-600" />}
+                  <div>
+                    <h2 className="text-lg font-bold text-dark-900">
+                      {verification?.isValid ? 'Location verified' : 'Not verified'}
+                    </h2>
+                    <p className="text-sm text-dark-600">
+                      {verification?.isValid
+                        ? `${verification.distanceMeters ?? 0} m from the task site`
+                        : 'Verification must be completed in the mobile app.'}
+                    </p>
+                  </div>
                 </div>
-              </div>
-              {verification?.expiresAt && (
-                <p className="text-xs text-dark-500 mt-4">Expires {new Date(verification.expiresAt).toLocaleString()}</p>
-              )}
-            </Card>
+                {verification?.expiresAt && (
+                  <p className="text-xs text-dark-500 mt-4">Expires {new Date(verification.expiresAt).toLocaleString()}</p>
+                )}
+              </Card>
+            )}
 
             <Card className="p-6">
               <p className="text-sm text-dark-500">

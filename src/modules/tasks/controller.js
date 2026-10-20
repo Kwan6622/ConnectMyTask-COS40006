@@ -11,7 +11,7 @@ async function createTask(req, res, next) {
 
 async function listTasks(req, res, next) {
   try {
-    const tasks = await taskService.listTasks(req.query);
+    const tasks = await taskService.listTasks(req.query, req.user);
     res.json(tasks);
   } catch (err) {
     next(err);
@@ -21,7 +21,7 @@ async function listTasks(req, res, next) {
 async function getTaskById(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
-    const task = await taskService.getPublicTaskById(id);
+    const task = await taskService.getTaskForViewer(id, req.user);
     res.json(task);
   } catch (err) {
     next(err);
@@ -261,4 +261,3 @@ module.exports = {
   cancelTask,
   listAllDisputesForAdmin,
 };
-
