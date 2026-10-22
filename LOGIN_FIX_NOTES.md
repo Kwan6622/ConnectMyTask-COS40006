@@ -1,8 +1,0 @@
-# Mobile login diagnosis
-
-- Root cause: `requester5` is not a username accepted by auth; it is the seed account whose email is `requester5@gmail.com`. Login validates email format before querying users, so `requester5` receives HTTP 400 `ValidationError`. The seed account exists in the connected PostgreSQL database as `REQUESTER`; its stored hash verifies against the seed password using bcrypt. Login by its email returned HTTP 200 with a user and access token. No password or hash value is recorded here.
-- Changed files: `frontend-mobile/src/app/sign-in.tsx`, `LOGIN_FIX_NOTES.md`.
-- Fix: retain email-only authentication and show a specific hint when email validation fails. Safe diagnostics log only HTTP status, Axios error code, and fixed endpoint; no credentials, token, headers, or request body are logged.
-- Tests: DB read-only check found one `requester5` match; failed-login count was zero and no active lockout. Hash comparison passed. HTTP login with the seed email returned 200; trying the username form returned 400 `ValidationError`. Successful login did not update the user because failure/lockout fields were already clear. Mobile type-check and targeted ESLint passed; mobile CI test command exited 0 but found no tests.
-- Manual verification: enter `requester5@gmail.com` (the full email) in the iOS Simulator and the seed account password; verify Browse Tasks opens. The iOS UI itself could not be exercised in this run because Simulator accessibility permissions were unavailable.
-- Remaining issue: backend returns no validation message for malformed email (`ValidationError` only), so mobile now supplies the specific hint. Simulator UI end-to-end navigation remains unverified; the HTTP auth flow succeeds with the seed account.
