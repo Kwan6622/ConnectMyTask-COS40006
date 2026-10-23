@@ -6,6 +6,7 @@ const signupSchema = z.object({
   password: z.string().min(6),
   role: z.enum(['CLIENT', 'PROVIDER']),
   phone: z.string().optional(),
+  location: z.string().trim().min(2, 'Location is required'),
 });
 
 const loginSchema = z.object({
@@ -17,4 +18,3 @@ module.exports = {
   signupSchema,
   loginSchema,
 };
-

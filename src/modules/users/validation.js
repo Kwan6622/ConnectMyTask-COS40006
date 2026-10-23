@@ -13,6 +13,7 @@ const getUserParamsSchema = z.object({
 const updateProfileSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
   phone: z.string().trim().max(30).nullable().optional(),
+  location: z.string().trim().min(2, 'Location is required').optional(),
   bio: z.string().trim().max(500).nullable().optional(),
   profilePhotoUrl: z.string().url().optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, 'Provide at least one profile field');
@@ -50,4 +51,3 @@ module.exports = {
   certificateIdParamsSchema,
   verifyProviderCertificateSchema,
 };
-

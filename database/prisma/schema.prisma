@@ -15,6 +15,7 @@ model User {
   passwordHash        String
   role                String
   phone               String?
+  location            String
   skills              String?
   bio                 String?
   availability        String?

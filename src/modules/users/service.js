@@ -136,6 +136,7 @@ async function updateProfile(userId, payload) {
   const data = {
     ...(Object.prototype.hasOwnProperty.call(payload, 'name') ? { name: payload.name } : {}),
     ...(Object.prototype.hasOwnProperty.call(payload, 'phone') ? { phone: payload.phone || null } : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, 'location') ? { location: payload.location } : {}),
     ...(Object.prototype.hasOwnProperty.call(payload, 'bio') ? { bio: payload.bio || null } : {}),
     ...(Object.prototype.hasOwnProperty.call(payload, 'profilePhotoUrl') ? { profilePhotoUrl: payload.profilePhotoUrl } : {}),
   };

@@ -31,7 +31,7 @@ function assertConfigured() {
 }
 
 function parseStreetInput(value) {
-  const match = String(value).trim().match(/^(\d+[A-Za-z]?(?:\s*[-/]\s*\d+[A-Za-z]?)?)\s+(.+)$/);
+  const match = String(value).trim().match(/^([A-Za-z]?\d+[A-Za-z]?(?:\s*[-/]\s*[A-Za-z]?\d+[A-Za-z]?)?)\s+(.+)$/);
   return match
     ? { houseNumber: match[1], roadName: match[2].trim() }
     : { houseNumber: '', roadName: String(value).trim() };
@@ -55,9 +55,17 @@ function getAdministrativeValues(result) {
 
 function isDistrictMatch(result, district) {
   const expected = normalizeText(district);
-  return getAdministrativeValues(result).some((candidate) => (
+  const administrativeMatch = getAdministrativeValues(result).some((candidate) => (
     candidate === expected || candidate.includes(expected) || expected.includes(candidate)
   ));
+  if (administrativeMatch) return true;
+
+  // Some geocoding results encode a ward in the route name when a street
+  // crosses ward boundaries (for example, "phan xich long cau kieu").
+  const routeValues = getComponentValues(result, ['route']);
+  const formattedAddress = normalizeText(result?.formatted_address);
+  return routeValues.some((candidate) => candidate.includes(expected))
+    || formattedAddress.includes(expected);
 }
 
 function isStreetMatch(result, roadName) {

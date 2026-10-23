@@ -122,7 +122,7 @@ class ApiService {
   users = {
     getProfile: (id: string) => this.api.get(`/users/${id}`),
     getMe: () => this.api.get('/users/me'),
-    updateProfile: (data: { name?: string; phone?: string | null; bio?: string | null; profilePhotoUrl?: string }) =>
+    updateProfile: (data: { name?: string; phone?: string | null; location?: string; bio?: string | null; profilePhotoUrl?: string }) =>
       this.api.patch('/users/me', data),
     getRating: (id: string) => this.api.get(`/users/${id}/rating`),
     getReviews: (id: string) => this.api.get(`/users/${id}/reviews`),

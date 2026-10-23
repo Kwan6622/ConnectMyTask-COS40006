@@ -7,6 +7,7 @@ import { Input } from '../components/common/Input';
 import { Card } from '../components/common/Card';
 import toast from 'react-hot-toast';
 import { EnvelopeIcon, LockClosedIcon } from '@heroicons/react/24/outline';
+import { HO_CHI_MINH_WARD_GROUPS } from '../constants/hoChiMinhWards';
 
 interface LoginFormData {
   email: string;
@@ -17,6 +18,7 @@ interface SignupFormData extends LoginFormData {
   fullName: string;
   confirmPassword: string;
   role: 'CLIENT' | 'PROVIDER';
+  location: string;
 }
 
 export const LoginPage: React.FC = () => {
@@ -63,6 +65,7 @@ export const LoginPage: React.FC = () => {
         password: data.password,
         fullName: data.fullName,
         role: data.role,
+        location: data.location,
       });
       toast.success('Account created successfully! Please log in.');
       setIsLogin(true);
@@ -196,6 +199,29 @@ export const LoginPage: React.FC = () => {
                 leftIcon={<EnvelopeIcon className="w-5 h-5" />}
                 error={signupForm.formState.errors.email?.message}
               />
+
+              <div>
+                <label htmlFor="signup-location" className="block text-sm font-medium text-dark-700 mb-2">
+                  District *
+                </label>
+                <select
+                  id="signup-location"
+                  {...signupForm.register('location', { required: 'Please select your district' })}
+                  className="w-full h-12 rounded-xl border border-dark-200 bg-white px-4 text-dark-900 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="" disabled>Select district</option>
+                  {HO_CHI_MINH_WARD_GROUPS.map((group) => (
+                    <optgroup key={group.oldDistrict} label={group.oldDistrict}>
+                      {group.wards.map((ward) => (
+                        <option key={`${group.oldDistrict}-${ward}`} value={ward}>{ward}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                {signupForm.formState.errors.location && (
+                  <p className="text-sm text-danger-600 mt-2">{signupForm.formState.errors.location.message}</p>
+                )}
+              </div>
 
               <div>
                 <label className="block text-sm font-medium text-dark-700 mb-3">

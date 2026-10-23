@@ -342,7 +342,7 @@ export const TaskBrowsePage: React.FC = () => {
         )}
         <div className="grid gap-8">
           {/* Filters Sidebar */}
-          {isFiltersOpen && <div className="fixed inset-y-0 left-0 z-40 w-[min(90vw,24rem)] overflow-y-auto p-4 pt-20">
+          {isFiltersOpen && <div className="fixed inset-y-0 left-0 z-40 w-[min(90vw,24rem)] overflow-hidden p-4 pt-20">
             <Card className="shadow-xl border-0 bg-white/95 backdrop-blur-sm">
               <div className="p-7 max-h-[calc(100vh-7rem)] overflow-y-auto">
                 <div className="flex items-center gap-3 mb-6">
