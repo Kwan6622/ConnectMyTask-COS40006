@@ -40,7 +40,7 @@ function resolveApiBaseUrl(): string {
 
       // Android emulators cannot reach localhost of host machine directly.
       if (isAndroidEmulator) {
-        return `http://10.0.2.2:${envParsed.port || "5000"}/api`;
+        return `http://10.0.2.2:${envParsed.port || "4000"}/api`;
       }
 
       // If env uses localhost but we have Expo debug host (physical device/LAN),
@@ -50,7 +50,7 @@ function resolveApiBaseUrl(): string {
       }
 
       if (Platform.OS === "android") {
-        return `http://10.0.2.2:${envParsed.port || "5000"}/api`;
+        return `http://10.0.2.2:${envParsed.port || "4000"}/api`;
       }
       return envUrl;
     } catch {
@@ -59,14 +59,14 @@ function resolveApiBaseUrl(): string {
   }
 
   if (expoHost) {
-    return `http://${expoHost}:5000/api`;
+    return `http://${expoHost}:4000/api`;
   }
 
   if (isAndroidEmulator || Platform.OS === "android") {
-    return "http://10.0.2.2:5000/api";
+    return "http://10.0.2.2:4000/api";
   }
 
-  return "http://127.0.0.1:5000/api";
+  return "http://127.0.0.1:4000/api";
 }
 
 const API_BASE_URL = resolveApiBaseUrl();
