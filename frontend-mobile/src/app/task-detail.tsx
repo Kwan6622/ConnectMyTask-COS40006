@@ -6,6 +6,7 @@ import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { Input } from "@/components/Input";
+import { TaskTrackingMap } from "@/components/TaskTrackingMap";
 import { api } from "@/services/api";
 import { useAuthStore } from "@/store/authStore";
 import { useTaskStore } from "@/store/taskStore";
@@ -118,6 +119,13 @@ export default function TaskDetailScreen(): React.ReactElement {
     isAuthenticated && user != null && ["REQUESTER", "CLIENT"].includes(String(user.role || "").toUpperCase());
   const canAssignProvider =
     isRequesterUser && currentTask != null && ["OPEN", "BIDDING"].includes(String(currentTask.status || ""));
+  const canViewTaskTracking = Boolean(
+    user?.id != null
+    && (
+      String(currentTask?.createdById ?? currentTask?.clientId) === String(user.id)
+      || String(currentTask?.assignedProviderId) === String(user.id)
+    )
+  );
 
   const submitBid = async (): Promise<void> => {
     if (!taskId) return;
@@ -234,7 +242,6 @@ export default function TaskDetailScreen(): React.ReactElement {
   const dueDate = getTaskDueDate(currentTask);
   const postedBy = getDisplayName(currentTask.createdBy || currentTask.client);
   const canSeeSuspiciousRisk = isProvider(user) || isAdmin(user);
-
   return (
     <MarketplaceShell activeRoute="browse">
       <View style={styles.headerRow}>
@@ -270,6 +277,8 @@ export default function TaskDetailScreen(): React.ReactElement {
         </View>
       </Card>
 
+      {canViewTaskTracking ? <TaskTrackingMap task={currentTask} user={user} /> : null}
+
       <Card title="Actions">
         <View style={styles.actionRow}>
           <Button
@@ -279,9 +288,9 @@ export default function TaskDetailScreen(): React.ReactElement {
             style={styles.actionButton}
           />
           <Button
-            title="Tracking"
+            title="Task Progress & Tracking"
             variant="outline"
-            onPress={() => router.push({ pathname: "/task-tracking", params: { taskId: String(currentTask.id) } })}
+            onPress={() => router.push({ pathname: "/task-progress", params: { taskId: String(currentTask.id) } })}
             style={styles.actionButton}
           />
           <Button title="Contact Client" variant="outline" onPress={() => Alert.alert("Coming soon")} style={styles.actionButton} />

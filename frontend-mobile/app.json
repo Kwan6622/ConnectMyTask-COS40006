@@ -11,7 +11,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.connectmytask.mobile",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "ConnectMyTask uses your foreground location to verify arrival at an assigned task."
+        "NSLocationWhenInUseUsageDescription": "ConnectMyTask uses your foreground location to verify and share your position on an assigned task while the app is open."
       }
     },
     "android": {
@@ -43,7 +43,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "ConnectMyTask uses your foreground location to verify arrival at an assigned task."
+          "locationWhenInUsePermission": "ConnectMyTask uses your foreground location to verify and share your position on an assigned task while the app is open."
         }
       ]
     ]

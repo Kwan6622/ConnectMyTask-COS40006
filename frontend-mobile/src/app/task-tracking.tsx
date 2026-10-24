@@ -1,15 +1,18 @@
 import React, { useEffect } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useAuthStore } from "@/store/authStore";
 import { MarketplaceShell } from "@/components/MarketplaceShell";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
+import { TaskTrackingMap } from "@/components/TaskTrackingMap";
 import { useTaskStore } from "@/store/taskStore";
 import { colors } from "@/theme/tokens";
 import { formatDateTime } from "@/utils/taskUtils";
 
 export default function TaskTrackingScreen(): React.ReactElement {
   const router = useRouter();
+  const user = useAuthStore((state) => state.user);
   const { taskId } = useLocalSearchParams<{ taskId?: string }>();
   const { currentTask, taskActivityLogs, isLoading, fetchTaskProgress } = useTaskStore((state) => ({
     currentTask: state.currentTask,
@@ -22,6 +25,14 @@ export default function TaskTrackingScreen(): React.ReactElement {
     if (!taskId) return;
     void fetchTaskProgress(taskId);
   }, [fetchTaskProgress, taskId]);
+  const canViewTracking = Boolean(
+    user?.id != null
+    && currentTask?.assignedProviderId
+    && (
+      String(currentTask.createdById ?? currentTask.clientId) === String(user.id)
+      || String(currentTask.assignedProviderId) === String(user.id)
+    )
+  );
 
   if (!taskId) {
     return (
@@ -42,6 +53,8 @@ export default function TaskTrackingScreen(): React.ReactElement {
         <Text style={styles.title}>Task Tracking</Text>
         <Text style={styles.body}>{currentTask?.title || `Task #${taskId}`}</Text>
       </Card>
+
+      {canViewTracking && currentTask ? <TaskTrackingMap task={currentTask} user={user} /> : null}
 
       <Card>
         {isLoading ? <Text style={styles.body}>Loading tracking updates...</Text> : null}
@@ -101,4 +114,3 @@ const styles = StyleSheet.create({
     gap: 8,
   },
 });
-

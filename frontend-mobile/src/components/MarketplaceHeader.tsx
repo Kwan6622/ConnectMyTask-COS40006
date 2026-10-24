@@ -110,7 +110,7 @@ export function MarketplaceHeader({
   const resolveNotificationRoute = (message: string, taskId: string | number) => {
     const normalized = String(message || "").toLowerCase();
     if (normalized.includes("tracking") || normalized.includes("location") || normalized.includes("gps")) {
-      return { pathname: "/task-tracking", params: { taskId: String(taskId) } } as const;
+      return { pathname: "/task-progress", params: { taskId: String(taskId) } } as const;
     }
     if (normalized.includes("progress") || normalized.includes("completed") || normalized.includes("milestone")) {
       return { pathname: "/task-progress", params: { taskId: String(taskId) } } as const;

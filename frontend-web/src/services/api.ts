@@ -150,6 +150,7 @@ class ApiService {
 
   // Tracking APIs
   tracking = {
+    getTaskSiteLocation: (taskId: string) => this.api.get(`/tracking/tasks/${taskId}/site-location`),
     getLatest: (taskId: string) => this.api.get(`/tracking/tasks/${taskId}/latest`),
     updateLocation: (data: any) => this.api.post('/tracking/update', data),
     getHistory: (taskId: string) => this.api.get(`/tracking/tasks/${taskId}/history`),

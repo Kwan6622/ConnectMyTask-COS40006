@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import * as Location from "expo-location";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { MarketplaceShell } from "@/components/MarketplaceShell";
 import { Button } from "@/components/Button";
@@ -10,10 +9,11 @@ import { Input } from "@/components/Input";
 import { useAuthStore } from "@/store/authStore";
 import { useTaskStore } from "@/store/taskStore";
 import { api } from "@/services/api";
+import { TaskTrackingMap } from "@/components/TaskTrackingMap";
 import { TaskLocationVerification } from "@/types";
 import { colors, radius } from "@/theme/tokens";
 import { uploadImageToCloudinary } from "@/utils/cloudinaryUpload";
-import { buildLocationEvidence, buildVerificationEvidence, isVerificationCurrent } from "@/utils/locationVerification";
+import { isVerificationCurrent } from "@/utils/locationVerification";
 import {
   formatCurrency,
   formatDate,
@@ -76,8 +76,6 @@ export default function TaskProgressPage(): React.ReactElement {
   const [disputeImages, setDisputeImages] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [updatingSubtaskId, setUpdatingSubtaskId] = useState<string | number | null>(null);
   const [verification, setVerification] = useState<TaskLocationVerification | null>(null);
-  const [isVerifyingLocation, setIsVerifyingLocation] = useState(false);
-  const [locationError, setLocationError] = useState("");
 
   useEffect(() => {
     if (!isAuthenticated || !user) return;
@@ -168,53 +166,6 @@ export default function TaskProgressPage(): React.ReactElement {
     void refreshVerification();
     if (selectedTaskId) void fetchTaskProgress(selectedTaskId);
   }, [fetchTaskProgress, refreshVerification, selectedTaskId]));
-
-  const verifyLocation = async (): Promise<void> => {
-    if (!selectedTaskId || !isAssignedProvider || currentTask?.escrowStatus !== 'HELD') return;
-    setIsVerifyingLocation(true);
-    setLocationError("");
-    try {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (permission.status !== 'granted') throw new Error('Foreground GPS permission was denied.');
-      const point = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      const response = await api.tracking.verify(
-        selectedTaskId,
-        buildVerificationEvidence(point.coords, point.timestamp)
-      );
-      setVerification(response.data);
-      await fetchTaskProgress(selectedTaskId);
-      Alert.alert('Location verified', `You are within ${response.data.distanceMeters} m of the task site.`);
-    } catch (error: any) {
-      const message = error?.response?.data?.message || error?.message || 'Location verification failed.';
-      setLocationError(message);
-      Alert.alert('Verification failed', message);
-    } finally {
-      setIsVerifyingLocation(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!selectedTaskId || !isAssignedProvider || !locationVerified) return;
-    let stopped = false;
-    let subscription: Location.LocationSubscription | undefined;
-    void Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.High, timeInterval: 30000, distanceInterval: 20 },
-      point => {
-        try {
-          void api.tracking.update({
-            taskId: Number(selectedTaskId),
-            ...buildLocationEvidence(point.coords, point.timestamp),
-          }).catch(() => {});
-        } catch {
-          // Ignore unusable sensor samples; backend remains the source of truth.
-        }
-      }
-    ).then(value => {
-      if (stopped) value.remove();
-      else subscription = value;
-    }).catch(() => {});
-    return () => { stopped = true; subscription?.remove(); };
-  }, [isAssignedProvider, locationVerified, selectedTaskId]);
 
   const pickImage = async (target: "proof" | "dispute"): Promise<void> => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -370,8 +321,12 @@ export default function TaskProgressPage(): React.ReactElement {
   return (
     <MarketplaceShell activeRoute="progress">
       <View style={styles.headerCopy}>
-        <Text style={styles.pageTitle}>Task Progress</Text>
-        <Text style={styles.pageSubtitle}>Show and update the progress of your tasks</Text>
+        <Text style={styles.pageTitle}>{isProviderView ? "My Assigned Tasks" : "Task Progress"}</Text>
+        <Text style={styles.pageSubtitle}>
+          {isProviderView
+            ? "Select an assigned task to share your journey and update its progress."
+            : "Follow the progress and live location for your tasks."}
+        </Text>
       </View>
 
       <Card>
@@ -408,7 +363,7 @@ export default function TaskProgressPage(): React.ReactElement {
         </View>
       </Card>
 
-      {selectedTaskId && currentTask ? (
+      {selectedTaskId && currentTask && String(currentTask.id) === selectedTaskId ? (
         <>
           <Card>
             <View style={styles.summaryTop}>
@@ -438,6 +393,10 @@ export default function TaskProgressPage(): React.ReactElement {
               <View style={[styles.progressFill, { width: `${summaryProgress}%` }]} />
             </View>
           </Card>
+
+          {currentTask.assignedProviderId ? (
+            <TaskTrackingMap key={String(currentTask.id)} task={currentTask} user={user} />
+          ) : null}
 
           <Card title="Progress Timeline">
             {taskProgressUpdates.length === 0 ? (
@@ -521,26 +480,6 @@ export default function TaskProgressPage(): React.ReactElement {
                   </View>
                 ))}
               </View>
-            </Card>
-          ) : null}
-
-          {isAssignedProvider ? (
-            <Card title="Task Location Verification">
-              <Text>{currentTask.siteAddress || 'Requester has not provided a precise task address.'}</Text>
-              <Text>
-                {locationVerified
-                  ? `Verified until ${formatDateTime(verification?.expiresAt || '')}`
-                  : currentTask.escrowStatus !== 'HELD'
-                    ? 'Awaiting requester deposit'
-                    : 'Verify within 1 km before starting or updating work.'}
-              </Text>
-              {locationError ? <Text style={styles.errorText}>{locationError}</Text> : null}
-              <Button
-                title={isVerifyingLocation ? "Verifying..." : locationVerified ? "Verify Again" : "Verify GPS Location"}
-                onPress={() => void verifyLocation()}
-                loading={isVerifyingLocation}
-                disabled={currentTask.escrowStatus !== 'HELD'}
-              />
             </Card>
           ) : null}
 

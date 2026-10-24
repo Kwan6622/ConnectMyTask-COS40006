@@ -1,6 +1,6 @@
 ## ConnectMyTask Backend API
 
-Node.js / Express backend for the **ConnectMyTask** capstone project. This service provides task management, bidding, reviews, AI-assisted recommendations, and IoT-style GPS tracking with real-time updates via Socket.io.
+Node.js / Express backend for the **ConnectMyTask** capstone project. This service provides task management, bidding, reviews, AI-assisted recommendations, and provider GPS tracking.
 
 ## Run Full Project (Backend + Web + Optional Mobile)
 
@@ -153,8 +153,18 @@ npm install
 Create/update `frontend-mobile/.env`:
 
 ```env
-EXPO_PUBLIC_API_URL=http://localhost:4000/api
+EXPO_PUBLIC_API_URL=http://YOUR_COMPUTER_LAN_IP:4000/api
 ```
+
+For a physical iPhone/iPad or Android device, replace `YOUR_COMPUTER_LAN_IP` with your computer's local IPv4 address (for example, `192.168.1.20`). The device and computer must be on the same network. Do not use `localhost` on a physical device; it refers to the device itself.
+
+For an Android emulator, use:
+
+```env
+EXPO_PUBLIC_API_URL=http://10.0.2.2:4000/api
+```
+
+Start the backend and verify `http://YOUR_COMPUTER_LAN_IP:4000/health` is reachable from the device's browser; it should return `{"status":"ok","service":"connectmytask-api"}`. If it is not reachable, check that the backend is running on port `4000` and that your computer's firewall allows connections to that port. The Expo tunnel used by `npm run ipad` only serves the app bundle; it does not tunnel API requests. Restart Expo after changing `.env`.
 
 Run mobile:
 
@@ -215,7 +225,7 @@ If register/login fails on another machine, 90% of cases are:
   - `tasks/`
   - `bids/`
   - `reviews/`
-  - `tracking/` (IoT GPS ingestion)
+  - `tracking/` (provider GPS sharing and task-site arrival verification)
   - `ai-integration/` (AI orchestration layer)
 
 ### Environment Variables
@@ -318,25 +328,37 @@ All routes are prefixed with `/api` unless noted.
   - `POST /api/reviews` – Create a review
   - `GET /api/providers/:id/reviews` – List reviews for a provider
 
-- **Tracking (Simulated IoT GPS)**
+- **Tracking (Provider GPS)**
+  - `GET /api/tracking/tasks/:taskId/site-location` – Get requester-set coordinates for a task participant
+  - `GET /api/tracking/tasks/:taskId/latest` – Get the latest provider location
+  - `GET /api/tracking/tasks/:taskId/history` – Get recent provider locations
+  - `GET /api/tracking/tasks/:taskId/verification` – Get arrival-verification status
+  - `POST /api/tracking/tasks/:taskId/verify` – Verify arrival within 100 m of the task site
   - `POST /api/tracking/update`
 
-Request body:
+All tracking routes require authentication. Location writes are accepted only from the provider assigned to an active task. The provider identity is taken from the authenticated account; `providerId` is optional and, if supplied, must match it.
+
+Example update body:
 
 ```json
 {
   "taskId": 1,
-  "providerId": 2,
-  "lat": -37.8136,
-  "lng": 144.9631,
-  "timestamp": "2026-02-23T10:00:00.000Z"
+  "lat": 10.7769,
+  "lng": 106.7009,
+  "accuracy": 12,
+  "timestamp": "2026-10-24T06:00:00.000Z"
 }
 ```
 
+Use a current UTC timestamp when sending an update; the backend rejects stale GPS samples.
+
 Flow:
 
+- Task maps are available to the requester and assigned provider for that task.
+- The assigned provider opts in to foreground GPS sharing from the mobile app. Journey sharing does not require escrow funding or prior arrival verification.
+- The provider's **I've arrived** action verifies the current GPS point within 100 m of the saved task-site coordinates.
+- The requester can view the provider's latest location on web or mobile. The requester marker represents the saved task location, not the requester's live device location.
 - Persisted into `TRACKING_LOGS` via Prisma.
-- Emits Socket.io event `location:update` with `{ taskId, providerId, lat, lng, timestamp }`.
 
 - **AI Integration**
   - `POST /api/ai/recommend/:taskId`
@@ -371,30 +393,12 @@ Flow:
 4. Store in `AI_INSIGHTS` table.
 5. Return structured JSON to frontend with the same fields (`taskId`, `suggestedPrice`, `recommendedProviders`, `confidenceScore`).
 
-### Real-Time Tracking (Socket.io)
+### Task GPS Tracking
 
-- Socket.io server is attached to the same HTTP server (`src/server.js`).
-- Clients (web or mobile) should connect to:
-
-```js
-const socket = io("http://localhost:4000");
-
-socket.on("location:update", (payload) => {
-  // handle live GPS updates
-});
-```
-
-- Event payload:
-
-```json
-{
-  "taskId": 1,
-  "providerId": 2,
-  "lat": -37.8136,
-  "lng": 144.9631,
-  "timestamp": "2026-02-23T10:00:00.000Z"
-}
-```
+- The web and mobile task maps poll the authenticated `GET /api/tracking/tasks/:taskId/latest` endpoint every five seconds.
+- Provider location is collected only while the assigned provider opts in from the mobile app with foreground location permission.
+- The requester-set task pin is loaded from the participant-only `GET /api/tracking/tasks/:taskId/site-location` endpoint.
+- Tracking map updates use HTTP polling. Socket.io is initialized by the backend but is not used for tracking location updates.
 
 ### Docker Usage
 
@@ -418,5 +422,4 @@ You can then point:
 
 - **Frontend (React)** at `http://localhost:4000/api/...`
 - **AI Service (FastAPI)** at the host / network name you configure in `AI_SERVICE_URL`
-- **Mobile GPS simulation** at `POST http://localhost:4000/api/tracking/update` and Socket.io at `ws://localhost:4000`
-
+- **Mobile app** at the backend API URL; the assigned provider's app sends authenticated foreground GPS updates to `/api/tracking/update`.

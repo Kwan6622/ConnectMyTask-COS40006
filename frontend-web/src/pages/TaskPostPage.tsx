@@ -8,6 +8,7 @@ import { Button } from '../components/common/Button';
 import { Input } from '../components/common/Input';
 import { Card } from '../components/common/Card';
 import { uploadImageToCloudinary } from '../utils/cloudinaryUpload';
+import { TaskLocationPicker, type TaskCoordinates } from '../components/task/TaskLocationPicker';
 import toast from 'react-hot-toast';
 import {
   SparklesIcon,
@@ -30,8 +31,8 @@ interface TaskFormData {
   category: string;
   location: string;
   siteAddress: string;
-  siteLatitude: number;
-  siteLongitude: number;
+  siteLatitude?: number;
+  siteLongitude?: number;
   budget?: number;
   maxBids?: number;
   deadline?: string;
@@ -73,6 +74,7 @@ export const TaskPostPage: React.FC = () => {
   const [isGettingAiBudgetSuggestion, setIsGettingAiBudgetSuggestion] = useState(false);
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [isUploadingImages, setIsUploadingImages] = useState(false);
+  const [addressSearchRequest, setAddressSearchRequest] = useState(0);
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
   const minDeadlineValue = getDateTimeLocalNow();
   const districtOptions = [
@@ -100,7 +102,22 @@ export const TaskPostPage: React.FC = () => {
     return acc;
   }, {});
 
-  const { control, register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<TaskFormData>();
+  const { control, register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = useForm<TaskFormData>();
+  const siteAddressRegistration = register('siteAddress', {
+    required: 'Precise task address is required',
+    onChange: () => {
+      setValue('siteLatitude', undefined, { shouldValidate: true });
+      setValue('siteLongitude', undefined, { shouldValidate: true });
+    },
+  });
+  const siteAddress = watch('siteAddress') || '';
+  const siteLatitude = watch('siteLatitude');
+  const siteLongitude = watch('siteLongitude');
+  const taskCoordinates: TaskCoordinates | null =
+    typeof siteLatitude === 'number' && Number.isFinite(siteLatitude)
+      && typeof siteLongitude === 'number' && Number.isFinite(siteLongitude)
+      ? { latitude: siteLatitude, longitude: siteLongitude }
+      : null;
 
   useEffect(() => {
     if (!user) {
@@ -168,6 +185,10 @@ export const TaskPostPage: React.FC = () => {
     }
     if (!user?.id) {
       toast.error('Please log in to post a task');
+      return;
+    }
+    if (!Number.isFinite(data.siteLatitude) || !Number.isFinite(data.siteLongitude)) {
+      toast.error('Find the task address on the map and confirm its location before posting');
       return;
     }
 
@@ -450,37 +471,28 @@ export const TaskPostPage: React.FC = () => {
                     )}
                     <Input
                       placeholder="Precise task address (private until assignment)"
-                      {...register('siteAddress', { required: 'Precise task address is required' })}
+                      {...siteAddressRegistration}
+                      onBlur={(event) => {
+                        siteAddressRegistration.onBlur(event);
+                        if (siteAddress.trim()) setAddressSearchRequest((request) => request + 1);
+                      }}
                       className="h-12 text-lg border-gray-200"
                     />
                     {errors.siteAddress && <p className="text-sm text-red-600">{errors.siteAddress.message}</p>}
-                    <div className="grid grid-cols-2 gap-3">
-                      <Input
-                        type="number"
-                        step="any"
-                        placeholder="Latitude"
-                        {...register('siteLatitude', {
-                          valueAsNumber: true,
-                          required: 'Latitude is required',
-                          min: { value: -90, message: 'Invalid latitude' },
-                          max: { value: 90, message: 'Invalid latitude' },
-                        })}
-                      />
-                      <Input
-                        type="number"
-                        step="any"
-                        placeholder="Longitude"
-                        {...register('siteLongitude', {
-                          valueAsNumber: true,
-                          required: 'Longitude is required',
-                          min: { value: -180, message: 'Invalid longitude' },
-                          max: { value: 180, message: 'Invalid longitude' },
-                        })}
-                      />
-                    </div>
-                    {(errors.siteLatitude || errors.siteLongitude) && (
-                      <p className="text-sm text-red-600">Valid task coordinates are required.</p>
-                    )}
+                    <input type="hidden" {...register('siteLatitude')} />
+                    <input type="hidden" {...register('siteLongitude')} />
+                    <p className="text-xs text-dark-500">
+                      Address lookup uses OpenStreetMap Nominatim to find map coordinates.
+                    </p>
+                    <TaskLocationPicker
+                      address={siteAddress}
+                      coordinates={taskCoordinates}
+                      searchRequest={addressSearchRequest}
+                      onCoordinatesChange={(coordinates) => {
+                        setValue('siteLatitude', coordinates.latitude, { shouldDirty: true, shouldValidate: true });
+                        setValue('siteLongitude', coordinates.longitude, { shouldDirty: true, shouldValidate: true });
+                      }}
+                    />
                     <div className="bg-green-50 rounded-lg p-3 border border-green-100">
                       <p className="text-sm text-green-700 flex items-center gap-2">
                         <UserGroupIcon className="w-4 h-4" />

@@ -10,11 +10,15 @@ async function verify(req, res, next) {
 async function verification(req, res, next) {
   try { res.json(await trackingService.getVerificationStatus(Number(req.params.taskId), req.user)); } catch (err) { next(err); }
 }
+async function siteLocation(req, res, next) {
+  try { res.json(await trackingService.getTaskSiteLocation(Number(req.params.taskId), req.user)); } catch (err) { next(err); }
+}
 
 module.exports = {
   trackingUpdate,
   verify,
   verification,
+  siteLocation,
   latest: async (req, res, next) => {
     try { const logs = await trackingRepository.readLocations(req.params.taskId, req.user, 1); res.json(logs[0] || null); } catch (err) { next(err); }
   },

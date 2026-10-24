@@ -160,6 +160,8 @@ class ApiService {
   };
 
   tracking = {
+    taskSiteLocation: (taskId: string | number) =>
+      apiClient.get(`/tracking/tasks/${taskId}/site-location`),
     verify: (taskId: string | number, data: {
       requestId: string;
       lat: number;

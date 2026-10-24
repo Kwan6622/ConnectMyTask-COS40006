@@ -65,6 +65,9 @@ export interface Task {
   category: TaskCategory;
   status: TaskStatus;
   location: string;
+  siteAddress?: string;
+  siteLatitude?: number;
+  siteLongitude?: number;
   dueDate?: string;
   isOverdue?: boolean;
   escrowStatus?: EscrowStatus;

@@ -1,7 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { MarketplaceShell } from "@/components/MarketplaceShell";
 import { Badge } from "@/components/Badge";
@@ -17,6 +16,7 @@ import { TaskCategory } from "@/types";
 import { uploadImageToCloudinary } from "@/utils/cloudinaryUpload";
 import { formatCategoryLabel, formatCurrency, isRequester } from "@/utils/taskUtils";
 import { api } from "@/services/api";
+import { TaskLocationPickerMap, type TaskCoordinates } from "@/components/TaskLocationPickerMap";
 
 type FieldErrors = Partial<Record<"title" | "description" | "location" | "siteAddress" | "coordinates" | "budget" | "maxBids" | "dueDate", string>>;
 
@@ -27,6 +27,11 @@ type AiBudgetSuggestion = {
   explanation?: string;
   currency?: string;
   factorsUsed?: string[];
+};
+
+type GeocodingResult = {
+  lat: string;
+  lon: string;
 };
 
 function formatVndInput(raw: string): string {
@@ -70,7 +75,7 @@ function validateForm({
   if (!siteLatitude.trim() || !siteLongitude.trim()
     || !Number.isFinite(latitude) || latitude < -90 || latitude > 90
     || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
-    next.coordinates = "Capture or enter valid task coordinates.";
+    next.coordinates = "Find the address on the map and confirm its location.";
   }
 
   const budgetValue = parseVndInput(budget);
@@ -117,7 +122,8 @@ export default function PostTaskScreen(): React.ReactElement {
   const [siteAddress, setSiteAddress] = useState("");
   const [siteLatitude, setSiteLatitude] = useState("");
   const [siteLongitude, setSiteLongitude] = useState("");
-  const [isCapturingSite, setIsCapturingSite] = useState(false);
+  const [isFindingSite, setIsFindingSite] = useState(false);
+  const isFindingSiteRef = useRef(false);
   const [budget, setBudget] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [maxBids, setMaxBids] = useState("30");
@@ -148,25 +154,43 @@ export default function PostTaskScreen(): React.ReactElement {
     setSelectedImages((current) => [...current, result.assets[0]].slice(0, 3));
   };
 
-  const captureTaskCoordinates = async (): Promise<void> => {
-    setIsCapturingSite(true);
+  const findTaskAddress = async (): Promise<void> => {
+    const query = siteAddress.trim();
+    if (!query) {
+      setErrors((current) => ({ ...current, siteAddress: "Enter the task address first." }));
+      return;
+    }
+    if (isFindingSiteRef.current) return;
+
+    isFindingSiteRef.current = true;
+    setIsFindingSite(true);
     try {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (permission.status !== 'granted') throw new Error('Foreground location permission is required.');
-      const point = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      setSiteLatitude(String(point.coords.latitude));
-      setSiteLongitude(String(point.coords.longitude));
-      if (!siteAddress.trim()) {
-        const [address] = await Location.reverseGeocodeAsync(point.coords);
-        if (address) {
-          setSiteAddress([address.name, address.street, address.district, address.city]
-            .filter(Boolean).join(', '));
-        }
+      const params = new URLSearchParams({
+        format: "jsonv2",
+        limit: "1",
+        countrycodes: "vn",
+        q: `${query}, Vietnam`,
+      });
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?${params}`);
+      if (!response.ok) throw new Error("Address lookup is temporarily unavailable.");
+      const results = await response.json() as GeocodingResult[];
+      const result = results[0];
+      const latitude = Number(result?.lat);
+      const longitude = Number(result?.lon);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        throw new Error("No map location was found. Try adding the ward or district.");
       }
+      setSiteLatitude(String(latitude));
+      setSiteLongitude(String(longitude));
+      setErrors((current) => ({ ...current, coordinates: undefined, siteAddress: undefined }));
     } catch (error: any) {
-      Alert.alert('Location unavailable', error?.message || 'Could not capture task coordinates.');
+      setErrors((current) => ({
+        ...current,
+        coordinates: error?.message || "Unable to find this address on the map.",
+      }));
     } finally {
-      setIsCapturingSite(false);
+      isFindingSiteRef.current = false;
+      setIsFindingSite(false);
     }
   };
 
@@ -272,6 +296,13 @@ export default function PostTaskScreen(): React.ReactElement {
       setFormError(message);
     }
   };
+
+  const siteCoordinates: TaskCoordinates | null = Number.isFinite(Number(siteLatitude))
+    && Number.isFinite(Number(siteLongitude))
+    && siteLatitude.trim() !== ""
+    && siteLongitude.trim() !== ""
+    ? { latitude: Number(siteLatitude), longitude: Number(siteLongitude) }
+    : null;
 
   if (!isAuthenticated || !isRequester(user)) {
     return (
@@ -382,28 +413,42 @@ export default function PostTaskScreen(): React.ReactElement {
             label="Precise Task Address*"
             placeholder="Only assigned provider and requester can access this"
             value={siteAddress}
-            onChangeText={setSiteAddress}
+            editable={!isFindingSite}
+            onBlur={() => {
+              if (siteAddress.trim()) void findTaskAddress();
+            }}
+            onChangeText={(value) => {
+              setSiteAddress(value);
+              setSiteLatitude("");
+              setSiteLongitude("");
+              setErrors((current) => ({
+                ...current,
+                siteAddress: undefined,
+                coordinates: undefined,
+              }));
+            }}
             error={errors.siteAddress}
           />
-          <Input
-            label="Task Latitude*"
-            keyboardType="numbers-and-punctuation"
-            value={siteLatitude}
-            onChangeText={setSiteLatitude}
-          />
-          <Input
-            label="Task Longitude*"
-            keyboardType="numbers-and-punctuation"
-            value={siteLongitude}
-            onChangeText={setSiteLongitude}
-            error={errors.coordinates}
-          />
           <Button
-            title={isCapturingSite ? "Capturing..." : "Use Current GPS for Task Site"}
+            title={isFindingSite ? "Finding address..." : "Find address on map"}
             variant="outline"
-            loading={isCapturingSite}
-            onPress={() => void captureTaskCoordinates()}
+            loading={isFindingSite}
+            onPress={() => void findTaskAddress()}
           />
+          <Text style={styles.helperText}>
+            Address lookup uses OpenStreetMap Nominatim to find map coordinates.
+          </Text>
+          {siteCoordinates ? (
+            <TaskLocationPickerMap
+              coordinates={siteCoordinates}
+              onCoordinatesChange={(point) => {
+                setSiteLatitude(String(point.latitude));
+                setSiteLongitude(String(point.longitude));
+                setErrors((current) => ({ ...current, coordinates: undefined }));
+              }}
+            />
+          ) : null}
+          {errors.coordinates ? <Text style={styles.formError}>{errors.coordinates}</Text> : null}
 
           <View style={styles.aiSuggestionBox}>
             <View style={styles.aiSuggestionHeader}>

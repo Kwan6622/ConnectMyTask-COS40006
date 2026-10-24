@@ -3,7 +3,7 @@ const notificationRepository = require('../notifications/repository');
 const taskRepository = require('../tasks/repository');
 const { withTaskLock } = require('../../database/taskTransaction');
 
-const VERIFICATION_RADIUS_METERS = 1000;
+const VERIFICATION_RADIUS_METERS = 100;
 const MAX_GPS_ACCURACY_METERS = 100;
 const MAX_LOCATION_AGE_MS = 2 * 60 * 1000;
 const MAX_FUTURE_SKEW_MS = 15 * 1000;
@@ -42,8 +42,8 @@ function assertProviderTask(task, user) {
   if (String(user?.role || '').toUpperCase() !== 'PROVIDER' || task.assignedProviderId !== user.id) {
     throw Object.assign(new Error('Only the assigned provider can verify this task'), { statusCode: 403 });
   }
-  if (task.escrowStatus !== 'HELD' || !ACTIVE_TASK_STATUSES.includes(task.status)) {
-    throw Object.assign(new Error('Location verification requires an active task with funded escrow'), { statusCode: 409 });
+  if (!ACTIVE_TASK_STATUSES.includes(task.status)) {
+    throw Object.assign(new Error('Location verification requires an active task'), { statusCode: 409 });
   }
   if (!task.siteAddress || !Number.isFinite(task.siteLatitude) || !Number.isFinite(task.siteLongitude)) {
     throw Object.assign(new Error('Task has no trusted site coordinates'), { statusCode: 409 });
@@ -57,7 +57,6 @@ async function requireValidVerification(task, providerId, now = new Date()) {
     || verification.expiresAt <= now
     || verification.siteVersion !== Number(task.siteVersion || 1)
     || task.assignedProviderId !== providerId
-    || task.escrowStatus !== 'HELD'
     || !ACTIVE_TASK_STATUSES.includes(task.status)) {
     throw Object.assign(new Error('Valid task location verification is required'), {
       statusCode: 409,
@@ -78,7 +77,7 @@ async function verifyTaskLocation(taskId, payload, user) {
     assertAccuracy(payload.accuracy);
     const measuredDistance = distanceMeters(payload.lat, payload.lng, task.siteLatitude, task.siteLongitude);
     if (measuredDistance > VERIFICATION_RADIUS_METERS) {
-      throw Object.assign(new Error('Provider is outside the 1 km task verification area'), {
+      throw Object.assign(new Error('Provider is outside the 100 m arrival verification radius'), {
         statusCode: 409,
         details: { distanceMeters: Math.round(measuredDistance), allowedMeters: VERIFICATION_RADIUS_METERS },
       });
@@ -136,7 +135,6 @@ async function recordLocationUpdate(payload, user) {
   return withTaskLock(payload.taskId, async () => {
     const task = await trackingRepository.getTaskById(payload.taskId);
     assertProviderTask(task, user);
-    await requireValidVerification(task, user.id);
     const timestamp = parseLocationTimestamp(payload.timestamp);
     assertAccuracy(payload.accuracy);
     return trackingRepository.createTrackingLog({
@@ -164,7 +162,6 @@ async function getVerificationStatus(taskId, user) {
     && !verification.revokedAt
     && verification.expiresAt > new Date()
     && verification.siteVersion === Number(task.siteVersion || 1)
-    && task.escrowStatus === 'HELD'
     && ACTIVE_TASK_STATUSES.includes(task.status));
   return {
     isValid,
@@ -177,6 +174,24 @@ async function getVerificationStatus(taskId, user) {
   };
 }
 
+async function getTaskSiteLocation(taskId, user) {
+  const task = await trackingRepository.getTaskById(taskId);
+  if (!task || task.isDeleted) throw Object.assign(new Error('Task not found'), { statusCode: 404 });
+  const role = String(user?.role || '').toUpperCase();
+  if (role !== 'ADMIN' && task.createdById !== user?.id && task.assignedProviderId !== user?.id) {
+    throw Object.assign(new Error('Only task participants can view the task location'), { statusCode: 403 });
+  }
+  const hasCoordinates = Number.isFinite(task.siteLatitude)
+    && Number.isFinite(task.siteLongitude)
+    && task.siteLatitude >= -90 && task.siteLatitude <= 90
+    && task.siteLongitude >= -180 && task.siteLongitude <= 180;
+  return {
+    siteLatitude: hasCoordinates ? task.siteLatitude : null,
+    siteLongitude: hasCoordinates ? task.siteLongitude : null,
+    available: hasCoordinates,
+  };
+}
+
 const revokeTaskVerification = (taskId, reason) =>
   trackingRepository.revokeTaskVerifications(taskId, reason);
 
@@ -184,6 +199,7 @@ module.exports = {
   recordLocationUpdate,
   verifyTaskLocation,
   getVerificationStatus,
+  getTaskSiteLocation,
   requireValidVerification,
   revokeTaskVerification,
   distanceMeters,

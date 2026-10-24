@@ -11,14 +11,18 @@ import {
 } from '@heroicons/react/24/outline';
 import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
+import { TaskTrackingMap } from '../components/task/TaskTrackingMap';
 import { api } from '../services/api';
-import type { TaskLocationVerificationStatus, TrackingLog } from '../types';
+import { useAuthStore } from '../stores/auth.store';
+import type { Task, TaskLocationVerificationStatus, TrackingLog } from '../types';
 
 const REFRESH_INTERVAL_MS = 5000;
 
 export const TrackingPage: React.FC = () => {
   const { taskId } = useParams<{ taskId: string }>();
   const navigate = useNavigate();
+  const user = useAuthStore((state) => state.user);
+  const [task, setTask] = useState<Task | null>(null);
   const [latest, setLatest] = useState<TrackingLog | null>(null);
   const [history, setHistory] = useState<TrackingLog[]>([]);
   const [verification, setVerification] = useState<TaskLocationVerificationStatus | null>(null);
@@ -26,6 +30,7 @@ export const TrackingPage: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [taskErrorMessage, setTaskErrorMessage] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
   const validTaskId = Boolean(taskId && /^[1-9]\d*$/.test(taskId));
@@ -62,6 +67,23 @@ export const TrackingPage: React.FC = () => {
   useEffect(() => {
     void fetchTrackingData();
   }, [fetchTrackingData]);
+
+  useEffect(() => {
+    if (!taskId || !validTaskId) return;
+    let mounted = true;
+    api.tasks.getById(taskId)
+      .then((response) => {
+        if (mounted) setTask(response.data as Task);
+      })
+      .catch((error: unknown) => {
+        if (!mounted) return;
+        const apiError = error as { response?: { data?: { message?: string } }; message?: string };
+        setTaskErrorMessage(apiError.response?.data?.message || apiError.message || 'Failed to load task details');
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [taskId, validTaskId]);
 
   useEffect(() => {
     if (!validTaskId) return;
@@ -135,6 +157,23 @@ export const TrackingPage: React.FC = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
+            {user && task && task.assignedProviderId
+              && (String(task.createdById || task.clientId) === String(user?.id)
+                || String(task.assignedProviderId) === String(user?.id)) && (
+                <TaskTrackingMap
+                  task={task}
+                  isProvider={String(task.assignedProviderId) === String(user?.id)}
+                  latestLocation={latest}
+                  pollLatest={false}
+                />
+              )}
+
+            {taskErrorMessage && (
+              <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                {taskErrorMessage}
+              </p>
+            )}
+
             <Card className="p-6">
               <h2 className="text-lg font-bold text-dark-900 mb-4">Latest provider location</h2>
               {latest ? (

@@ -39,7 +39,7 @@ export function buildVerificationEvidence(
   nonce = Math.random().toString(36).slice(2, 12)
 ) {
   return {
-    requestId: `gps_${timestamp}_${nonce}`,
+    requestId: `gps_${Math.trunc(timestamp)}_${nonce.replace(/[^A-Za-z0-9_-]/g, "")}`,
     ...buildLocationEvidence(coords, timestamp),
   };
 }

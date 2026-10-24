@@ -20,6 +20,7 @@ import { Modal } from '../components/common/Modal';
 import { useAuthStore } from '../stores/auth.store';
 import { useTaskStore } from '../stores/task.store';
 import { api } from '../services/api';
+import { TaskTrackingMap } from '../components/task/TaskTrackingMap';
 import { formatVnd } from '../utils';
 import {
   AWAITING_DEPOSIT_MESSAGE,
@@ -774,6 +775,10 @@ export const TaskDetailPage: React.FC = () => {
                 </Button>
               </Card>
             )}
+
+            {user && (isOwner || isAssignedProvider) && task.status !== 'CANCELLED' && (
+                <TaskTrackingMap task={task} isProvider={isAssignedProvider} />
+              )}
 
             {(isOwner || isAssignedProvider) && (
               <Card>

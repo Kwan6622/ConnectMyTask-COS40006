@@ -18,6 +18,17 @@ describe('mobile GPS evidence', () => {
     expect(evidence).not.toHaveProperty('verified');
   });
 
+  test('creates a backend-valid request id when iOS GPS timestamps are fractional', () => {
+    const evidence = buildVerificationEvidence(
+      { latitude: 10.775, longitude: 106.7, accuracy: 12 },
+      1700000000000.625,
+      'abc.def-gh_ij'
+    );
+    expect(evidence.requestId).toBe('gps_1700000000000_abcdef-gh_ij');
+    expect(evidence.requestId).toMatch(/^[A-Za-z0-9_-]{16,100}$/);
+    expect(evidence.timestamp).toBe('2023-11-14T22:13:20.000Z');
+  });
+
   test('rejects missing accuracy and invalid timestamps', () => {
     expect(() => buildLocationEvidence(
       { latitude: 10.775, longitude: 106.7, accuracy: null },
