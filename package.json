@@ -18,7 +18,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:seed": "node database/prisma/seed.js",
-    "prisma:seed:test": "node database/prisma/seed-test-accounts.js"
+    "prisma:seed:test": "node database/prisma/seed-test-accounts.js",
+    "accounts:reset-test-passwords": "node database/prisma/reset-test-account-passwords.js"
   },
   "keywords": [
     "express",
