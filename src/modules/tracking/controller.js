@@ -1,5 +1,4 @@
 const trackingService = require('./service');
-const trackingRepository = require('./repository');
 
 async function trackingUpdate(req, res, next) {
   try { res.status(201).json(await trackingService.recordLocationUpdate(req.body, req.user)); } catch (err) { next(err); }
@@ -20,9 +19,9 @@ module.exports = {
   verification,
   siteLocation,
   latest: async (req, res, next) => {
-    try { const logs = await trackingRepository.readLocations(req.params.taskId, req.user, 1); res.json(logs[0] || null); } catch (err) { next(err); }
+    try { res.json(await trackingService.getLatestLocation(req.params.taskId, req.user)); } catch (err) { next(err); }
   },
   history: async (req, res, next) => {
-    try { res.json(await trackingRepository.readLocations(req.params.taskId, req.user, 100)); } catch (err) { next(err); }
+    try { res.json(await trackingService.getLocationHistory(req.params.taskId, req.user)); } catch (err) { next(err); }
   },
 };

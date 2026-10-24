@@ -33,6 +33,7 @@ function isValidPoint(point: Point | null): point is Point {
 }
 
 function getTaskPoint(task: Task): Point | null {
+  if (task.siteLatitude == null || task.siteLongitude == null) return null;
   const latitude = Number(task.siteLatitude);
   const longitude = Number(task.siteLongitude);
   const point = { latitude, longitude };
@@ -92,10 +93,23 @@ window.ReactNativeWebView.postMessage('map-ready');
 
 export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.ReactElement {
   const [taskPoint, setTaskPoint] = useState<Point | null>(() => getTaskPoint(task));
+  const [siteAddress, setSiteAddress] = useState("");
   const [siteLocationError, setSiteLocationError] = useState("");
   const assignedProvider = Boolean(
     isProvider(user) && String(task.assignedProviderId) === String(user?.id)
   );
+  const escrowFunded = task.escrowStatus === "HELD";
+  const taskIsActive = ["ASSIGNED", "IN_PROGRESS", "PENDING_CONFIRMATION"].includes(String(task.status));
+  const canVerifyArrival = Platform.OS !== "web" && escrowFunded && taskIsActive && taskPoint != null;
+  const verificationBlockMessage = Platform.OS === "web"
+    ? "Location verification is only available in the mobile app."
+    : !escrowFunded
+      ? "Tracking and location verification unlock after the requester funds escrow."
+      : !taskIsActive
+        ? "Location verification is only available while the task is active."
+        : !taskPoint
+          ? "Location verification needs a saved task map pin. Ask the requester to update the task location."
+          : null;
   const [latest, setLatest] = useState<TrackingLog | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSharing, setIsSharing] = useState(false);
@@ -119,17 +133,22 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
 
   useEffect(() => {
     let mounted = true;
+    setTaskPoint(getTaskPoint(task));
+    setSiteAddress("");
+    setSiteLocationError("");
     api.tracking.taskSiteLocation(task.id)
       .then((response) => {
         if (!mounted) return;
         const point = getTaskPoint({ ...task, ...response.data });
         setTaskPoint(point);
+        setSiteAddress(typeof response.data?.siteAddress === "string" ? response.data.siteAddress : "");
         setSiteLocationError(point
           ? ""
           : "This task has no saved requester pin. Update the task location and confirm its map pin.");
       })
       .catch((error: any) => {
         if (!mounted) return;
+        setSiteAddress("");
         setSiteLocationError(
           error?.response?.data?.message || error?.message || "Unable to load requester task location."
         );
@@ -185,13 +204,17 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
     }
   }, [stopSharing, task.id]);
 
-  const verifyArrival = async (): Promise<void> => {
-    if (Platform.OS === "web" || isVerifyingArrival) return;
+  const verifyTaskLocation = async (): Promise<void> => {
+    if (isVerifyingArrival) return;
+    if (!canVerifyArrival) {
+      setSharingError(verificationBlockMessage || "Location verification is unavailable for this task.");
+      return;
+    }
     setIsVerifyingArrival(true);
     setSharingError("");
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
-      if (permission.status !== "granted") throw new Error("Allow location access to confirm your arrival.");
+      if (permission.status !== "granted") throw new Error("Allow foreground location access to verify your location.");
       const point = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       const response = await api.tracking.verify(
         task.id,
@@ -209,7 +232,7 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
         timestamp: new Date(point.timestamp).toISOString(),
       });
       setSharingError("");
-      Alert.alert("Arrival confirmed", `Your location is ${response.data.distanceMeters} m from the task site.`);
+      Alert.alert("Location verified", `You are ${response.data.distanceMeters} m from the task site.`);
     } catch (error: any) {
       if (mountedRef.current) {
         setSharingError(getTrackingErrorMessage(error, "Unable to confirm arrival."));
@@ -235,7 +258,10 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
       setSharingError("Provider location sharing is available only in the mobile app.");
       return;
     }
-    if (!["ASSIGNED", "IN_PROGRESS", "PENDING_CONFIRMATION"].includes(String(task.status))) {
+    if (!escrowFunded) {
+      return;
+    }
+    if (!taskIsActive) {
       setSharingError("This task is not currently active.");
       return;
     }
@@ -319,9 +345,12 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
     <Card title="Task live tracking">
       <Text style={styles.description}>
         {assignedProvider
-          ? "Share your journey with the requester. GPS updates every 5 seconds; confirm arrival within 100 m of the task site."
+          ? "Share your journey with the requester. GPS updates every 5 seconds; verify your location within 1 km of the task site after escrow is funded."
           : "Green marks the location set by the requester; blue shows the provider's latest shared location."}
       </Text>
+      {assignedProvider && siteAddress ? (
+        <Text style={styles.helperText}>Requester task address: {siteAddress}</Text>
+      ) : null}
       <View style={styles.mapFrame}>
         <WebView<object>
           ref={mapRef}
@@ -356,8 +385,14 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
       ) : null}
       {assignedProvider ? (
         <Text style={styles.helperText}>
-          {isArrived ? "Arrival confirmed within 100 m of the task site." : "Arrival has not been confirmed yet."}
+          {isArrived ? "Location verified within 1 km of the task site." : "Task location has not been verified yet."}
         </Text>
+      ) : null}
+      {assignedProvider && !escrowFunded ? (
+        <Text style={styles.helperText}>{verificationBlockMessage}</Text>
+      ) : null}
+      {assignedProvider && escrowFunded && !canVerifyArrival ? (
+        <Text style={styles.helperText}>{verificationBlockMessage}</Text>
       ) : null}
       {loadError ? <Text accessibilityRole="alert" style={styles.errorText}>{loadError}</Text> : null}
       {sharingError ? <Text accessibilityRole="alert" style={styles.errorText}>{sharingError}</Text> : null}
@@ -371,11 +406,11 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
             onPress={() => (isSharing ? stopSharing() : void startSharing())}
           />
           <Button
-            title={isVerifyingArrival ? "Checking location..." : isArrived ? "Recheck arrival (100 m)" : "I've arrived (100 m)"}
+            title={isVerifyingArrival ? "Checking location..." : isArrived ? "Recheck location (1 km)" : "Verify location (1 km)"}
             variant="outline"
             loading={isVerifyingArrival}
-            disabled={isStarting || isVerifyingArrival || Platform.OS === "web"}
-            onPress={() => void verifyArrival()}
+            disabled={isStarting || isVerifyingArrival || !canVerifyArrival}
+            onPress={() => void verifyTaskLocation()}
           />
         </View>
       ) : null}

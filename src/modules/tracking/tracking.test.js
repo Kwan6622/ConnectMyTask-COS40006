@@ -2,10 +2,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 let task;
 let verifications = [];
-let logs = [];
 let activities = [];
 let notifications = [];
 let queue = Promise.resolve();
+let nextTaskId = 0;
 const copy = value => structuredClone(value);
 const fake = {
   $queryRaw: async () => [],
@@ -31,17 +31,13 @@ const fake = {
       return { count };
     },
   },
-  trackingLog: {
-    create: async ({ data }) => { const row = { id: logs.length + 1, ...data }; logs.push(row); return copy(row); },
-    findMany: async ({ take }) => copy(logs.slice(-take).reverse()),
-  },
+  trackingLog: { create: async () => { throw new Error('Tracking history must not be written to the database'); } },
   taskActivityLog: { create: async ({ data }) => { activities.push(data); return data; } },
   notification: { create: async ({ data }) => { notifications.push(data); return data; } },
 };
 const dbPath = require.resolve('../../database/prisma');
 require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { prisma: fake } };
 const service = require('./service');
-const repository = require('./repository');
 const { trackingUpdateSchema, verificationSchema } = require('./validation');
 const provider = { id: 2, role: 'PROVIDER' };
 const requester = { id: 1, role: 'REQUESTER' };
@@ -55,7 +51,7 @@ const point = (overrides = {}) => ({
 });
 function reset() {
   task = {
-    id: 1,
+    id: ++nextTaskId,
     title: 'GPS task',
     createdById: 1,
     assignedProviderId: 2,
@@ -67,61 +63,77 @@ function reset() {
     siteLongitude: 106.700,
     siteVersion: 1,
   };
-  verifications = []; logs = []; activities = []; notifications = [];
+  verifications = []; activities = []; notifications = [];
 }
 
-test('within 100 m verifies arrival and enables participant tracking', async () => {
+test('within 1 km verifies task location and enables participant tracking', async () => {
   reset();
-  const result = await service.verifyTaskLocation(1, point(), provider);
+  const result = await service.verifyTaskLocation(task.id, point(), provider);
   assert.equal(result.isValid, true);
-  assert.ok(result.distanceMeters <= 100);
-  assert.equal(logs.length, 1);
-  await service.recordLocationUpdate({ taskId: 1, ...point(), requestId: undefined }, provider);
-  assert.equal(logs.length, 2);
-  assert.equal((await service.getVerificationStatus(1, requester)).isValid, true);
+  assert.ok(result.distanceMeters <= 1000);
+  assert.equal((await service.getLatestLocation(task.id, requester)).lat, 10.775);
+  await service.recordLocationUpdate({ taskId: task.id, ...point(), requestId: undefined }, provider);
+  const latest = await service.getLatestLocation(task.id, requester);
+  assert.equal(latest.lng, 106.7);
+  assert.deepEqual(await service.getLocationHistory(task.id, requester), []);
+  assert.equal((await service.getVerificationStatus(task.id, requester)).isValid, true);
 });
 
-test('arrival verification allows 99 m and rejects 101 m from task site', async () => {
+test('location verification allows 999 m and rejects 1001 m from task site', async () => {
   reset();
   const offsetForMeters = meters => (meters / 6371000) * (180 / Math.PI);
-  const nearPoint = point({ lat: task.siteLatitude + offsetForMeters(99) });
-  const result = await service.verifyTaskLocation(1, nearPoint, provider);
+  const nearPoint = point({ lat: task.siteLatitude + offsetForMeters(999) });
+  const result = await service.verifyTaskLocation(task.id, nearPoint, provider);
   assert.equal(result.isValid, true);
-  assert.ok(result.distanceMeters <= 100);
+  assert.ok(result.distanceMeters <= 1000);
 
   reset();
-  const farPoint = point({ lat: task.siteLatitude + offsetForMeters(101) });
-  await assert.rejects(service.verifyTaskLocation(1, farPoint, provider), {
+  const farPoint = point({ lat: task.siteLatitude + offsetForMeters(1001) });
+  await assert.rejects(service.verifyTaskLocation(task.id, farPoint, provider), {
     statusCode: 409,
-    message: 'Provider is outside the 100 m arrival verification radius',
+    message: 'Provider is outside the 1 km location verification radius',
   });
 });
 
 test('outside radius, inaccurate, stale and wrong provider are rejected', async () => {
   reset();
-  await assert.rejects(service.verifyTaskLocation(1, point({ lat: 10.80 }), provider), { statusCode: 409 });
-  await assert.rejects(service.verifyTaskLocation(1, point({ accuracy: 150 }), provider), { statusCode: 409 });
-  await assert.rejects(service.verifyTaskLocation(1, point({ timestamp: new Date(Date.now() - 180000).toISOString() }), provider), { statusCode: 409 });
-  await assert.rejects(service.verifyTaskLocation(1, point(), { id: 3, role: 'PROVIDER' }), { statusCode: 403 });
+  await assert.rejects(service.verifyTaskLocation(task.id, point({ lat: 10.80 }), provider), { statusCode: 409 });
+  await assert.rejects(service.verifyTaskLocation(task.id, point({ accuracy: 150 }), provider), { statusCode: 409 });
+  await assert.rejects(service.verifyTaskLocation(task.id, point({ timestamp: new Date(Date.now() - 180000).toISOString() }), provider), { statusCode: 409 });
+  await assert.rejects(service.verifyTaskLocation(task.id, point(), { id: 3, role: 'PROVIDER' }), { statusCode: 403 });
   assert.equal(verifications.length, 0);
 });
 
-test('location verification and sharing do not require funded escrow', async () => {
+test('tracking and verification both require funded escrow', async () => {
   reset();
   task.escrowStatus = 'PENDING_DEPOSIT';
-  await service.recordLocationUpdate({ taskId: 1, ...point(), requestId: undefined }, provider);
-  assert.equal((await service.getVerificationStatus(1, requester)).isValid, false);
-  assert.equal(logs.length, 1);
+  await assert.rejects(service.verifyTaskLocation(task.id, point(), provider), {
+    statusCode: 409,
+    code: 'ESCROW_FUNDING_REQUIRED',
+  });
+  await assert.rejects(service.recordLocationUpdate(
+    { taskId: task.id, ...point(), requestId: undefined },
+    provider
+  ), {
+    statusCode: 409,
+    code: 'ESCROW_FUNDING_REQUIRED',
+  });
+  assert.equal((await service.getVerificationStatus(task.id, requester)).isValid, false);
+  assert.equal((await service.getVerificationStatus(task.id, requester)).reason, 'ESCROW_NOT_FUNDED');
+  await assert.rejects(service.getLatestLocation(task.id, requester), {
+    statusCode: 409,
+    code: 'ESCROW_FUNDING_REQUIRED',
+  });
 });
 
-test('provider can share journey outside arrival radius before confirming arrival', async () => {
+test('provider can share journey outside verification radius before verifying location', async () => {
   reset();
   const journeyPoint = point({ lat: 10.80 });
-  await service.recordLocationUpdate({ taskId: 1, ...journeyPoint, requestId: undefined }, provider);
-  assert.equal(logs.length, 1);
-  await assert.rejects(service.verifyTaskLocation(1, journeyPoint, provider), {
+  await service.recordLocationUpdate({ taskId: task.id, ...journeyPoint, requestId: undefined }, provider);
+  assert.ok(await service.getLatestLocation(task.id, requester));
+  await assert.rejects(service.verifyTaskLocation(task.id, journeyPoint, provider), {
     statusCode: 409,
-    message: 'Provider is outside the 100 m arrival verification radius',
+    message: 'Provider is outside the 1 km location verification radius',
   });
   assert.equal(verifications.length, 0);
 });
@@ -129,26 +141,36 @@ test('provider can share journey outside arrival radius before confirming arriva
 test('request replay, expiry, revocation and site-version change fail closed', async () => {
   reset();
   const payload = point();
-  await service.verifyTaskLocation(1, payload, provider);
-  await assert.rejects(service.verifyTaskLocation(1, payload, provider), { statusCode: 409 });
+  await service.verifyTaskLocation(task.id, payload, provider);
+  await assert.rejects(service.verifyTaskLocation(task.id, payload, provider), { statusCode: 409 });
   verifications[0].expiresAt = new Date(Date.now() - 1);
   await assert.rejects(service.requireValidVerification(task, provider.id), { statusCode: 409 });
   verifications[0].expiresAt = new Date(Date.now() + 60000);
   task.siteVersion = 2;
   await assert.rejects(service.requireValidVerification(task, provider.id), { statusCode: 409 });
   task.siteVersion = 1;
-  await service.revokeTaskVerification(1, 'TASK_CANCELLED');
+  task.escrowStatus = 'PENDING_DEPOSIT';
+  await assert.rejects(service.requireValidVerification(task, provider.id), { statusCode: 409 });
+  const status = await service.getVerificationStatus(task.id, requester);
+  assert.equal(status.isValid, false);
+  assert.equal(status.reason, 'ESCROW_NOT_FUNDED');
+  task.escrowStatus = 'HELD';
+  await service.revokeTaskVerification(task.id, 'TASK_CANCELLED');
   await assert.rejects(service.requireValidVerification(task, provider.id), { statusCode: 409 });
 });
 
 test('tracking reads are participant/admin only and validation rejects invalid evidence', async () => {
   reset();
-  await service.verifyTaskLocation(1, point(), provider);
-  await assert.rejects(repository.readLocations(1, { id: 3, role: 'PROVIDER' }, 100), { statusCode: 403 });
-  await assert.rejects(service.getVerificationStatus(1, { id: 3, role: 'PROVIDER' }), { statusCode: 403 });
+  await service.verifyTaskLocation(task.id, point(), provider);
+  await assert.rejects(service.getLatestLocation(task.id, { id: 3, role: 'PROVIDER' }), { statusCode: 403 });
+  await assert.rejects(service.getLocationHistory(task.id, { id: 3, role: 'PROVIDER' }), { statusCode: 403 });
+  await assert.rejects(service.getVerificationStatus(task.id, { id: 3, role: 'PROVIDER' }), { statusCode: 403 });
   for (const user of [provider, requester, { id: 4, role: 'ADMIN' }]) {
-    assert.equal((await repository.readLocations(1, user, 100)).length, 1);
+    assert.ok(await service.getLatestLocation(task.id, user));
+    assert.deepEqual(await service.getLocationHistory(task.id, user), []);
   }
+  task.status = 'COMPLETED';
+  assert.equal(await service.getLatestLocation(task.id, requester), null);
   const { requestId: _requestId, ...trackingPoint } = point();
   assert.equal(trackingUpdateSchema.safeParse({ taskId: 1, ...trackingPoint }).success, true);
   assert.equal(verificationSchema.safeParse(point({ lat: 91 })).success, false);
@@ -156,10 +178,28 @@ test('tracking reads are participant/admin only and validation rejects invalid e
   assert.equal(verificationSchema.safeParse({ ...point(), verified: true }).success, false);
 });
 
-test('requester and assigned provider can read task coordinates without exposing the address', async () => {
+test('tracking and requester address are available to participants only after escrow is funded', async () => {
   reset();
+  task.escrowStatus = 'PENDING_DEPOSIT';
+  for (const user of [requester, provider]) {
+    await assert.rejects(service.getTaskSiteLocation(task.id, user), {
+      statusCode: 409,
+      code: 'ESCROW_FUNDING_REQUIRED',
+    });
+    await assert.rejects(service.getLatestLocation(task.id, user), {
+      statusCode: 409,
+      code: 'ESCROW_FUNDING_REQUIRED',
+    });
+  }
+  await assert.rejects(service.getLocationHistory(task.id, requester), {
+    statusCode: 409,
+    code: 'ESCROW_FUNDING_REQUIRED',
+  });
+
+  task.escrowStatus = 'HELD';
   for (const user of [requester, provider, { id: 4, role: 'ADMIN' }]) {
-    assert.deepEqual(await service.getTaskSiteLocation(1, user), {
+    assert.deepEqual(await service.getTaskSiteLocation(task.id, user), {
+      siteAddress: task.siteAddress,
       siteLatitude: task.siteLatitude,
       siteLongitude: task.siteLongitude,
       available: true,
@@ -167,12 +207,13 @@ test('requester and assigned provider can read task coordinates without exposing
   }
   task.siteLatitude = null;
   task.siteLongitude = null;
-  assert.deepEqual(await service.getTaskSiteLocation(1, requester), {
+  assert.deepEqual(await service.getTaskSiteLocation(task.id, requester), {
+    siteAddress: task.siteAddress,
     siteLatitude: null,
     siteLongitude: null,
     available: false,
   });
-  await assert.rejects(service.getTaskSiteLocation(1, { id: 3, role: 'PROVIDER' }), {
+  await assert.rejects(service.getTaskSiteLocation(task.id, { id: 3, role: 'PROVIDER' }), {
     statusCode: 403,
   });
 });

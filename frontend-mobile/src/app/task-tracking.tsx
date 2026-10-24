@@ -27,6 +27,7 @@ export default function TaskTrackingScreen(): React.ReactElement {
   }, [fetchTaskProgress, taskId]);
   const canViewTracking = Boolean(
     user?.id != null
+    && currentTask?.escrowStatus === "HELD"
     && currentTask?.assignedProviderId
     && (
       String(currentTask.createdById ?? currentTask.clientId) === String(user.id)
@@ -56,21 +57,23 @@ export default function TaskTrackingScreen(): React.ReactElement {
 
       {canViewTracking && currentTask ? <TaskTrackingMap task={currentTask} user={user} /> : null}
 
-      <Card>
-        {isLoading ? <Text style={styles.body}>Loading tracking updates...</Text> : null}
-        {!isLoading && taskActivityLogs.length === 0 ? (
-          <Text style={styles.body}>No tracking/location activities available yet.</Text>
-        ) : (
-          <View style={styles.timeline}>
-            {taskActivityLogs.map((item) => (
-              <View key={String(item.id)} style={styles.timelineItem}>
-                <Text style={styles.timelineMessage}>{item.message}</Text>
-                <Text style={styles.timelineMeta}>{formatDateTime(item.createdAt)}</Text>
-              </View>
-            ))}
-          </View>
-        )}
-      </Card>
+      {currentTask?.escrowStatus === "HELD" ? (
+        <Card>
+          {isLoading ? <Text style={styles.body}>Loading tracking updates...</Text> : null}
+          {!isLoading && taskActivityLogs.length === 0 ? (
+            <Text style={styles.body}>No tracking/location activities available yet.</Text>
+          ) : (
+            <View style={styles.timeline}>
+              {taskActivityLogs.map((item) => (
+                <View key={String(item.id)} style={styles.timelineItem}>
+                  <Text style={styles.timelineMessage}>{item.message}</Text>
+                  <Text style={styles.timelineMeta}>{formatDateTime(item.createdAt)}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </Card>
+      ) : null}
     </MarketplaceShell>
   );
 }

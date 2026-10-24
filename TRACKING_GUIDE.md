@@ -5,12 +5,13 @@ This guide explains how task tracking works in the current project, how to run i
 ## What the map shows
 
 - The task marker is the saved task-site coordinate (`siteLatitude`, `siteLongitude`). It is not the requester's live device location.
-- The provider marker is the provider's latest GPS point saved for that task.
+- The provider marker is the provider's latest GPS point held temporarily in API memory; individual journey points are not written to the tracking-history table.
+- Tracking and the requester's precise task address are available to task participants only after requester escrow funding is confirmed (`HELD`). The public task district remains visible before funding.
 - The requester and assigned provider can see the map inside the selected task in **My Assigned Tasks** / task progress.
 - The requester can view the map on web or mobile. Only the assigned provider can send GPS, and only from the mobile app while it is open.
 - The assigned provider opts in with **Start sharing journey**. The mobile app sends a GPS sample every five seconds while the tracking screen is open and the app is in the foreground.
 - The requester-set task-site marker is always shown separately from the provider's latest shared location.
-- The provider can share the journey before reaching the task site. A 100 m radius check runs only when the provider presses **I've arrived**.
+- After escrow is funded, the provider can share the journey and verify their location from the mobile app. Verification accepts a fresh GPS sample within 1 km of the task site.
 - Maps use Leaflet/OpenStreetMap on web and a Leaflet map inside a mobile WebView. Internet access is needed to load map tiles.
 
 ## Requirements before testing
@@ -24,7 +25,7 @@ This guide explains how task tracking works in the current project, how to run i
    npx prisma db push
    ```
 
-4. Arrival verification requires a task with a trusted site address and coordinates. Location sharing and arrival verification do not require funded escrow.
+4. Tracking, requester address and verification require an assigned provider, a task with a trusted site address and coordinates, and confirmed escrow funding. Tracking and GPS collection are blocked before funding.
 5. To test from a physical phone, the phone and computer must be able to reach each other and the API URL must use the computer's LAN IP, not `localhost`.
 
 > `db push` changes the selected database schema. Use a development/test database unless you have confirmed that updating the target database is safe.
@@ -87,14 +88,14 @@ Scan the QR code in Expo Go. Allow Node/Expo through Windows Firewall on a priva
 
 1. Sign in as a requester and create a task. Enter a valid task address and confirm its map coordinates.
 2. Sign in as a provider and submit a bid for that task.
-3. As the requester, assign that provider's bid. Escrow payment is not required for journey sharing or arrival verification.
+3. As the requester, assign that provider's bid and fund escrow. The tracking map and precise requester task address appear for task participants after payment confirmation.
 4. On the provider's phone, open **My Assigned Tasks**, select the assigned task and tap **Start sharing journey**. Allow foreground location access.
-5. Confirm the provider marker updates while travelling, including when it is more than 100 metres from the task site.
-6. When the provider reaches the task site, tap **I've arrived**. The GPS sample must be accurate to 100 metres or better and within 100 metres of the saved task site. Arrival verification expires after one hour.
-7. Open that same task as the requester on web or mobile. The map shows the requester-set task pin and the provider's latest recorded point.
+5. Confirm the provider marker updates while travelling, including when it is more than 1 km from the task site.
+6. After escrow is funded, tap **Verify location**. The GPS sample must be accurate to 100 metres or better, no more than two minutes old, and within 1 km of the saved task site. Verification expires after one hour; provider progress is blocked in the web and mobile apps after expiry until the provider verifies again.
+7. Open that same task as the requester on web or mobile. The map shows the requester-set task pin and the provider's latest live point.
 8. Leave the provider app and selected task screen open while testing. Sharing stops when the app moves out of the foreground, the screen is left, or the provider stops sharing.
 
-The map can still show the saved task marker before the provider has shared GPS. It reports that it is waiting for a provider location until the first point is recorded.
+The map can still show the saved task marker before the provider has shared GPS. It reports that it is waiting for a provider location until the first point is shared. The API holds only the latest provider point in memory for up to two minutes; it is lost when the API restarts or the point expires. The history endpoint returns an empty list and does not read location history from the database.
 
 ## Tracking API routes
 
@@ -103,13 +104,13 @@ All routes are under `/api/tracking` and require authentication.
 | Method | Route | Purpose |
 |---|---|---|
 | `GET` | `/tasks/:taskId/site-location` | Get saved requester-set coordinates for a task participant |
-| `GET` | `/tasks/:taskId/latest` | Get the newest location for an authorized task participant |
-| `GET` | `/tasks/:taskId/history` | Get recent location history for an authorized task participant |
+| `GET` | `/tasks/:taskId/latest` | Get the latest in-memory location for an authorized task participant (expires after two minutes) |
+| `GET` | `/tasks/:taskId/history` | Return an empty list; provider journey history is not stored |
 | `GET` | `/tasks/:taskId/verification` | Read task location-verification status |
 | `POST` | `/tasks/:taskId/verify` | Verify the assigned provider's current GPS point against the task site |
-| `POST` | `/update` | Save a new provider location for an active task |
+| `POST` | `/update` | Replace the task's latest in-memory provider location |
 
-The backend checks participant access on reads, including the precise site-location route, and derives provider identity from the authenticated user on writes. Verification/update requests validate coordinates, GPS accuracy and timestamp. Journey updates require the task to be active; only the explicit arrival-verification request checks the 100 m radius. Location sharing and arrival verification do not require escrow funding. Do not bypass these checks by writing directly to the database.
+The backend checks participant access and requires `HELD` escrow to read task-site coordinates/address or provider tracking. The precise site address is returned only by the participant-only site-location endpoint, never in public task details. It derives provider identity from the authenticated user on writes. Verification/update requests validate coordinates, GPS accuracy and timestamp. Journey updates require the task to be active; they replace a single in-memory latest point and are not inserted into `TRACKING_LOGS`. The latest point is discarded after two minutes or when the API restarts, so it is not shared between multiple API instances. The history endpoint returns `[]`. Location-verification evidence remains persisted separately to support the funded-escrow and verification-expiry gates. Do not bypass these checks by writing directly to the database.
 
 ## Troubleshooting
 
@@ -133,13 +134,13 @@ Check that:
 
 ### The provider cannot confirm arrival
 
-- Arrival confirmation is separate from journey sharing and requires an active task with valid site coordinates.
-- The provider must be within 100 metres of the saved task coordinates and the GPS sample must be accurate to 100 metres or better.
-- If the pin is incorrect, update the task-site address/location before relying on arrival verification.
+- Location verification is separate from journey sharing, but both require funded escrow; they also require an active task and valid site coordinates.
+- The provider must be within 1 km of the saved task coordinates and the GPS sample must be accurate to 100 metres or better and no more than two minutes old.
+- If the pin is incorrect, update the task-site address/location before relying on location verification.
 
 ### The requester sees the map but no provider marker
 
-The provider must start sharing from the mobile app. The provider app must remain in the foreground for updates. Check the API URL on a physical phone; `localhost` on the phone does not refer to the development computer.
+The provider must start sharing from the mobile app. The provider app must remain in the foreground for updates. The API must be the same running instance used by the requester because live points are held in process memory. Check the API URL on a physical phone; `localhost` on the phone does not refer to the development computer.
 
 ### The base map or tiles do not load
 

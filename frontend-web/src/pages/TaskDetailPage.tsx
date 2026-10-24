@@ -776,7 +776,7 @@ export const TaskDetailPage: React.FC = () => {
               </Card>
             )}
 
-            {user && (isOwner || isAssignedProvider) && task.status !== 'CANCELLED' && (
+            {user && task.escrowStatus === 'HELD' && (isOwner || isAssignedProvider) && task.status !== 'CANCELLED' && (
                 <TaskTrackingMap task={task} isProvider={isAssignedProvider} />
               )}
 
@@ -801,9 +801,11 @@ export const TaskDetailPage: React.FC = () => {
                     {isProcessingPayment ? 'Redirecting...' : 'Pay Now'}
                   </Button>
                 )}
-                <Button variant="outline" className="w-full mt-2" onClick={() => navigate(`/tracking/${task.id}`)}>
-                  View GPS Tracking
-                </Button>
+                {task.escrowStatus === 'HELD' && (
+                  <Button variant="outline" className="w-full mt-2" onClick={() => navigate(`/tracking/${task.id}`)}>
+                    View GPS Tracking
+                  </Button>
+                )}
               </Card>
             )}
 

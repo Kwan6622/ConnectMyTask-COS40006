@@ -394,7 +394,7 @@ export default function TaskProgressPage(): React.ReactElement {
             </View>
           </Card>
 
-          {currentTask.assignedProviderId ? (
+          {currentTask.assignedProviderId && currentTask.escrowStatus === "HELD" ? (
             <TaskTrackingMap key={String(currentTask.id)} task={currentTask} user={user} />
           ) : null}
 

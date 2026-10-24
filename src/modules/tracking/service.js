@@ -3,12 +3,59 @@ const notificationRepository = require('../notifications/repository');
 const taskRepository = require('../tasks/repository');
 const { withTaskLock } = require('../../database/taskTransaction');
 
-const VERIFICATION_RADIUS_METERS = 100;
+const VERIFICATION_RADIUS_METERS = 1000;
 const MAX_GPS_ACCURACY_METERS = 100;
 const MAX_LOCATION_AGE_MS = 2 * 60 * 1000;
 const MAX_FUTURE_SKEW_MS = 15 * 1000;
 const VERIFICATION_TTL_MS = 60 * 60 * 1000;
 const ACTIVE_TASK_STATUSES = ['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION'];
+const liveLocations = new Map();
+let liveLocationSequence = 0;
+
+function validateTaskId(taskId) {
+  if (!/^[1-9]\d*$/.test(String(taskId)) || !Number.isSafeInteger(Number(taskId))) {
+    throw Object.assign(new Error('Invalid task ID'), { statusCode: 400 });
+  }
+  return Number(taskId);
+}
+
+function assertTaskParticipant(task, user, action) {
+  if (!task || task.isDeleted) throw Object.assign(new Error('Task not found'), { statusCode: 404 });
+  const role = String(user?.role || '').toUpperCase();
+  if (role !== 'ADMIN' && task.createdById !== user?.id && task.assignedProviderId !== user?.id) {
+    throw Object.assign(new Error(`Only task participants can ${action}`), { statusCode: 403 });
+  }
+}
+
+function assertEscrowFunded(task) {
+  if (task.escrowStatus !== 'HELD') {
+    throw Object.assign(new Error('Requester must fund escrow before tracking is available'), {
+      statusCode: 409,
+      code: 'ESCROW_FUNDING_REQUIRED',
+    });
+  }
+}
+
+function saveLiveLocation(taskId, providerId, payload, timestamp) {
+  const now = Date.now();
+  for (const [cachedTaskId, location] of liveLocations) {
+    if (now - location.receivedAt > MAX_LOCATION_AGE_MS) liveLocations.delete(cachedTaskId);
+  }
+  liveLocationSequence += 1;
+  const liveLocation = {
+    id: `live-${taskId}-${liveLocationSequence}`,
+    taskId,
+    providerId,
+    lat: payload.lat,
+    lng: payload.lng,
+    accuracy: payload.accuracy,
+    timestamp: timestamp.toISOString(),
+    receivedAt: now,
+  };
+  liveLocations.set(taskId, liveLocation);
+  const { receivedAt: _receivedAt, ...response } = liveLocation;
+  return response;
+}
 
 function parseLocationTimestamp(value, now = Date.now()) {
   const timestamp = new Date(value);
@@ -56,6 +103,7 @@ async function requireValidVerification(task, providerId, now = new Date()) {
     || verification.revokedAt
     || verification.expiresAt <= now
     || verification.siteVersion !== Number(task.siteVersion || 1)
+    || task.escrowStatus !== 'HELD'
     || task.assignedProviderId !== providerId
     || !ACTIVE_TASK_STATUSES.includes(task.status)) {
     throw Object.assign(new Error('Valid task location verification is required'), {
@@ -70,6 +118,12 @@ async function verifyTaskLocation(taskId, payload, user) {
   return withTaskLock(taskId, async () => {
     const task = await trackingRepository.getTaskById(taskId);
     assertProviderTask(task, user);
+    if (task.escrowStatus !== 'HELD') {
+      throw Object.assign(new Error('Requester must fund escrow before location verification'), {
+        statusCode: 409,
+        code: 'ESCROW_FUNDING_REQUIRED',
+      });
+    }
     if (await trackingRepository.getVerificationByRequestId(payload.requestId)) {
       throw Object.assign(new Error('Location verification request was already used'), { statusCode: 409 });
     }
@@ -77,7 +131,7 @@ async function verifyTaskLocation(taskId, payload, user) {
     assertAccuracy(payload.accuracy);
     const measuredDistance = distanceMeters(payload.lat, payload.lng, task.siteLatitude, task.siteLongitude);
     if (measuredDistance > VERIFICATION_RADIUS_METERS) {
-      throw Object.assign(new Error('Provider is outside the 100 m arrival verification radius'), {
+      throw Object.assign(new Error('Provider is outside the 1 km location verification radius'), {
         statusCode: 409,
         details: { distanceMeters: Math.round(measuredDistance), allowedMeters: VERIFICATION_RADIUS_METERS },
       });
@@ -97,26 +151,19 @@ async function verifyTaskLocation(taskId, payload, user) {
       verifiedAt: now,
       expiresAt: new Date(now.getTime() + VERIFICATION_TTL_MS),
     });
-    await trackingRepository.createTrackingLog({
-      taskId,
-      providerId: user.id,
-      lat: payload.lat,
-      lng: payload.lng,
-      accuracy: payload.accuracy,
-      timestamp: locationTimestamp,
-    });
+    saveLiveLocation(taskId, user.id, payload, locationTimestamp);
     await taskRepository.createTaskActivity({
       taskId,
       actorId: user.id,
       action: 'LOCATION_VERIFIED',
-      message: 'Assigned provider verified presence at the task site.',
+      message: 'Assigned provider verified their location at the task site.',
       metadata: { distanceMeters: Math.round(measuredDistance), expiresAt: verification.expiresAt },
     });
     await notificationRepository.createNotification({
       recipientId: task.createdById,
       senderId: user.id,
       taskId,
-      message: `Provider verified arrival for "${task.title}".`,
+      message: `Provider verified their location for "${task.title}".`,
     });
     return {
       isValid: true,
@@ -135,17 +182,43 @@ async function recordLocationUpdate(payload, user) {
   return withTaskLock(payload.taskId, async () => {
     const task = await trackingRepository.getTaskById(payload.taskId);
     assertProviderTask(task, user);
+    assertEscrowFunded(task);
     const timestamp = parseLocationTimestamp(payload.timestamp);
     assertAccuracy(payload.accuracy);
-    return trackingRepository.createTrackingLog({
-      taskId: payload.taskId,
-      providerId: user.id,
-      lat: payload.lat,
-      lng: payload.lng,
-      accuracy: payload.accuracy,
-      timestamp,
-    });
+    return saveLiveLocation(payload.taskId, user.id, payload, timestamp);
   });
+}
+
+async function getLatestLocation(taskId, user) {
+  const id = validateTaskId(taskId);
+  const task = await trackingRepository.getTaskById(id);
+  assertTaskParticipant(task, user, 'read tracking');
+  assertEscrowFunded(task);
+  const location = liveLocations.get(id);
+  if (!location
+    || !ACTIVE_TASK_STATUSES.includes(task.status)
+    || location.providerId !== task.assignedProviderId
+    || Date.now() - location.receivedAt > MAX_LOCATION_AGE_MS) {
+    liveLocations.delete(id);
+    return null;
+  }
+  return {
+    id: location.id,
+    taskId: location.taskId,
+    providerId: location.providerId,
+    lat: location.lat,
+    lng: location.lng,
+    accuracy: location.accuracy,
+    timestamp: location.timestamp,
+  };
+}
+
+async function getLocationHistory(taskId, user) {
+  const id = validateTaskId(taskId);
+  const task = await trackingRepository.getTaskById(id);
+  assertTaskParticipant(task, user, 'read tracking');
+  assertEscrowFunded(task);
+  return [];
 }
 
 async function getVerificationStatus(taskId, user) {
@@ -162,30 +235,34 @@ async function getVerificationStatus(taskId, user) {
     && !verification.revokedAt
     && verification.expiresAt > new Date()
     && verification.siteVersion === Number(task.siteVersion || 1)
+    && task.escrowStatus === 'HELD'
     && ACTIVE_TASK_STATUSES.includes(task.status));
+  let reason = null;
+  if (!isValid) {
+    if (task.escrowStatus !== 'HELD') reason = 'ESCROW_NOT_FUNDED';
+    else if (verification?.revokedAt) reason = verification.revokeReason;
+    else reason = verification ? 'EXPIRED_OR_TASK_STATE_CHANGED' : 'NOT_VERIFIED';
+  }
   return {
     isValid,
     verifiedAt: verification?.verifiedAt || null,
     expiresAt: verification?.expiresAt || null,
     distanceMeters: verification ? Math.round(verification.distanceMeters) : null,
-    reason: isValid ? null : verification?.revokedAt
-      ? verification.revokeReason
-      : verification ? 'EXPIRED_OR_TASK_STATE_CHANGED' : 'NOT_VERIFIED',
+    reason,
   };
 }
 
 async function getTaskSiteLocation(taskId, user) {
   const task = await trackingRepository.getTaskById(taskId);
   if (!task || task.isDeleted) throw Object.assign(new Error('Task not found'), { statusCode: 404 });
-  const role = String(user?.role || '').toUpperCase();
-  if (role !== 'ADMIN' && task.createdById !== user?.id && task.assignedProviderId !== user?.id) {
-    throw Object.assign(new Error('Only task participants can view the task location'), { statusCode: 403 });
-  }
+  assertTaskParticipant(task, user, 'view the task location');
+  assertEscrowFunded(task);
   const hasCoordinates = Number.isFinite(task.siteLatitude)
     && Number.isFinite(task.siteLongitude)
     && task.siteLatitude >= -90 && task.siteLatitude <= 90
     && task.siteLongitude >= -180 && task.siteLongitude <= 180;
   return {
+    siteAddress: task.siteAddress || null,
     siteLatitude: hasCoordinates ? task.siteLatitude : null,
     siteLongitude: hasCoordinates ? task.siteLongitude : null,
     available: hasCoordinates,
@@ -197,6 +274,8 @@ const revokeTaskVerification = (taskId, reason) =>
 
 module.exports = {
   recordLocationUpdate,
+  getLatestLocation,
+  getLocationHistory,
   verifyTaskLocation,
   getVerificationStatus,
   getTaskSiteLocation,

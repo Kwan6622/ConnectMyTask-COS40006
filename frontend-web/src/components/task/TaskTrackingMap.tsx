@@ -48,18 +48,24 @@ export const TaskTrackingMap: React.FC<TaskTrackingMapProps> = ({
   const [latest, setLatest] = useState<TrackingLog | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [siteLocationError, setSiteLocationError] = useState<string | null>(null);
+  const [siteAddress, setSiteAddress] = useState<string | null>(null);
   const [isLoadingSiteLocation, setIsLoadingSiteLocation] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [taskCoordinates, setTaskCoordinates] = useState<Coordinates | null>(() => getTaskCoordinates(task));
 
   useEffect(() => {
     let mounted = true;
+    setTaskCoordinates(getTaskCoordinates(task));
+    setSiteAddress(null);
+    setSiteLocationError(null);
+    setIsLoadingSiteLocation(true);
     api.tracking.getTaskSiteLocation(String(task.id))
       .then((response) => {
         if (!mounted) return;
         const location = response.data || {};
         const coordinates = getTaskCoordinates({ ...task, ...location });
         setTaskCoordinates(coordinates);
+        setSiteAddress(typeof location.siteAddress === 'string' ? location.siteAddress : null);
         setSiteLocationError(coordinates
           ? null
           : 'This task has no saved requester pin. Update the task location and confirm its map pin.');
@@ -67,6 +73,7 @@ export const TaskTrackingMap: React.FC<TaskTrackingMapProps> = ({
       })
       .catch((error: unknown) => {
         if (!mounted) return;
+        setSiteAddress(null);
         const apiError = error as { response?: { data?: { message?: string } }; message?: string };
         setSiteLocationError(apiError.response?.data?.message || apiError.message || 'Unable to load requester task location.');
         setIsLoadingSiteLocation(false);
@@ -124,10 +131,15 @@ export const TaskTrackingMap: React.FC<TaskTrackingMapProps> = ({
           <h2 className="text-lg font-bold text-dark-900">Task live tracking</h2>
           <p className="mt-1 text-sm text-dark-600">
             {isProvider
-              ? 'Your location is shared from the mobile app after you verify this task.'
+              ? 'Your location is shared from the mobile app after escrow is funded and you verify this task.'
               : 'Provider location refreshes automatically. You can view it on any device.'}
           </p>
         </div>
+        {isProvider && siteAddress && (
+          <p className="mb-3 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-900">
+            <span className="font-semibold">Requester task address:</span> {siteAddress}
+          </p>
+        )}
         {latest?.timestamp && (
           <span className="text-xs text-dark-500">
             Updated {new Date(latest.timestamp).toLocaleTimeString()}

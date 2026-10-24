@@ -330,13 +330,13 @@ All routes are prefixed with `/api` unless noted.
 
 - **Tracking (Provider GPS)**
   - `GET /api/tracking/tasks/:taskId/site-location` – Get requester-set coordinates for a task participant
-  - `GET /api/tracking/tasks/:taskId/latest` – Get the latest provider location
-  - `GET /api/tracking/tasks/:taskId/history` – Get recent provider locations
+  - `GET /api/tracking/tasks/:taskId/latest` – Get the latest in-memory provider location (expires after two minutes)
+  - `GET /api/tracking/tasks/:taskId/history` – Return an empty list; journey history is not stored
   - `GET /api/tracking/tasks/:taskId/verification` – Get arrival-verification status
-  - `POST /api/tracking/tasks/:taskId/verify` – Verify arrival within 100 m of the task site
+  - `POST /api/tracking/tasks/:taskId/verify` – Verify the assigned provider is within 1 km of the task site after escrow funding
   - `POST /api/tracking/update`
 
-All tracking routes require authentication. Location writes are accepted only from the provider assigned to an active task. The provider identity is taken from the authenticated account; `providerId` is optional and, if supplied, must match it.
+All tracking routes require authentication. Location writes are accepted only from the provider assigned to an active task. The provider identity is taken from the authenticated account; `providerId` is optional and, if supplied, must match it. Journey updates replace one temporary latest point in API memory; they are not written to the `TRACKING_LOGS` database table. The latest point expires after two minutes and is lost on API restart. Location-verification evidence is persisted separately to enforce verification and expiry gates.
 
 Example update body:
 
@@ -355,8 +355,8 @@ Use a current UTC timestamp when sending an update; the backend rejects stale GP
 Flow:
 
 - Task maps are available to the requester and assigned provider for that task.
-- The assigned provider opts in to foreground GPS sharing from the mobile app. Journey sharing does not require escrow funding or prior arrival verification.
-- The provider's **I've arrived** action verifies the current GPS point within 100 m of the saved task-site coordinates.
+- The assigned provider can opt in to foreground GPS sharing from the mobile app after requester escrow funding is confirmed. GPS tracking and precise task-address access are unavailable before funding.
+- The provider's mobile **Verify location** action checks a fresh GPS point within 1 km of the saved task-site coordinates; escrow must be funded before verification.
 - The requester can view the provider's latest location on web or mobile. The requester marker represents the saved task location, not the requester's live device location.
 - Persisted into `TRACKING_LOGS` via Prisma.
 
@@ -399,6 +399,7 @@ Flow:
 - Provider location is collected only while the assigned provider opts in from the mobile app with foreground location permission.
 - The requester-set task pin is loaded from the participant-only `GET /api/tracking/tasks/:taskId/site-location` endpoint.
 - Tracking map updates use HTTP polling. Socket.io is initialized by the backend but is not used for tracking location updates.
+- The API holds only the latest journey point in memory for up to two minutes; it does not store journey history in the database. The history endpoint returns an empty list. Persisted location-verification evidence is separate from journey tracking.
 
 ### Docker Usage
 

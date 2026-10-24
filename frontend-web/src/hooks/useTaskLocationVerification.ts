@@ -8,9 +8,9 @@ export const AWAITING_DEPOSIT_MESSAGE = 'Awaiting requester deposit';
 const POLL_INTERVAL_MS = 15000;
 
 function isCurrent(status: TaskLocationVerificationStatus | null): boolean {
-  if (!status?.isValid) return false;
-  if (!status.expiresAt) return true;
-  return new Date(status.expiresAt).getTime() > Date.now();
+  if (!status?.isValid || !status.expiresAt) return false;
+  const expiresAt = new Date(status.expiresAt).getTime();
+  return Number.isFinite(expiresAt) && expiresAt > Date.now();
 }
 
 export function useTaskLocationVerification(taskId: string | undefined, enabled: boolean) {

@@ -121,6 +121,7 @@ export default function TaskDetailScreen(): React.ReactElement {
     isRequesterUser && currentTask != null && ["OPEN", "BIDDING"].includes(String(currentTask.status || ""));
   const canViewTaskTracking = Boolean(
     user?.id != null
+    && currentTask?.escrowStatus === "HELD"
     && (
       String(currentTask?.createdById ?? currentTask?.clientId) === String(user.id)
       || String(currentTask?.assignedProviderId) === String(user.id)

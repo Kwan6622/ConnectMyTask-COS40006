@@ -41,6 +41,13 @@ export const TrackingPage: React.FC = () => {
       setIsLoading(false);
       return;
     }
+    if (!task || task.escrowStatus !== 'HELD') {
+      setLatest(null);
+      setHistory([]);
+      setVerification(null);
+      setIsLoading(false);
+      return;
+    }
     setIsRefreshing(true);
     try {
       const [latestResponse, historyResponse, verificationResponse] = await Promise.all([
@@ -62,11 +69,7 @@ export const TrackingPage: React.FC = () => {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [taskId, validTaskId]);
-
-  useEffect(() => {
-    void fetchTrackingData();
-  }, [fetchTrackingData]);
+  }, [task, taskId, validTaskId]);
 
   useEffect(() => {
     if (!taskId || !validTaskId) return;
@@ -79,6 +82,7 @@ export const TrackingPage: React.FC = () => {
         if (!mounted) return;
         const apiError = error as { response?: { data?: { message?: string } }; message?: string };
         setTaskErrorMessage(apiError.response?.data?.message || apiError.message || 'Failed to load task details');
+        setIsLoading(false);
       });
     return () => {
       mounted = false;
@@ -86,7 +90,22 @@ export const TrackingPage: React.FC = () => {
   }, [taskId, validTaskId]);
 
   useEffect(() => {
-    if (!validTaskId) return;
+    if (!validTaskId || !task) {
+      if (!validTaskId) setIsLoading(false);
+      return;
+    }
+    if (task.escrowStatus !== 'HELD') {
+      setLatest(null);
+      setHistory([]);
+      setVerification(null);
+      setIsLoading(false);
+      return;
+    }
+    void fetchTrackingData();
+  }, [fetchTrackingData, task, validTaskId]);
+
+  useEffect(() => {
+    if (!validTaskId || task?.escrowStatus !== 'HELD') return;
     const handleFocus = () => void fetchTrackingData();
     const handleVisible = () => {
       if (document.visibilityState === 'visible') void fetchTrackingData();
@@ -101,7 +120,7 @@ export const TrackingPage: React.FC = () => {
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisible);
     };
-  }, [autoRefresh, fetchTrackingData, validTaskId]);
+  }, [autoRefresh, fetchTrackingData, task?.escrowStatus, validTaskId]);
 
   if (isLoading) {
     return (
@@ -114,7 +133,7 @@ export const TrackingPage: React.FC = () => {
     );
   }
 
-  if (!validTaskId || (errorMessage && !latest && history.length === 0 && !verification)) {
+  if (!validTaskId || (!task && (taskErrorMessage || (errorMessage && !latest && history.length === 0 && !verification)))) {
     return (
       <div className="container mx-auto px-4 py-8 max-w-2xl">
         <Card className="text-center py-12">
@@ -123,6 +142,23 @@ export const TrackingPage: React.FC = () => {
           <p className="text-dark-600 mb-6">{errorMessage || 'Invalid or missing task ID'}</p>
           <Button onClick={() => navigate('/browse-tasks')}>Back to tasks</Button>
         </Card>
+      </div>
+    );
+  }
+
+  if (task && task.escrowStatus !== 'HELD') {
+    return (
+      <div className="min-h-screen bg-dark-50 py-8">
+        <div className="container mx-auto px-4 max-w-2xl">
+          <Button variant="ghost" onClick={() => navigate(`/tasks/${taskId}`)} className="mb-4">
+            <ArrowLeftIcon className="w-5 h-5 mr-2" />
+            Back to Task
+          </Button>
+          <Card className="p-8 text-center">
+            <h1 className="text-2xl font-bold text-dark-900">Tracking unavailable</h1>
+            <p className="mt-3 text-dark-600">GPS tracking and the requester&apos;s task address will be available after the requester funds escrow.</p>
+          </Card>
+        </div>
       </div>
     );
   }

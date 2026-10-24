@@ -117,7 +117,6 @@ async function getTaskById(id) {
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       },
       reviews: true,
-      trackingLogs: { orderBy: { timestamp: 'desc' }, take: 1 },
       _count: {
         select: {
           bids: true,

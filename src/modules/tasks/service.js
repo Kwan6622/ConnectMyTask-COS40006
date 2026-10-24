@@ -727,7 +727,8 @@ async function listAssignedTasks(userId, currentUser) {
   }
   assertProviderRole(currentUser);
   const tasks = await taskRepository.listAssignedTasksForProvider(userId);
-  return hydrateTaskListWithOverdue(tasks);
+  const hydratedTasks = await hydrateTaskListWithOverdue(tasks);
+  return hydratedTasks.map((task) => task.escrowStatus === 'HELD' ? task : toPublicTask(task));
 }
 
 async function listSuggestedTasksForProvider(currentUser) {
@@ -781,9 +782,12 @@ async function getTaskProgress(taskId, currentUser) {
     taskRepository.listPaymentTransactionsForTask(taskId),
   ]);
   const latestUpdate = updates[0] || null;
+  const taskForViewer = normalizeRole(currentUser?.role) === 'PROVIDER' && task.escrowStatus !== 'HELD'
+    ? toPublicTask(task)
+    : task;
 
   return {
-    task,
+    task: taskForViewer,
     updates,
     subtasks,
     disputes,
