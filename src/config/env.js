@@ -55,7 +55,7 @@ const geminiApiKey = firstNonEmpty(
 
 const env = {
   NODE_ENV: process.env.NODE_ENV || 'development',
-  PORT: process.env.PORT || 5000,
+  PORT: process.env.PORT || 4000,
   DATABASE_URL:
     process.env.DATABASE_URL ||
     'postgresql://postgres:postgres@localhost:5432/connectmytask',
@@ -63,10 +63,8 @@ const env = {
   AI_SERVICE_URL: process.env.AI_SERVICE_URL || 'http://127.0.0.1:8000',
   JWT_SECRET: process.env.JWT_SECRET || 'supersecretjwtkey',
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:5173',
-  OPENAI_API_KEY: openAiApiKey,
-  OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-4o-mini',
   GEMINI_API_KEY: geminiApiKey,
-  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
   GEMINI_FALLBACK_MODELS: process.env.GEMINI_FALLBACK_MODELS || 'gemini-3.6-flash',
   STRIPE_SECRET_KEY: stripeSecretKey,
   STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET || '',
