@@ -45,8 +45,8 @@ export const DEFAULT_LONGITUDE = 106.660172;
 export const MAP_ZOOM_LEVEL = 13;
 
 // API Configuration
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-export const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:5000';
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+export const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:4000';
 
 // Timeout configurations
 export const API_TIMEOUT = 10000; // Keep unavailable backend requests from blocking the chat UI.
