@@ -1,7 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,12 +12,15 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import type { ScrollViewInstance } from "react-native";
 import { api } from "@/services/api";
 import { colors, radius, shadow } from "@/theme/tokens";
 
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  retryText?: string;
 }
 
 const starterMessages: ChatMessage[] = [
@@ -30,29 +36,54 @@ export function AIAssistantButton(): React.ReactElement {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>(starterMessages);
   const [isSending, setIsSending] = useState(false);
+  const scrollViewRef = useRef<ScrollViewInstance>(null);
 
-  const handleSend = async (): Promise<void> => {
-    const nextMessage = input.trim();
+  const scrollToLatest = (): void => {
+    requestAnimationFrame(() => scrollViewRef.current?.scrollToEnd({ animated: true }));
+  };
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    scrollToLatest();
+    const keyboardListener = Keyboard.addListener("keyboardDidShow", scrollToLatest);
+    return () => keyboardListener.remove();
+  }, [isOpen, isSending, messages]);
+
+  const handleSend = async (retryText?: string): Promise<void> => {
+    const nextMessage = (retryText ?? input).trim();
     if (!nextMessage || isSending) return;
 
-    const nextHistory = [...messages, { role: "user" as const, content: nextMessage }];
-    setMessages(nextHistory);
-    setInput("");
+    const requestHistory = messages
+      .filter((item) => !item.retryText)
+      .filter((item) => item.role !== "assistant" || item.content !== starterMessages[0].content)
+      .map((item) => ({ role: item.role, content: item.content }));
+    if (
+      retryText
+      && requestHistory.at(-1)?.role === "user"
+      && requestHistory.at(-1)?.content === nextMessage
+    ) {
+      requestHistory.pop();
+    }
+
+    setMessages((current) => retryText
+      ? current.filter((item) => !item.retryText)
+      : [...current, { role: "user", content: nextMessage }]);
+    if (!retryText) setInput("");
     setIsSending(true);
 
     try {
       const response = await api.chat.send({
         message: nextMessage,
-        history: nextHistory
-          .filter((item) => item.role !== "assistant" || item.content !== starterMessages[0].content)
-          .map((item) => ({ role: item.role, content: item.content })),
+        history: requestHistory,
       });
       const reply = String(response.data?.reply || "I could not generate a reply right now.");
       setMessages((current) => [...current, { role: "assistant", content: reply }]);
     } catch (error: any) {
-      const message =
-        error?.response?.data?.message || error?.message || "AI assistant is temporarily unavailable.";
-      setMessages((current) => [...current, { role: "assistant", content: message }]);
+      const isTimeout = error?.code === "ECONNABORTED" || String(error?.message || "").toLowerCase().includes("timeout");
+      const message = isTimeout
+        ? "AI assistant is taking longer than expected. Please try again."
+        : error?.response?.data?.message || "AI assistant is temporarily unavailable. Please try again.";
+      setMessages((current) => [...current, { role: "assistant", content: message, retryText: nextMessage }]);
     } finally {
       setIsSending(false);
     }
@@ -65,57 +96,80 @@ export function AIAssistantButton(): React.ReactElement {
       </Pressable>
 
       <Modal animationType="slide" transparent visible={isOpen} onRequestClose={() => setIsOpen(false)}>
-        <View style={styles.overlay}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <View>
-                <Text style={styles.modalTitle}>ConnectMyTask AI</Text>
-                <Text style={styles.modalSubtitle}>Always available for quick platform help</Text>
+        <KeyboardAvoidingView
+          style={styles.keyboardAvoidingView}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <SafeAreaView style={styles.overlay} edges={["bottom", "left", "right"]}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeader}>
+                <View>
+                  <Text style={styles.modalTitle}>ConnectMyTask AI</Text>
+                  <Text style={styles.modalSubtitle}>Always available for quick platform help</Text>
+                </View>
+                <Pressable onPress={() => { Keyboard.dismiss(); setIsOpen(false); }}>
+                  <Text style={styles.closeText}>Close</Text>
+                </Pressable>
               </View>
-              <Pressable onPress={() => setIsOpen(false)}>
-                <Text style={styles.closeText}>Close</Text>
-              </Pressable>
-            </View>
 
-            <ScrollView style={styles.messageList} contentContainerStyle={styles.messageContent}>
-              {messages.map((item, index) => (
-                <View
-                  key={`${item.role}-${index}`}
-                  style={[styles.messageBubble, item.role === "user" ? styles.userBubble : styles.assistantBubble]}
+              <ScrollView
+                ref={scrollViewRef}
+                style={styles.messageList}
+                contentContainerStyle={styles.messageContent}
+                keyboardShouldPersistTaps="handled"
+                onContentSizeChange={scrollToLatest}
+              >
+                {messages.map((item, index) => (
+                  <View
+                    key={`${item.role}-${index}`}
+                    style={[styles.messageBubble, item.role === "user" ? styles.userBubble : styles.assistantBubble]}
+                  >
+                    <Text style={[styles.messageText, item.role === "user" ? styles.userText : styles.assistantText]}>
+                      {item.content}
+                    </Text>
+                    {item.retryText ? (
+                      <Pressable onPress={() => void handleSend(item.retryText)} disabled={isSending}>
+                        <Text style={styles.retryText}>Retry</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ))}
+                {isSending ? (
+                  <View style={[styles.messageBubble, styles.assistantBubble]}>
+                    <ActivityIndicator color={colors.primary[600]} />
+                  </View>
+                ) : null}
+              </ScrollView>
+
+              <View style={styles.inputRow}>
+                <TextInput
+                  placeholder="Ask about tasks, progress, or account flows"
+                  placeholderTextColor={colors.dark[400]}
+                  value={input}
+                  onChangeText={setInput}
+                  style={styles.input}
+                  multiline
+                />
+                <Pressable
+                  style={[styles.sendButton, isSending && styles.sendButtonDisabled]}
+                  onPress={() => void handleSend()}
+                  disabled={isSending || !input.trim()}
                 >
-                  <Text style={[styles.messageText, item.role === "user" ? styles.userText : styles.assistantText]}>
-                    {item.content}
-                  </Text>
-                </View>
-              ))}
-              {isSending ? (
-                <View style={[styles.messageBubble, styles.assistantBubble]}>
-                  <ActivityIndicator color={colors.primary[600]} />
-                </View>
-              ) : null}
-            </ScrollView>
-
-            <View style={styles.inputRow}>
-              <TextInput
-                placeholder="Ask about tasks, progress, or account flows"
-                placeholderTextColor={colors.dark[400]}
-                value={input}
-                onChangeText={setInput}
-                style={styles.input}
-                multiline
-              />
-              <Pressable style={styles.sendButton} onPress={() => void handleSend()}>
-                <Text style={styles.sendText}>Send</Text>
-              </Pressable>
+                  <Text style={styles.sendText}>Send</Text>
+                </Pressable>
+              </View>
             </View>
-          </View>
-        </View>
+          </SafeAreaView>
+        </KeyboardAvoidingView>
       </Modal>
     </>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoidingView: {
+    flex: 1,
+  },
   fab: {
     position: "absolute",
     right: 20,
@@ -205,6 +259,13 @@ const styles = StyleSheet.create({
   assistantText: {
     color: colors.dark[800],
   },
+  retryText: {
+    color: colors.primary[700],
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+    marginTop: 8,
+  },
   userText: {
     color: colors.white,
   },
@@ -234,6 +295,9 @@ const styles = StyleSheet.create({
     minHeight: 46,
     borderRadius: radius.lg,
     backgroundColor: colors.primary[600],
+  },
+  sendButtonDisabled: {
+    opacity: 0.55,
   },
   sendText: {
     color: colors.white,

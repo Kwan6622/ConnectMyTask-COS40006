@@ -1,4 +1,5 @@
 const { env } = require('../../config/env');
+const { generateContent } = require('../../shared/ai/geminiClient');
 
 const CHECKPOINTS = [25, 50, 75, 100];
 
@@ -168,14 +169,7 @@ async function requestAiSubtasks(category, title, description) {
     `Description: ${String(description || '').trim()}`,
   ].join('\n');
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(env.GEMINI_MODEL)}:generateContent?key=${env.GEMINI_API_KEY}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+  const { data: payload } = await generateContent({
         contents: [
           {
             role: 'user',
@@ -183,18 +177,9 @@ async function requestAiSubtasks(category, title, description) {
           },
         ],
         generationConfig: {
-          temperature: 0.2,
           maxOutputTokens: 220,
         },
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    return null;
-  }
-
-  const payload = await response.json().catch(() => ({}));
+      });
   const textParts = Array.isArray(payload?.candidates?.[0]?.content?.parts)
     ? payload.candidates[0].content.parts.map((item) => String(item?.text || '')).join('\n')
     : '';

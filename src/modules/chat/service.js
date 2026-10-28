@@ -1,7 +1,7 @@
-const { env } = require('../../config/env');
+const { generateContent } = require('../../shared/ai/geminiClient');
 
 const CONNECTMYTASK_SYSTEM_PROMPT =
-  'You are the ConnectMyTask AI Assistant. You help users understand and use the ConnectMyTask platform, including task posting, bidding, requester/provider workflows, task progress, saved tasks, notifications, and payment flow. Keep answers concise, friendly, and helpful. If a question is outside the platform domain, politely say that you can only help with ConnectMyTask-related support.';
+  'You are the ConnectMyTask AI Assistant. You help users understand and use the ConnectMyTask platform, including task posting, bidding, requester/provider workflows, task progress, saved tasks, notifications, and payment flow. Keep answers concise, friendly, helpful, and complete. Usually answer in fewer than 250 words. If a question is outside the platform domain, politely say that you can only help with ConnectMyTask-related support.';
 
 function toGeminiContents(payload) {
   const safeHistory = Array.isArray(payload.history) ? payload.history : [];
@@ -22,46 +22,35 @@ function toGeminiContents(payload) {
 }
 
 async function requestAssistantReply(contents) {
-  if (!env.GEMINI_API_KEY) {
-    const err = new Error('Gemini is not configured. Missing GEMINI_API_KEY');
-    err.statusCode = 500;
-    throw err;
-  }
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(env.GEMINI_MODEL)}:generateContent?key=${env.GEMINI_API_KEY}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+  let data;
+  try {
+    ({ data } = await generateContent({
         systemInstruction: {
           parts: [{ text: CONNECTMYTASK_SYSTEM_PROMPT }],
         },
         contents,
         generationConfig: {
-          temperature: 0.4,
-          maxOutputTokens: 300,
+          maxOutputTokens: 1200,
         },
-      }),
-    }
-  );
-
-  const data = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    // Keep provider details in server log, but return a stable friendly message to clients.
+      }));
+  } catch (providerError) {
     // eslint-disable-next-line no-console
-    console.warn('[chat] Gemini request failed:', data?.error?.message || response.statusText);
+    console.warn('[chat] Gemini request failed:', providerError.message);
     const err = new Error('AI assistant is temporarily unavailable. Please try again shortly.');
-    err.statusCode = 502;
+    err.statusCode = [429, 503, 504].includes(providerError.providerStatus) ? 503 : 502;
     throw err;
   }
 
   const parts = Array.isArray(data?.candidates?.[0]?.content?.parts)
     ? data.candidates[0].content.parts
     : [];
+  const finishReason = data?.candidates?.[0]?.finishReason;
+
+  if (finishReason === 'MAX_TOKENS') {
+    const err = new Error('AI assistant could not complete the response. Please try again.');
+    err.statusCode = 503;
+    throw err;
+  }
   const reply = parts
     .map((part) => String(part?.text || '').trim())
     .filter(Boolean)

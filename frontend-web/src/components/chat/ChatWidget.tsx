@@ -14,6 +14,7 @@ interface ChatMessage {
   id: string;
   role: ChatRole;
   content: string;
+  retryText?: string;
 }
 
 const WELCOME_TEXT =
@@ -22,11 +23,12 @@ const WELCOME_TEXT =
 const FALLBACK_ERROR_TEXT =
   'Sorry, I could not process that request right now. Please try again in a moment.';
 
-function createMessage(role: ChatRole, content: string): ChatMessage {
+function createMessage(role: ChatRole, content: string, retryText?: string): ChatMessage {
   return {
     id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     role,
     content,
+    retryText,
   };
 }
 
@@ -57,17 +59,22 @@ export const ChatWidget: React.FC = () => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [isLoading, isOpen, messages]);
 
-  const sendMessage = async () => {
-    const trimmed = inputValue.trim();
+  const sendMessage = async (retryText?: string) => {
+    const trimmed = (retryText ?? inputValue).trim();
     if (!trimmed || isLoading) return;
 
-    const currentHistory = messages.map((message) => ({
+    const currentHistory = messages.filter((message) => !message.retryText).map((message) => ({
       role: message.role,
       content: message.content,
     }));
+    if (retryText && currentHistory.at(-1)?.role === 'user' && currentHistory.at(-1)?.content === trimmed) {
+      currentHistory.pop();
+    }
 
-    setMessages((prev) => [...prev, createMessage('user', trimmed)]);
-    setInputValue('');
+    setMessages((prev) => retryText
+      ? prev.filter((message) => !message.retryText)
+      : [...prev, createMessage('user', trimmed)]);
+    if (!retryText) setInputValue('');
     setIsLoading(true);
 
     try {
@@ -78,8 +85,9 @@ export const ChatWidget: React.FC = () => {
 
       const reply = String(response.data?.reply || '').trim() || FALLBACK_ERROR_TEXT;
       setMessages((prev) => [...prev, createMessage('assistant', reply)]);
-    } catch {
-      setMessages((prev) => [...prev, createMessage('assistant', FALLBACK_ERROR_TEXT)]);
+    } catch (error: any) {
+      const errorText = String(error?.response?.data?.message || '').trim() || FALLBACK_ERROR_TEXT;
+      setMessages((prev) => [...prev, createMessage('assistant', errorText, trimmed)]);
     } finally {
       setIsLoading(false);
     }
@@ -88,7 +96,7 @@ export const ChatWidget: React.FC = () => {
   const handleInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
-      sendMessage();
+      void sendMessage();
     }
   };
 
@@ -148,7 +156,19 @@ export const ChatWidget: React.FC = () => {
 
         <div className="h-[calc(100%-62px-74px)] overflow-y-auto bg-slate-50 px-3 py-4 space-y-3 hide-scrollbar">
           {messages.map((message) => (
-            <MessageBubble key={message.id} role={message.role} content={message.content} />
+            <div key={message.id}>
+              <MessageBubble role={message.role} content={message.content} />
+              {message.retryText && (
+                <button
+                  type="button"
+                  onClick={() => void sendMessage(message.retryText)}
+                  disabled={isLoading}
+                  className="ml-9 mt-1 text-xs font-semibold text-blue-600 hover:text-blue-700 disabled:text-slate-400"
+                >
+                  Retry
+                </button>
+              )}
+            </div>
           ))}
 
           {isLoading && (
@@ -199,7 +219,7 @@ export const ChatWidget: React.FC = () => {
 
             <button
               type="button"
-              onClick={sendMessage}
+              onClick={() => void sendMessage()}
               disabled={!inputValue.trim() || isLoading}
               className="p-2 rounded-full bg-blue-600 text-white disabled:bg-blue-200 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
               aria-label="Send message"

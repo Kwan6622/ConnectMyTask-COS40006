@@ -232,7 +232,7 @@ class ApiService {
     send: (data: {
       message: string;
       history?: Array<{ role: "user" | "assistant"; content: string }>;
-    }) => apiClient.post("/chat", data),
+    }) => apiClient.post("/chat", data, { timeout: 20000 }),
   };
 
   ai = {
