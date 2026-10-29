@@ -20,6 +20,7 @@ const SupportPage = lazy(() => import('./pages/SupportPage').then((module) => ({
 const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage').then((module) => ({ default: module.PrivacyPolicyPage })));
 const TermsOfServicePage = lazy(() => import('./pages/TermsOfServicePage').then((module) => ({ default: module.TermsOfServicePage })));
 const AboutPage = lazy(() => import('./pages/AboutPage').then((module) => ({ default: module.AboutPage })));
+const TransactionHistoryPage = lazy(() => import('./pages/TransactionHistoryPage').then((module) => ({ default: module.TransactionHistoryPage })));
 import { ChatWidget } from './components/chat/ChatWidget';
 import { useAuthStore } from './stores/auth.store';
 
@@ -89,6 +90,14 @@ function App() {
                       : <Navigate to="/browse-tasks" replace />
                   )
                   : <Navigate to="/" replace />
+              }
+            />
+            <Route
+              path="/transactions"
+              element={
+                user && ['REQUESTER', 'CLIENT'].includes(String(user.role).toUpperCase())
+                  ? <TransactionHistoryPage />
+                  : <Navigate to="/browse-tasks" replace />
               }
             />
             <Route

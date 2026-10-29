@@ -74,6 +74,7 @@ export const RequesterDashboardPage: React.FC = () => {
               </p>
             </div>
             <div className="flex gap-3">
+              <Button variant="outline" onClick={() => navigate('/transactions')}>Transaction History</Button>
               <Button variant="outline" onClick={() => fetchRequesterTasks()}>
                 <ArrowPathIcon className="w-4 h-4 mr-2" />
                 Refresh
@@ -143,7 +144,8 @@ export const RequesterDashboardPage: React.FC = () => {
                       <p className="text-slate-600 mt-2 line-clamp-2">{task.description}</p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4 text-sm">
                         <p className="text-slate-600">Bids: <span className="font-semibold text-slate-900">{bidCount}</span></p>
-                        <p className="text-slate-600">Budget: <span className="font-semibold text-slate-900">{task.budget != null ? formatVnd(task.budget) : 'Flexible'}</span></p>
+                        <p className="text-slate-600">Original budget: <span className="font-semibold text-slate-900">{task.budget != null ? formatVnd(task.budget) : 'Flexible'}</span></p>
+                        {task.escrowAmount != null && <p className="text-blue-700">Agreed price: <span className="font-semibold">{formatVnd(task.escrowAmount)}</span></p>}
                         <p className="text-slate-600">Assigned: <span className="font-semibold text-slate-900">{task.assignedProvider?.name || 'Not assigned'}</span></p>
                         <p className="text-slate-600">Created: <span className="font-semibold text-slate-900">{new Date(task.createdAt).toLocaleDateString()}</span></p>
                       </div>

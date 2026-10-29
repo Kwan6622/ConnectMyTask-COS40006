@@ -1,5 +1,13 @@
 const adminRepository = require('./repository');
 const paymentService = require('../payments/service');
+const { LEGACY_PLATFORM_FEE_CONFIG, normalizePlatformFeeConfig } = require('../payments/platformFee');
+
+const ADMIN_TASK_TRANSITIONS = Object.freeze({
+  PENDING: ['OPEN', 'CANCELLED'],
+  OPEN: ['CANCELLED'],
+  BIDDING: ['CANCELLED'],
+  ASSIGNED: ['CANCELLED'],
+});
 
 function assertAdmin(currentUser) {
   if (String(currentUser?.role || '').toUpperCase() !== 'ADMIN') {
@@ -89,6 +97,88 @@ async function reviewTask(taskIdRaw, currentUser) {
   return adminRepository.markTaskReviewed(taskId, currentUser.id);
 }
 
+async function updateTaskStatus(taskIdRaw, payload, currentUser) {
+  assertAdmin(currentUser);
+  const taskId = parseId(taskIdRaw, 'task id');
+  const status = String(payload?.status || '').toUpperCase();
+  const reason = String(payload?.reason || '').trim();
+  if (reason.length < 5 || reason.length > 500) {
+    throw Object.assign(new Error('A reason between 5 and 500 characters is required'), { statusCode: 400 });
+  }
+  const task = await adminRepository.getTaskForAdmin(taskId);
+  if (!task) throw Object.assign(new Error('Task not found'), { statusCode: 404 });
+  if (task.status === status) return task;
+  if (!(ADMIN_TASK_TRANSITIONS[task.status] || []).includes(status)) {
+    throw Object.assign(new Error(`Admin cannot change task from ${task.status} to ${status}`), { statusCode: 409 });
+  }
+  const hasActiveFinancialOrDisputeState = ['HELD', 'FROZEN', 'RELEASED', 'REFUNDED'].includes(task.escrowStatus)
+    || ['ESCROW_HELD', 'FROZEN', 'RELEASED', 'REFUNDED'].includes(task.paymentStatus)
+    || Number(task._count?.disputes || 0) > 0;
+  if (hasActiveFinancialOrDisputeState) {
+    throw Object.assign(new Error('Resolve active escrow, payment, or dispute before changing task status'), { statusCode: 409 });
+  }
+  return adminRepository.updateTaskStatusByAdmin(taskId, task.status, status, currentUser.id, reason);
+}
+
+async function getPlatformFeeSettings(currentUser) {
+  assertAdmin(currentUser);
+  try {
+    const result = await adminRepository.getPlatformFeeSettings();
+    return {
+      config: normalizePlatformFeeConfig(result.config || LEGACY_PLATFORM_FEE_CONFIG),
+      audits: result.audits || [],
+      policy: { chargedTo: 'PROVIDER_PAYOUT', requesterChargeBasis: 'ACCEPTED_BID' },
+    };
+  } catch (error) {
+    if (error?.code !== 'P2021' && error?.code !== 'P2022') throw error;
+    return {
+      config: normalizePlatformFeeConfig(LEGACY_PLATFORM_FEE_CONFIG),
+      audits: [],
+      policy: { chargedTo: 'PROVIDER_PAYOUT', requesterChargeBasis: 'ACCEPTED_BID' },
+      migrationRequired: true,
+    };
+  }
+}
+
+async function updatePlatformFeeSettings(payload, currentUser) {
+  assertAdmin(currentUser);
+  const reason = String(payload?.reason || '').trim();
+  const feeType = String(payload?.feeType || '').toUpperCase();
+  const isActive = payload?.isActive;
+  if (reason.length < 5 || reason.length > 500) {
+    throw Object.assign(new Error('A reason between 5 and 500 characters is required'), { statusCode: 400 });
+  }
+  if (!['PERCENTAGE', 'FIXED'].includes(feeType) || typeof isActive !== 'boolean') {
+    throw Object.assign(new Error('feeType and isActive are required'), { statusCode: 400 });
+  }
+  const next = { feeType, isActive, percentageRate: null, fixedAmount: null };
+  if (feeType === 'PERCENTAGE') {
+    const rate = Number(payload?.percentageRate);
+    if (!Number.isFinite(rate) || rate < 0 || rate >= 1) {
+      throw Object.assign(new Error('percentageRate must be between 0 and 1'), { statusCode: 400 });
+    }
+    next.percentageRate = rate;
+  } else {
+    const amount = Number(payload?.fixedAmount);
+    if (!Number.isFinite(amount) || amount < 0) {
+      throw Object.assign(new Error('fixedAmount must be zero or greater'), { statusCode: 400 });
+    }
+    next.fixedAmount = amount;
+  }
+  try {
+    const config = await adminRepository.updatePlatformFeeSettings(next, currentUser.id, reason);
+    return {
+      config: normalizePlatformFeeConfig(config),
+      policy: { chargedTo: 'PROVIDER_PAYOUT', requesterChargeBasis: 'ACCEPTED_BID' },
+    };
+  } catch (error) {
+    if (error?.code === 'P2021' || error?.code === 'P2022') {
+      throw Object.assign(new Error('Platform fee settings migration is required before updates can be saved'), { statusCode: 503 });
+    }
+    throw error;
+  }
+}
+
 async function getCertificates(currentUser) {
   assertAdmin(currentUser);
   return adminRepository.listCertificates();
@@ -145,6 +235,9 @@ module.exports = {
   getSuspiciousTasks,
   deleteTask,
   reviewTask,
+  updateTaskStatus,
+  getPlatformFeeSettings,
+  updatePlatformFeeSettings,
   getCertificates,
   verifyCertificate,
   rejectCertificate,

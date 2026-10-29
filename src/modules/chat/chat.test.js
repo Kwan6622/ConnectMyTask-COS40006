@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 process.env.GEMINI_API_KEY = 'test-key';
+process.env.GEMINI_MODEL = 'gemini-flash-latest';
 
 const { sendChat } = require('./service');
 
@@ -21,7 +22,7 @@ test('chat sends the Gemini key in a header instead of the request URL', async (
   try {
     const result = await sendChat({ message: 'ping', history: [] });
     assert.equal(result.reply, 'pong');
-    assert.match(requestUrl, /models\/gemini-3\.5-flash:generateContent$/);
+    assert.match(requestUrl, /models\/gemini-flash-latest:generateContent$/);
     assert.equal(new URL(requestUrl).searchParams.has('key'), false);
     assert.equal(requestOptions.headers['x-goog-api-key'], 'test-key');
     assert.equal(requestOptions.body.includes('"temperature"'), false);
@@ -36,7 +37,7 @@ test('chat retries transient failures and falls back to a supported model', asyn
 
   global.fetch = async (url) => {
     requestUrls.push(String(url));
-    if (String(url).includes('/gemini-3.5-flash:')) {
+    if (String(url).includes('/gemini-flash-latest:')) {
       return new Response(JSON.stringify({
         error: { code: 503, status: 'UNAVAILABLE', message: 'High demand' },
       }), { status: 503, headers: { 'content-type': 'application/json' } });
@@ -49,8 +50,8 @@ test('chat retries transient failures and falls back to a supported model', asyn
   try {
     const result = await sendChat({ message: 'ping', history: [] });
     assert.equal(result.reply, 'fallback reply');
-    assert.equal(requestUrls.filter((url) => url.includes('/gemini-3.5-flash:')).length, 3);
-    assert.match(requestUrls.at(-1), /models\/gemini-3\.6-flash:generateContent$/);
+    assert.equal(requestUrls.filter((url) => url.includes('/gemini-flash-latest:')).length, 3);
+    assert.match(requestUrls.at(-1), /models\/gemini-2\.5-flash:generateContent$/);
   } finally {
     global.fetch = originalFetch;
   }
@@ -62,7 +63,7 @@ test('chat does not retry a daily quota error before trying the fallback model',
 
   global.fetch = async (url) => {
     requestUrls.push(String(url));
-    if (String(url).includes('/gemini-3.5-flash:')) {
+    if (String(url).includes('/gemini-flash-latest:')) {
       return new Response(JSON.stringify({
         error: {
           code: 429,
@@ -79,8 +80,8 @@ test('chat does not retry a daily quota error before trying the fallback model',
   try {
     const result = await sendChat({ message: 'ping', history: [] });
     assert.equal(result.reply, 'fallback reply');
-    assert.equal(requestUrls.filter((url) => url.includes('/gemini-3.5-flash:')).length, 1);
-    assert.match(requestUrls.at(-1), /models\/gemini-3\.6-flash:generateContent$/);
+    assert.equal(requestUrls.filter((url) => url.includes('/gemini-flash-latest:')).length, 1);
+    assert.match(requestUrls.at(-1), /models\/gemini-2\.5-flash:generateContent$/);
   } finally {
     global.fetch = originalFetch;
   }

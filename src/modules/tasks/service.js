@@ -796,7 +796,7 @@ async function getTaskProgress(taskId, currentUser) {
     paymentSummary: {
       escrowStatus: task.escrowStatus,
       paymentStatus: task.paymentStatus,
-      escrowAmount: task.escrowAmount || task.budget,
+      escrowAmount: task.escrowAmount ?? null,
       escrowHeldAt: task.escrowHeldAt,
       escrowReleasedAt: task.escrowReleasedAt,
     },

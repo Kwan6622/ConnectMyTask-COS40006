@@ -3,11 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth.store';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
+import { Input } from '../../components/common/Input';
 import { api } from '../../services/api';
 import { formatVnd } from '../../utils';
 import toast from 'react-hot-toast';
 
-type AdminTab = 'overview' | 'users' | 'tasks' | 'certificates' | 'payments' | 'disputes' | 'support';
+type AdminTab = 'overview' | 'users' | 'tasks' | 'certificates' | 'payments' | 'fees' | 'disputes' | 'support';
 
 export const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -21,6 +22,11 @@ export const AdminDashboard: React.FC = () => {
   const [users, setUsers] = useState<any[]>([]);
   const [disputes, setDisputes] = useState<any[]>([]);
   const [supportTickets, setSupportTickets] = useState<any[]>([]);
+  const [feeSettings, setFeeSettings] = useState<any | null>(null);
+  const [feeType, setFeeType] = useState<'PERCENTAGE' | 'FIXED'>('PERCENTAGE');
+  const [feeValue, setFeeValue] = useState('20');
+  const [feeActive, setFeeActive] = useState(true);
+  const [feeReason, setFeeReason] = useState('');
   const [taskStatusFilter, setTaskStatusFilter] = useState('ALL');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -40,6 +46,7 @@ export const AdminDashboard: React.FC = () => {
         api.admin.getPayments(),
         api.admin.getDisputes(),
         api.support.list({ limit: 50 }),
+        api.admin.getPlatformFeeSettings(),
       ]);
       const data = (index: number) => {
         const result = results[index];
@@ -53,6 +60,15 @@ export const AdminDashboard: React.FC = () => {
       if (data(5) !== undefined) setPayments(data(5) || []);
       if (data(6) !== undefined) setDisputes(data(6) || []);
       if (data(7) !== undefined) setSupportTickets(data(7)?.items || []);
+      if (data(8) !== undefined) {
+        const settings = data(8) || null;
+        setFeeSettings(settings);
+        setFeeType(settings?.config?.feeType === 'FIXED' ? 'FIXED' : 'PERCENTAGE');
+        setFeeValue(settings?.config?.feeType === 'FIXED'
+          ? String(settings?.config?.fixedAmount ?? 0)
+          : String(Number(settings?.config?.percentageRate ?? 0) * 100));
+        setFeeActive(settings?.config?.isActive !== false);
+      }
       const failedCount = results.filter((result) => result.status === 'rejected').length;
       if (failedCount) setLoadError(`${failedCount} admin section${failedCount === 1 ? '' : 's'} could not be loaded. Available sections remain usable.`);
     } catch (error: any) {
@@ -78,6 +94,7 @@ export const AdminDashboard: React.FC = () => {
     { id: 'tasks', label: 'Tasks' },
     { id: 'certificates', label: 'Certificates' },
     { id: 'payments', label: 'Payments / Escrow' },
+    { id: 'fees', label: 'Platform Fee' },
     { id: 'disputes', label: 'Disputes / Reports' },
     { id: 'support', label: 'Support' },
   ];
@@ -91,7 +108,7 @@ export const AdminDashboard: React.FC = () => {
     { label: 'Disputes', value: stats?.disputes ?? 0 },
     { label: 'Open Support Tickets', value: stats?.openSupportTickets ?? 0 },
     { label: 'Escrow Held Amount', value: formatVnd(stats?.totalEscrowHeldAmount ?? 0) },
-    { label: 'Platform Revenue (20%)', value: formatVnd(stats?.totalPlatformRevenue ?? 0) },
+    { label: 'Platform Revenue', value: formatVnd(stats?.totalPlatformRevenue ?? 0) },
   ]), [stats]);
 
   const handleDeleteTask = async (taskId: string | number) => {
@@ -163,6 +180,46 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
+  const handleTaskStatus = async (task: any, status: string) => {
+    const reason = window.prompt(`Reason for changing ${task.status} to ${status}:`)?.trim();
+    if (!reason) return;
+    try {
+      await api.admin.updateTaskStatus(task.id, { status, reason });
+      toast.success('Task status updated and audited');
+      await loadAdminData();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Failed to update task status');
+    }
+  };
+
+  const handleFeeUpdate = async () => {
+    const numericValue = Number(feeValue);
+    if (!Number.isFinite(numericValue) || numericValue < 0 || feeReason.trim().length < 5) {
+      toast.error('Enter a valid fee and a reason of at least 5 characters');
+      return;
+    }
+    try {
+      await api.admin.updatePlatformFeeSettings({
+        feeType,
+        ...(feeType === 'PERCENTAGE' ? { percentageRate: numericValue / 100 } : { fixedAmount: numericValue }),
+        isActive: feeActive,
+        reason: feeReason.trim(),
+      });
+      setFeeReason('');
+      toast.success('Platform fee updated for future deposits');
+      await loadAdminData();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Failed to update platform fee');
+    }
+  };
+
+  const taskTransitions: Record<string, string[]> = {
+    PENDING: ['OPEN', 'CANCELLED'],
+    OPEN: ['CANCELLED'],
+    BIDDING: ['CANCELLED'],
+    ASSIGNED: ['CANCELLED'],
+  };
+
   const filteredTasks = taskStatusFilter === 'ALL' ? tasks : tasks.filter((task) => task.status === taskStatusFilter);
 
   return (
@@ -228,7 +285,7 @@ export const AdminDashboard: React.FC = () => {
                 <p className="font-semibold text-gray-900">All Tasks</p>
                 <select value={taskStatusFilter} onChange={(event) => setTaskStatusFilter(event.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm">
                   <option value="ALL">All statuses</option>
-                  {['OPEN', 'BIDDING', 'ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION', 'COMPLETED', 'DISPUTED', 'CANCELLED'].map((status) => <option key={status}>{status}</option>)}
+                  {['PENDING', 'OPEN', 'BIDDING', 'ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION', 'COMPLETED', 'DISPUTED', 'CANCELLED'].map((status) => <option key={status}>{status}</option>)}
                 </select>
               </div>
               <div className="space-y-2 max-h-[300px] overflow-auto">
@@ -239,6 +296,13 @@ export const AdminDashboard: React.FC = () => {
                     <p className="text-xs text-gray-500">Requester: {task.createdBy?.name || '-'}</p>
                     <p className="text-xs text-gray-500">Provider: {task.assignedProvider?.name || 'Unassigned'} · Escrow: {task.escrowStatus || 'NONE'} · Payment: {task.paymentStatus || 'UNPAID'}</p>
                     <p className="text-xs text-gray-500">GPS: {task.gpsVerificationStatus || 'NOT_REQUIRED'} · Disputes: {task._count?.disputes || 0}</p>
+                    {(taskTransitions[task.status] || []).length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {(taskTransitions[task.status] || []).map((status) => (
+                          <Button key={status} size="sm" variant="outline" onClick={() => handleTaskStatus(task, status)}>{status}</Button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
                 {filteredTasks.length === 0 && <p className="text-sm text-gray-500">No tasks found.</p>}
@@ -295,8 +359,8 @@ export const AdminDashboard: React.FC = () => {
                   <p className="text-xs text-gray-500">Provider: {payment.provider?.name || '-'}</p>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2 text-sm">
                     <p>Total paid: <span className="font-semibold">{formatVnd(payment.totalAmount || payment.amount || 0)}</span></p>
-                    <p>Platform fee (20%): <span className="font-semibold">{formatVnd(payment.platformFeeAmount || 0)}</span></p>
-                    <p>Provider payout (80%): <span className="font-semibold">{formatVnd(payment.providerPayoutAmount || 0)}</span></p>
+                    <p>Platform fee: <span className="font-semibold">{formatVnd(payment.platformFeeAmount || 0)}</span></p>
+                    <p>Provider payout: <span className="font-semibold">{formatVnd(payment.providerPayoutAmount || 0)}</span></p>
                   </div>
                   <p className="text-xs text-gray-500 mt-1">Lifecycle: {payment.lifecycleStatus || 'PENDING'}</p>
                   {payment.lifecycleStatus === 'ESCROW_HELD' && (
@@ -305,6 +369,29 @@ export const AdminDashboard: React.FC = () => {
                 </div>
               ))}
               {payments.length === 0 && <p className="text-sm text-gray-500">No payments.</p>}
+            </div>
+          </Card>
+        )}
+
+        {tab === 'fees' && (
+          <Card className="p-4">
+            <p className="font-semibold text-gray-900">Platform Fee Settings</p>
+            <p className="text-sm text-gray-600 mt-1">Applies only to future escrow deposits. Requesters pay the accepted bid; the fee is deducted from provider payout.</p>
+            {feeSettings?.migrationRequired && <p className="mt-2 text-sm text-amber-700">Prepared database migration must be reviewed and applied before settings can be changed.</p>}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-4">
+              <select value={feeType} onChange={(event) => setFeeType(event.target.value as 'PERCENTAGE' | 'FIXED')} className="rounded-lg border border-gray-300 px-3 py-2">
+                <option value="PERCENTAGE">Percentage</option>
+                <option value="FIXED">Fixed VND</option>
+              </select>
+              <Input label={feeType === 'PERCENTAGE' ? 'Fee percent' : 'Fixed fee (VND)'} value={feeValue} onChange={(event) => setFeeValue(event.target.value)} type="number" />
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={feeActive} onChange={(event) => setFeeActive(event.target.checked)} /> Active</label>
+              <Input label="Change reason" value={feeReason} onChange={(event) => setFeeReason(event.target.value)} />
+            </div>
+            <Button className="mt-3" onClick={handleFeeUpdate} disabled={Boolean(feeSettings?.migrationRequired)}>Save for future deposits</Button>
+            <div className="mt-5 space-y-2">
+              <p className="text-sm font-semibold">Recent audit history</p>
+              {(feeSettings?.audits || []).map((audit: any) => <p key={audit.id} className="text-xs text-gray-600">{new Date(audit.createdAt).toLocaleString()} · {audit.changedBy?.name || 'Admin'} · {audit.reason}</p>)}
+              {(feeSettings?.audits || []).length === 0 && <p className="text-xs text-gray-500">No persisted changes yet.</p>}
             </div>
           </Card>
         )}

@@ -49,6 +49,8 @@ model User {
   supportTickets        SupportTicket[]            @relation("SupportRequester")
   supportMessages       SupportMessage[]
   supportActivities     SupportActivity[]
+  platformFeeUpdates    PlatformFeeConfig[]        @relation("PlatformFeeUpdatedBy")
+  platformFeeAudits     PlatformFeeAudit[]         @relation("PlatformFeeChangedBy")
 
   @@map("USERS")
 }
@@ -338,6 +340,39 @@ model PaymentTransaction {
   @@index([payerId])
   @@index([status])
   @@map("PAYMENT_TRANSACTIONS")
+}
+
+model PlatformFeeConfig {
+  id             Int      @id @default(1)
+  feeType        String   @default("PERCENTAGE")
+  percentageRate Float?
+  fixedAmount    Float?
+  isActive       Boolean  @default(true)
+  version        Int      @default(1)
+  updatedAt      DateTime @updatedAt
+  updatedById    Int?
+
+  updatedBy User?              @relation("PlatformFeeUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  audits    PlatformFeeAudit[]
+
+  @@map("PLATFORM_FEE_CONFIG")
+}
+
+model PlatformFeeAudit {
+  id            Int      @id @default(autoincrement())
+  configId      Int
+  changedById   Int
+  previousValue Json
+  newValue      Json
+  reason        String
+  createdAt     DateTime @default(now())
+
+  config    PlatformFeeConfig @relation(fields: [configId], references: [id], onDelete: Restrict)
+  changedBy User              @relation("PlatformFeeChangedBy", fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@index([configId, createdAt])
+  @@index([changedById, createdAt])
+  @@map("PLATFORM_FEE_AUDITS")
 }
 
 model Dispute {

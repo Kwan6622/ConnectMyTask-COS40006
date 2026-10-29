@@ -1,8 +1,9 @@
 const { env } = require('../../config/env');
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-const PRIMARY_MODEL = 'gemini-3.5-flash';
-const FALLBACK_MODELS = ['gemini-3.6-flash'];
+// Use aliases/models confirmed by the Gemini Models API to support generateContent.
+const PRIMARY_MODEL = 'gemini-flash-latest';
+const FALLBACK_MODELS = ['gemini-2.5-flash', 'gemini-3-flash-preview'];
 const TRANSIENT_STATUSES = new Set([429, 503]);
 const RETRY_DELAYS_MS = [150, 300];
 const REQUEST_TIMEOUT_MS = 5500;

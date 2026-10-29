@@ -65,6 +65,7 @@ export default function RequesterDashboardScreen(): React.ReactElement {
           <Button title="Post Task" onPress={() => router.push("/post-task")} style={styles.actionBtn} />
           <Button title="My Posted Tasks" variant="outline" onPress={() => router.push("/my-posted-tasks")} style={styles.actionBtn} />
           <Button title="Task Progress" variant="outline" onPress={() => router.push("/task-progress")} style={styles.actionBtn} />
+          <Button title="Transaction History" variant="outline" onPress={() => router.push("/transaction-history")} style={styles.actionBtn} />
         </View>
       </Card>
     </MarketplaceShell>

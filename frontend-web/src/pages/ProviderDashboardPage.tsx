@@ -59,7 +59,7 @@ export const ProviderDashboardPage: React.FC = () => {
     const activeTasks = assignedTasks.filter((task) => ['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION'].includes(task.status)).length;
     const completedTasks = assignedTasks.filter((task) => ['COMPLETED', 'AWAITING_PAYMENT', 'PAID'].includes(task.status)).length;
     const totalBids = myBids.length;
-    const potentialRevenue = assignedTasks.reduce((sum, task) => sum + Number(task.budget || 0), 0);
+    const potentialRevenue = assignedTasks.reduce((sum, task) => sum + Number(task.escrowAmount ?? task.budget ?? 0), 0);
 
     return {
       activeTasks,
@@ -167,7 +167,8 @@ export const ProviderDashboardPage: React.FC = () => {
                           <p className="text-sm text-slate-600 mt-1">
                             Requester: <span className="font-semibold text-slate-800">{task.createdBy?.name || 'Unknown'}</span>
                           </p>
-                          <p className="text-sm text-slate-600">Budget: <span className="font-semibold text-slate-800">{task.budget != null ? formatVnd(task.budget) : 'Flexible'}</span></p>
+                          <p className="text-sm text-slate-600">Original budget: <span className="font-semibold text-slate-800">{task.budget != null ? formatVnd(task.budget) : 'Flexible'}</span></p>
+                          {task.escrowAmount != null && <p className="text-sm text-indigo-700">Agreed price: <span className="font-semibold">{formatVnd(task.escrowAmount)}</span></p>}
                         </div>
                         <span className={`inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-semibold ${style}`}>
                           {statusLabel(task.status)}

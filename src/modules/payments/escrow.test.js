@@ -144,21 +144,38 @@ test('concurrent deposits and confirmations have one funding effect; pending/fai
 });
 test('deposit uses accepted bid, keeps VND zero-decimal, and replaces mismatched open checkout', async () => {
   reset();
+  state.task.budget = 650000;
+  state.task.escrowAmount = 600000;
+  state.task.bids[0].price = 600000;
   const first = await deposit();
-  assert.equal(session.amount_total, 100000);
+  assert.equal(session.amount_total, 600000);
   assert.equal(session.currency, 'vnd');
-  assert.equal(state.payments[0].platformFeeAmount, 20000);
-  assert.equal(state.payments[0].providerPayoutAmount, 80000);
+  assert.equal(state.payments[0].amount, 600000);
+  assert.equal(state.payments[0].platformFeeAmount, 120000);
+  assert.equal(state.payments[0].providerPayoutAmount, 480000);
   assert.equal((await deposit()).sessionId, first.sessionId);
   assert.equal(creates, 1);
 
-  state.task.bids[0].price = 90000;
+  state.task.bids[0].price = 590000;
   await deposit();
   assert.equal(expires, 1);
   assert.equal(creates, 2);
-  assert.equal(session.amount_total, 90000);
+  assert.equal(session.amount_total, 590000);
   assert.equal(state.payments[0].status, 'CANCELED');
-  assert.equal(state.task.escrowAmount, 90000);
+  assert.equal(state.task.escrowAmount, 590000);
+});
+test('requester transaction history is owner-scoped and omits Stripe internal identifiers', async () => {
+  reset();
+  await deposit();
+  state.payments[0].metadata = { cardBrand: 'visa', cardLast4: '4242' };
+  const history = await payments.listMyPayments(requester);
+  assert.equal(history.length, 1);
+  assert.equal(history[0].reference, 'CMT-00000001');
+  assert.equal(history[0].agreedPrice, 100000);
+  assert.deepEqual(history[0].card, { brand: 'visa', last4: '4242' });
+  assert.equal(Object.hasOwn(history[0], 'checkoutSessionId'), false);
+  assert.equal(Object.hasOwn(history[0], 'providerTransactionId'), false);
+  await assert.rejects(payments.listMyPayments(provider), { statusCode: 403 });
 });
 test('Stripe binding and late payment checks fail closed', async () => {
   reset(); await deposit(); session.payment_status = 'paid'; session.status = 'complete';

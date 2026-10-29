@@ -56,7 +56,9 @@ export interface User {
   phoneNumber?: string;
   location?: string;
   rating?: number;
+  ratingCount?: number;
   completedTasks?: number;
+  expertiseMatch?: boolean;
   skills?: string[] | string;
   hourlyRate?: number;
   isVerified?: boolean;
@@ -213,10 +215,15 @@ export interface TaskProgressSummary {
 
 export interface PaymentTransaction {
   id: string | number;
+  reference?: string;
   taskId: string | number;
   payerId: string | number;
   providerId?: string | number | null;
   amount: number;
+  agreedPrice?: number;
+  totalAmount?: number;
+  platformFeeAmount?: number;
+  providerPayoutAmount?: number | null;
   method: "STRIPE" | "MOMO";
   type: "DIRECT_PAYMENT" | "ESCROW_DEPOSIT" | "ESCROW_RELEASE" | "ESCROW_REFUND";
   escrowStatus?: EscrowStatus;
@@ -226,6 +233,20 @@ export interface PaymentTransaction {
   note?: string | null;
   createdAt: string;
   paidAt?: string | null;
+  heldAt?: string | null;
+  releasedAt?: string | null;
+  lifecycleStatus?: string;
+  task?: {
+    id: string | number;
+    title: string;
+    status?: string;
+    paymentStatus?: TaskPaymentStatus;
+    escrowStatus?: EscrowStatus;
+    originalBudget?: number | null;
+  } | null;
+  provider?: { id: string | number; name?: string | null } | null;
+  card?: { brand: string; last4: string } | null;
+  refund?: { amount: number; status: string; date: string } | null;
 }
 
 export interface Dispute {

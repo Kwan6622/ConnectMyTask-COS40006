@@ -112,8 +112,89 @@ async function listAdminTasks({ suspiciousOnly = false } = {}) {
 
 const getTaskForAdmin = id => prisma.task.findFirst({
   where: { id, isDeleted: false },
-  select: { id: true, status: true, escrowStatus: true },
+  select: {
+    id: true,
+    status: true,
+    escrowStatus: true,
+    paymentStatus: true,
+    _count: {
+      select: {
+        disputes: { where: { status: { in: ['OPEN', 'UNDER_REVIEW'] } } },
+      },
+    },
+  },
 });
+
+async function updateTaskStatusByAdmin(taskId, fromStatus, toStatus, adminId, reason) {
+  return prisma.$transaction(async (tx) => {
+    const result = await tx.task.updateMany({
+      where: { id: taskId, status: fromStatus, isDeleted: false },
+      data: {
+        status: toStatus,
+        ...(toStatus === 'CANCELLED' ? { canceledAt: new Date(), cancellationReason: reason } : {}),
+      },
+    });
+    if (result.count !== 1) {
+      throw Object.assign(new Error('Task status changed; refresh and try again'), { statusCode: 409 });
+    }
+    await tx.taskActivityLog.create({
+      data: {
+        taskId,
+        actorId: adminId,
+        action: 'ADMIN_STATUS_CHANGED',
+        message: `Admin changed task status from ${fromStatus} to ${toStatus}.`,
+        metadata: { fromStatus, toStatus, reason },
+      },
+    });
+    return tx.task.findUnique({ where: { id: taskId } });
+  });
+}
+
+async function getPlatformFeeSettings() {
+  const [config, audits] = await Promise.all([
+    prisma.platformFeeConfig.findUnique({ where: { id: 1 } }),
+    prisma.platformFeeAudit.findMany({
+      where: { configId: 1 },
+      include: { changedBy: { select: { id: true, name: true } } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 20,
+    }),
+  ]);
+  return { config, audits };
+}
+
+async function updatePlatformFeeSettings(nextConfig, adminId, reason) {
+  return prisma.$transaction(async (tx) => {
+    const previous = await tx.platformFeeConfig.findUnique({ where: { id: 1 } });
+    if (!previous) throw Object.assign(new Error('Platform fee settings migration is required'), { statusCode: 503 });
+    const updated = await tx.platformFeeConfig.update({
+      where: { id: 1 },
+      data: { ...nextConfig, version: { increment: 1 }, updatedById: adminId },
+    });
+    await tx.platformFeeAudit.create({
+      data: {
+        configId: 1,
+        changedById: adminId,
+        previousValue: {
+          feeType: previous.feeType,
+          percentageRate: previous.percentageRate,
+          fixedAmount: previous.fixedAmount,
+          isActive: previous.isActive,
+          version: previous.version,
+        },
+        newValue: {
+          feeType: updated.feeType,
+          percentageRate: updated.percentageRate,
+          fixedAmount: updated.fixedAmount,
+          isActive: updated.isActive,
+          version: updated.version,
+        },
+        reason,
+      },
+    });
+    return updated;
+  });
+}
 
 async function softDeleteTask(taskId, adminId) {
   return prisma.task.update({
@@ -225,6 +306,9 @@ module.exports = {
   updateUserStatus,
   listAdminTasks,
   getTaskForAdmin,
+  updateTaskStatusByAdmin,
+  getPlatformFeeSettings,
+  updatePlatformFeeSettings,
   softDeleteTask,
   markTaskReviewed,
   listCertificates,

@@ -49,6 +49,13 @@ async function listBidsForTask(taskId) {
           phone: true,
           profilePhotoUrl: true,
           skills: true,
+          providerProfile: { select: { specialties: true } },
+          ratingsReceived: { select: { rating: true } },
+          _count: {
+            select: {
+              tasksAssigned: { where: { status: { in: ['COMPLETED', 'PAID'] } } },
+            },
+          },
         },
       },
     },

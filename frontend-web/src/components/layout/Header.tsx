@@ -440,6 +440,7 @@ export const Header: React.FC = () => {
                       <span className="text-sm font-medium">Profile</span>
                     </Link>
                     <Link to="/support" onClick={() => setShowMenu(false)} className="flex items-center px-4 py-3 hover:bg-gray-50 text-sm font-medium">Support</Link>
+                    {isRequester && <Link to="/transactions" onClick={() => setShowMenu(false)} className="flex items-center px-4 py-3 hover:bg-gray-50 text-sm font-medium">Transaction History</Link>}
                     <Link
                       to={isProvider ? '/provider-dashboard' : '/requester-dashboard'}
                       className="flex items-center px-4 py-3 hover:bg-gray-50 transition-colors"

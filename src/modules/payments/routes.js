@@ -28,6 +28,7 @@ router.post(
 router.get(
   '/me',
   authenticate,
+  requireRoles('REQUESTER', 'CLIENT'),
   paymentController.listMyPayments
 );
 

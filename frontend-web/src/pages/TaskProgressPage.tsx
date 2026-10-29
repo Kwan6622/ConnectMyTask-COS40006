@@ -806,7 +806,9 @@ export const TaskProgressPage: React.FC = () => {
                 <div className="flex justify-between">
                   <span className="text-slate-500">Escrow amount</span>
                   <span className="font-semibold text-slate-900">
-                    {Number(taskPaymentSummary?.escrowAmount || currentTask.escrowAmount || currentTask.budget || 0).toLocaleString()} đ
+                    {(taskPaymentSummary?.escrowAmount ?? currentTask.escrowAmount) != null
+                      ? `${Number(taskPaymentSummary?.escrowAmount ?? currentTask.escrowAmount).toLocaleString()} đ`
+                      : 'Not available'}
                   </span>
                 </div>
               </div>

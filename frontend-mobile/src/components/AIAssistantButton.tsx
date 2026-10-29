@@ -37,6 +37,7 @@ export function AIAssistantButton(): React.ReactElement {
   const [messages, setMessages] = useState<ChatMessage[]>(starterMessages);
   const [isSending, setIsSending] = useState(false);
   const scrollViewRef = useRef<ScrollViewInstance>(null);
+  const requestInFlightRef = useRef(false);
 
   const scrollToLatest = (): void => {
     requestAnimationFrame(() => scrollViewRef.current?.scrollToEnd({ animated: true }));
@@ -51,7 +52,8 @@ export function AIAssistantButton(): React.ReactElement {
 
   const handleSend = async (retryText?: string): Promise<void> => {
     const nextMessage = (retryText ?? input).trim();
-    if (!nextMessage || isSending) return;
+    if (!nextMessage || requestInFlightRef.current) return;
+    requestInFlightRef.current = true;
 
     const requestHistory = messages
       .filter((item) => !item.retryText)
@@ -85,6 +87,7 @@ export function AIAssistantButton(): React.ReactElement {
         : error?.response?.data?.message || "AI assistant is temporarily unavailable. Please try again.";
       setMessages((current) => [...current, { role: "assistant", content: message, retryText: nextMessage }]);
     } finally {
+      requestInFlightRef.current = false;
       setIsSending(false);
     }
   };

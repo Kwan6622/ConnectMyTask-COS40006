@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Alert, AppState, Linking, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { MarketplaceShell } from "@/components/MarketplaceShell";
 import { Badge } from "@/components/Badge";
@@ -19,7 +19,6 @@ import {
   formatTaskStatusLabel,
   getDisplayName,
   getTaskDueDate,
-  getTaskDisplayBudget,
   isAdmin,
   isProvider,
 } from "@/utils/taskUtils";
@@ -39,6 +38,7 @@ export default function TaskDetailScreen(): React.ReactElement {
   }));
 
   const [taskBids, setTaskBids] = useState<Bid[]>([]);
+  const [bidSort, setBidSort] = useState("NEWEST");
   const [paymentHistory, setPaymentHistory] = useState<any[]>([]);
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
@@ -58,13 +58,19 @@ export default function TaskDetailScreen(): React.ReactElement {
   }, [fetchTaskById, taskId]);
 
   useEffect(() => {
-    if (!taskId) return;
+    const role = String(user?.role || "").toUpperCase();
+    const canViewBids = role === "ADMIN"
+      || (["REQUESTER", "CLIENT"].includes(role) && String(currentTask?.createdById) === String(user?.id));
+    if (!taskId || !canViewBids) {
+      setTaskBids([]);
+      return;
+    }
     const resolvedTaskId = taskId;
     let mounted = true;
 
     async function loadBids() {
       try {
-        const response = await api.bids.getAll(resolvedTaskId);
+        const response = await api.bids.getAll(resolvedTaskId, bidSort);
         const payload = Array.isArray(response.data) ? response.data : response.data?.items || response.data?.data || [];
         if (mounted) setTaskBids(payload);
       } catch {
@@ -76,7 +82,7 @@ export default function TaskDetailScreen(): React.ReactElement {
     return () => {
       mounted = false;
     };
-  }, [taskId]);
+  }, [bidSort, currentTask?._count?.bids, currentTask?.createdById, taskId, user?.id, user?.role]);
 
   useEffect(() => {
     if (!taskId) return;
@@ -87,7 +93,7 @@ export default function TaskDetailScreen(): React.ReactElement {
       try {
         const response = await api.payments.getByTask(resolvedTaskId);
         const result = response.data || {};
-        const list = Array.isArray(result) ? result : result.payments || result.items || result.data || [];
+        const list = Array.isArray(result) ? result : result.transactions || result.payments || result.items || result.data || [];
         if (mounted) setPaymentHistory(list);
       } catch {
         if (mounted) setPaymentHistory([]);
@@ -118,7 +124,10 @@ export default function TaskDetailScreen(): React.ReactElement {
   const isRequesterUser =
     isAuthenticated && user != null && ["REQUESTER", "CLIENT"].includes(String(user.role || "").toUpperCase());
   const canAssignProvider =
-    isRequesterUser && currentTask != null && ["OPEN", "BIDDING"].includes(String(currentTask.status || ""));
+    isRequesterUser
+    && currentTask != null
+    && String(currentTask.createdById) === String(user?.id)
+    && ["OPEN", "BIDDING"].includes(String(currentTask.status || ""));
   const canViewTaskTracking = Boolean(
     user?.id != null
     && currentTask?.escrowStatus === "HELD"
@@ -144,9 +153,7 @@ export default function TaskDetailScreen(): React.ReactElement {
       });
       setBidAmount("");
       setBidMessage("");
-      const response = await api.bids.getAll(taskId);
-      const payload = Array.isArray(response.data) ? response.data : response.data?.items || response.data?.data || [];
-      setTaskBids(payload);
+      await fetchTaskById(taskId);
       Alert.alert("Success", "Your bid has been submitted.");
     } catch (error: any) {
       const message = error?.response?.data?.message || "Cannot submit bid right now.";
@@ -162,7 +169,7 @@ export default function TaskDetailScreen(): React.ReactElement {
     try {
       await api.tasks.assignProvider(taskId, Number(bidId));
       await fetchTaskById(taskId);
-      const response = await api.bids.getAll(taskId);
+      const response = await api.bids.getAll(taskId, bidSort);
       const payload = Array.isArray(response.data) ? response.data : response.data?.items || response.data?.data || [];
       setTaskBids(payload);
       Alert.alert("Provider assigned", "Task moved to assigned workflow.");
@@ -239,7 +246,7 @@ export default function TaskDetailScreen(): React.ReactElement {
     );
   }
 
-  const budget = getTaskDisplayBudget(currentTask);
+  const budget = Number(currentTask.budget || 0);
   const dueDate = getTaskDueDate(currentTask);
   const postedBy = getDisplayName(currentTask.createdBy || currentTask.client);
   const canSeeSuspiciousRisk = isProvider(user) || isAdmin(user);
@@ -259,7 +266,16 @@ export default function TaskDetailScreen(): React.ReactElement {
         <View style={styles.detailBody}>
           <View style={styles.topRow}>
             <Text style={styles.title}>{currentTask.title}</Text>
-            <Text style={styles.budget}>{formatCurrency(budget)}</Text>
+            <View style={styles.priceSummary}>
+              <Text style={styles.priceLabel}>Original budget</Text>
+              <Text style={styles.budget}>{formatCurrency(budget)}</Text>
+              {currentTask.assignedProviderId != null && currentTask.escrowAmount != null ? (
+                <>
+                  <Text style={styles.priceLabel}>Agreed price</Text>
+                  <Text style={styles.agreedPrice}>{formatCurrency(Number(currentTask.escrowAmount))}</Text>
+                </>
+              ) : null}
+            </View>
           </View>
           <View style={styles.badgeRow}>
             <Badge label={formatTaskStatusLabel(currentTask.status)} variant="primary" />
@@ -332,6 +348,22 @@ export default function TaskDetailScreen(): React.ReactElement {
 
       <Card title="Bids">
         <View style={styles.bidSection}>
+          {canAssignProvider ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sortRow}>
+              {[
+                ["NEWEST", "Newest"],
+                ["PRICE_ASC", "Lowest"],
+                ["PRICE_DESC", "Highest"],
+                ["EXPERTISE", "Expertise"],
+                ["RATING", "Rating"],
+                ["EXPERIENCE", "Experience"],
+              ].map(([value, label]) => (
+                <Pressable key={value} onPress={() => setBidSort(value)} style={[styles.sortChip, bidSort === value ? styles.sortChipActive : null]}>
+                  <Text style={[styles.sortText, bidSort === value ? styles.sortTextActive : null]}>{label}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : null}
           {canBid ? (
             <View style={styles.bidForm}>
               <Input
@@ -377,6 +409,9 @@ export default function TaskDetailScreen(): React.ReactElement {
                       <Text style={styles.bidPrice}>{formatCurrency(amount)}</Text>
                     </View>
                     <Text style={styles.bidMeta}>Status: {String(bid.status || "PENDING")}</Text>
+                    <Text style={styles.bidMeta}>
+                      Rating: {Number(bid.provider?.rating || 0).toFixed(1)} ({bid.provider?.ratingCount || 0}) · Completed: {bid.provider?.completedTasks || 0} · Expertise: {bid.provider?.expertiseMatch ? "Yes" : "Not listed"}
+                    </Text>
                     {bid.message ? <Text style={styles.bidMessage}>{bid.message}</Text> : null}
                     {canAssignProvider ? (
                       <View style={styles.assignWrap}>
@@ -441,6 +476,22 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: "800",
   },
+  priceSummary: {
+    alignItems: "flex-end",
+    gap: 1,
+  },
+  priceLabel: {
+    color: colors.dark[500],
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: "600",
+  },
+  agreedPrice: {
+    color: colors.primary[700],
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: "800",
+  },
   badgeRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -481,6 +532,30 @@ const styles = StyleSheet.create({
   },
   bidSection: {
     gap: 12,
+  },
+  sortRow: {
+    gap: 8,
+    paddingRight: 8,
+  },
+  sortChip: {
+    borderWidth: 1,
+    borderColor: colors.dark[200],
+    borderRadius: radius.pill,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    backgroundColor: colors.white,
+  },
+  sortChipActive: {
+    borderColor: colors.primary[500],
+    backgroundColor: colors.primary[50],
+  },
+  sortText: {
+    color: colors.dark[600],
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  sortTextActive: {
+    color: colors.primary[700],
   },
   bidForm: {
     gap: 10,

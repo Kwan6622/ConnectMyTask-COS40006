@@ -31,7 +31,21 @@ export type MarketplaceRouteKey =
   | "suggested"
   | "notifications"
   | "support"
+  | "transactions"
   | "admin";
+
+const HEADER_DATA_CACHE_MS = 30_000;
+let lastHeaderDataSyncAt = 0;
+let headerDataSync: Promise<void> | null = null;
+
+function syncHeaderData(fetchSavedTasks: () => Promise<void>, fetchNotifications: () => Promise<void>): Promise<void> {
+  if (headerDataSync) return headerDataSync;
+  if (Date.now() - lastHeaderDataSyncAt < HEADER_DATA_CACHE_MS) return Promise.resolve();
+  headerDataSync = Promise.all([fetchSavedTasks(), fetchNotifications()])
+    .then(() => { lastHeaderDataSyncAt = Date.now(); })
+    .finally(() => { headerDataSync = null; });
+  return headerDataSync;
+}
 
 export function MarketplaceHeader({
   activeRoute,
@@ -72,8 +86,7 @@ export function MarketplaceHeader({
 
   useEffect(() => {
     if (!isAuthenticated) return;
-    void fetchSavedTasks();
-    void fetchNotifications();
+    void syncHeaderData(fetchSavedTasks, fetchNotifications);
   }, [fetchNotifications, fetchSavedTasks, isAuthenticated]);
 
   const unreadCount = useMemo(
@@ -94,6 +107,7 @@ export function MarketplaceHeader({
       { key: "myBids" as const, label: "My Bids", route: "/my-bids", visible: isProvider(user) },
       { key: "notifications" as const, label: "Notifications", route: "/notifications", visible: isRequester(user) || isProvider(user) },
       { key: "support" as const, label: "Support", route: "/support", visible: isAuthenticated },
+      { key: "transactions" as const, label: "Transactions", route: "/transaction-history", visible: isRequester(user) },
       { key: "progress" as const, label: "Task Progress", route: "/task-progress", visible: isRequester(user) || isProvider(user) },
       { key: "admin" as const, label: "Admin Dashboard", route: "/admin-dashboard", visible: isAdmin(user) },
     ],
@@ -136,6 +150,7 @@ export function MarketplaceHeader({
       | "/my-bids"
       | "/notifications"
       | "/support"
+      | "/transaction-history"
       | "/admin-dashboard"
   ): void => {
     if (!isAuthenticated) {
@@ -312,6 +327,7 @@ export function MarketplaceHeader({
           {isProvider(user) ? <PanelAction label="Provider Dashboard" onPress={() => handleProtectedOpen("/provider-dashboard")} /> : null}
           {isAdmin(user) ? <PanelAction label="Admin Dashboard" onPress={() => handleProtectedOpen("/admin-dashboard")} /> : null}
           {isRequester(user) ? <PanelAction label="My Posted Tasks" onPress={() => handleProtectedOpen("/my-posted-tasks")} /> : null}
+          {isRequester(user) ? <PanelAction label="Transaction History" onPress={() => handleProtectedOpen("/transaction-history")} /> : null}
           {isProvider(user) ? <PanelAction label="My Bids" onPress={() => handleProtectedOpen("/my-bids")} /> : null}
           <PanelAction label="Notifications" onPress={() => handleProtectedOpen("/notifications")} />
           <PanelAction label="Support" onPress={() => handleProtectedOpen("/support")} />

@@ -13,6 +13,10 @@ router.get('/tasks', adminController.getTasks);
 router.get('/tasks/suspicious', adminController.getSuspiciousTasks);
 router.delete('/tasks/:id', adminController.deleteTask);
 router.patch('/tasks/:id/reviewed', adminController.reviewTask);
+router.patch('/tasks/:id/status', adminController.updateTaskStatus);
+
+router.get('/settings/platform-fee', adminController.getPlatformFeeSettings);
+router.patch('/settings/platform-fee', adminController.updatePlatformFeeSettings);
 
 router.get('/certificates', adminController.getCertificates);
 router.patch('/certificates/:id/verify', adminController.verifyCertificate);

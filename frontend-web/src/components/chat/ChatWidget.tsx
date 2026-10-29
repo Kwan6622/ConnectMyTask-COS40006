@@ -39,6 +39,7 @@ export const ChatWidget: React.FC = () => {
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
+  const requestInFlightRef = useRef(false);
 
   const openWidget = () => {
     setIsOpen(true);
@@ -61,7 +62,8 @@ export const ChatWidget: React.FC = () => {
 
   const sendMessage = async (retryText?: string) => {
     const trimmed = (retryText ?? inputValue).trim();
-    if (!trimmed || isLoading) return;
+    if (!trimmed || requestInFlightRef.current) return;
+    requestInFlightRef.current = true;
 
     const currentHistory = messages.filter((message) => !message.retryText).map((message) => ({
       role: message.role,
@@ -89,6 +91,7 @@ export const ChatWidget: React.FC = () => {
       const errorText = String(error?.response?.data?.message || '').trim() || FALLBACK_ERROR_TEXT;
       setMessages((prev) => [...prev, createMessage('assistant', errorText, trimmed)]);
     } finally {
+      requestInFlightRef.current = false;
       setIsLoading(false);
     }
   };

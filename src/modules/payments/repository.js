@@ -75,7 +75,6 @@ async function listPaymentsByPayer(payerId) {
         select: {
           id: true,
           name: true,
-          email: true,
         },
       },
     },
@@ -128,6 +127,11 @@ async function findSuccessfulEscrowRelease(taskId) {
   });
 }
 
+async function getPlatformFeeConfig() {
+  if (!prisma.platformFeeConfig) return null;
+  return prisma.platformFeeConfig.findUnique({ where: { id: 1 } });
+}
+
 async function createTaskActivity(data) {
   return prisma.taskActivityLog.create({ data });
 }
@@ -142,5 +146,6 @@ module.exports = {
   listPaymentsByTask,
   findLatestSuccessfulEscrowDeposit,
   findSuccessfulEscrowRelease,
+  getPlatformFeeConfig,
   createTaskActivity,
 };

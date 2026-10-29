@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { MarketplaceShell } from "@/components/MarketplaceShell";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
+import { Input } from "@/components/Input";
 import { api } from "@/services/api";
 import { useAuthStore } from "@/store/authStore";
 import { colors, radius } from "@/theme/tokens";
@@ -25,8 +26,10 @@ export default function AdminDashboardScreen(): React.ReactElement {
   const [users, setUsers] = useState<any[]>([]);
   const [disputes, setDisputes] = useState<any[]>([]);
   const [supportTickets, setSupportTickets] = useState<any[]>([]);
+  const [feeSettings, setFeeSettings] = useState<any | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [taskStatusReason, setTaskStatusReason] = useState("");
 
   const loadAdminData = useCallback(async () => {
     setIsLoading(true);
@@ -41,6 +44,7 @@ export default function AdminDashboardScreen(): React.ReactElement {
         api.admin.getPayments(),
         api.admin.getDisputes(),
         api.support.list({ limit: 50 }),
+        api.admin.getPlatformFeeSettings(),
       ]);
       const data = (index: number): any => {
         const result = results[index];
@@ -54,6 +58,7 @@ export default function AdminDashboardScreen(): React.ReactElement {
       if (data(5) !== undefined) setPayments(Array.isArray(data(5)) ? data(5) : []);
       if (data(6) !== undefined) setDisputes(Array.isArray(data(6)) ? data(6) : []);
       if (data(7) !== undefined) setSupportTickets(Array.isArray(data(7)?.items) ? data(7).items : []);
+      if (data(8) !== undefined) setFeeSettings(data(8) || null);
       const failedCount = results.filter((result) => result.status === "rejected").length;
       if (failedCount) setLoadError(`${failedCount} admin section${failedCount === 1 ? "" : "s"} could not be loaded. Available sections remain usable.`);
     } catch (error: any) {
@@ -80,9 +85,17 @@ export default function AdminDashboardScreen(): React.ReactElement {
       { label: "Disputes", value: String(stats?.disputes ?? 0) },
       { label: "Open Support Tickets", value: String(stats?.openSupportTickets ?? 0) },
       { label: "Escrow Held Amount", value: formatCurrency(Number(stats?.totalEscrowHeldAmount ?? 0)) },
-      { label: "Platform Revenue (20%)", value: formatCurrency(Number(stats?.totalPlatformRevenue ?? 0)) },
+      { label: "Platform Revenue", value: formatCurrency(Number(stats?.totalPlatformRevenue ?? 0)) },
+      {
+        label: "Current Fee (future deposits)",
+        value: feeSettings?.config?.isActive === false
+          ? "Inactive"
+          : feeSettings?.config?.feeType === "FIXED"
+            ? formatCurrency(Number(feeSettings?.config?.fixedAmount || 0))
+            : `${Number(feeSettings?.config?.percentageRate || 0) * 100}%`,
+      },
     ],
-    [stats]
+    [feeSettings, stats]
   );
 
   if (!isAuthenticated || !isAdmin(user)) {
@@ -170,6 +183,28 @@ export default function AdminDashboardScreen(): React.ReactElement {
     }
   };
 
+  const taskTransitions: Record<string, string[]> = {
+    PENDING: ["OPEN", "CANCELLED"],
+    OPEN: ["CANCELLED"],
+    BIDDING: ["CANCELLED"],
+    ASSIGNED: ["CANCELLED"],
+  };
+
+  const handleTaskStatus = async (taskId: string | number, status: string): Promise<void> => {
+    const reason = taskStatusReason.trim();
+    if (reason.length < 5) {
+      Alert.alert("Reason required", "Enter at least 5 characters before changing a task status.");
+      return;
+    }
+    try {
+      await api.admin.updateTaskStatus(taskId, { status, reason });
+      setTaskStatusReason("");
+      await loadAdminData();
+    } catch (error: any) {
+      Alert.alert("Status update failed", error?.response?.data?.message || "Cannot change task status.");
+    }
+  };
+
   return (
     <MarketplaceShell activeRoute="admin">
       <Card>
@@ -233,6 +268,7 @@ export default function AdminDashboardScreen(): React.ReactElement {
         <View style={styles.grid}>
           <Card title="All Tasks">
             <View style={styles.listWrap}>
+              <Input label="Audit reason for status change" value={taskStatusReason} onChangeText={setTaskStatusReason} />
               {tasks.length === 0 ? <Text style={styles.emptyText}>No tasks found.</Text> : null}
               {tasks.map((task) => (
                 <View key={String(task.id)} style={styles.listItem}>
@@ -242,6 +278,13 @@ export default function AdminDashboardScreen(): React.ReactElement {
                   <Text style={styles.itemMeta}>Provider: {task.assignedProvider?.name || "Unassigned"}</Text>
                   <Text style={styles.itemMeta}>Escrow: {task.escrowStatus || "NONE"} · Payment: {task.paymentStatus || "UNPAID"}</Text>
                   <Text style={styles.itemMeta}>GPS: {task.gpsVerificationStatus || "NOT_REQUIRED"} · Disputes: {task._count?.disputes || 0}</Text>
+                  {(taskTransitions[task.status] || []).length > 0 ? (
+                    <View style={styles.actionRow}>
+                      {(taskTransitions[task.status] || []).map((status) => (
+                        <Button key={status} title={status} size="sm" variant="outline" onPress={() => void handleTaskStatus(task.id, status)} />
+                      ))}
+                    </View>
+                  ) : null}
                 </View>
               ))}
             </View>
@@ -304,10 +347,10 @@ export default function AdminDashboardScreen(): React.ReactElement {
                   Total paid: <Text style={styles.itemStrong}>{formatCurrency(Number(payment.totalAmount || payment.amount || 0))}</Text>
                 </Text>
                 <Text style={styles.itemMeta}>
-                  Platform fee (20%): <Text style={styles.itemStrong}>{formatCurrency(Number(payment.platformFeeAmount || 0))}</Text>
+                  Platform fee: <Text style={styles.itemStrong}>{formatCurrency(Number(payment.platformFeeAmount || 0))}</Text>
                 </Text>
                 <Text style={styles.itemMeta}>
-                  Provider payout (80%): <Text style={styles.itemStrong}>{formatCurrency(Number(payment.providerPayoutAmount || 0))}</Text>
+                  Provider payout: <Text style={styles.itemStrong}>{formatCurrency(Number(payment.providerPayoutAmount || 0))}</Text>
                 </Text>
                 <Text style={styles.itemMeta}>Lifecycle: {payment.lifecycleStatus || "PENDING"}</Text>
                 {payment.lifecycleStatus === "ESCROW_HELD" ? (

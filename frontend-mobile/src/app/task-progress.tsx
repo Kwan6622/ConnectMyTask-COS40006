@@ -88,11 +88,6 @@ export default function TaskProgressPage(): React.ReactElement {
   }, [fetchAssignedTasks, fetchRequesterTasks, isAuthenticated, user]);
 
   useEffect(() => {
-    if (!params.taskId) return;
-    void fetchTaskProgress(params.taskId);
-  }, [fetchTaskProgress, params.taskId]);
-
-  useEffect(() => {
     if (!taskProgressSummary) return;
     setProgressPercent(String(taskProgressSummary.progressPercent || 0));
     setMilestoneStatus(taskProgressSummary.milestoneStatus || "");
@@ -144,8 +139,7 @@ export default function TaskProgressPage(): React.ReactElement {
   }, [currentTask, isAssignedProvider, isOwner, selectedTaskId]);
 
   useEffect(() => {
-    void refreshVerification();
-    const interval = setInterval(() => void refreshVerification(), 15000);
+    const interval = setInterval(() => void refreshVerification(), 30000);
     return () => clearInterval(interval);
   }, [refreshVerification]);
 
@@ -355,7 +349,7 @@ export default function TaskProgressPage(): React.ReactElement {
                   {task.title}
                 </Text>
                 <Text style={styles.selectorMeta}>
-                  {formatTaskStatusLabel(task.status)} · {formatCurrency(Number(task.budget || 0))}
+                  {formatTaskStatusLabel(task.status)} · {task.escrowAmount != null ? `Agreed ${formatCurrency(Number(task.escrowAmount))}` : `Budget ${formatCurrency(Number(task.budget || 0))}`}
                 </Text>
               </Pressable>
             ))
@@ -370,6 +364,8 @@ export default function TaskProgressPage(): React.ReactElement {
               <View style={styles.summaryCopy}>
                 <Text style={styles.currentTaskTitle}>{currentTask.title}</Text>
                 <Text style={styles.currentTaskBody}>{currentTask.description}</Text>
+                <Text style={styles.currentTaskBody}>Original budget: {formatCurrency(Number(currentTask.budget || 0))}</Text>
+                {currentTask.escrowAmount != null ? <Text style={styles.currentTaskBody}>Agreed price: {formatCurrency(Number(currentTask.escrowAmount))}</Text> : null}
                 <Text>{currentTask.escrowStatus === 'HELD' ? 'Escrow FUNDED' : 'Awaiting requester deposit'}</Text>
               </View>
               <View style={styles.summaryBadge}>

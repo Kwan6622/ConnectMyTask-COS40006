@@ -185,7 +185,7 @@ class ApiService {
   };
 
   bids = {
-    getAll: (taskId: string | number) => apiClient.get(`/tasks/${taskId}/bids`),
+    getAll: (taskId: string | number, sort = "NEWEST") => apiClient.get(`/tasks/${taskId}/bids`, { params: { sort } }),
     create: (taskId: string | number, data: any) => apiClient.post(`/tasks/${taskId}/bids`, data),
     getProviderMe: () => apiClient.get("/bids/provider/me"),
   };
@@ -263,6 +263,12 @@ class ApiService {
     getSuspiciousTasks: () => apiClient.get("/admin/tasks/suspicious"),
     deleteTask: (taskId: string | number) => apiClient.delete(`/admin/tasks/${taskId}`),
     reviewTask: (taskId: string | number) => apiClient.patch(`/admin/tasks/${taskId}/reviewed`),
+    updateTaskStatus: (taskId: string | number, data: { status: string; reason: string }) =>
+      apiClient.patch(`/admin/tasks/${taskId}/status`, data),
+    getPlatformFeeSettings: () => apiClient.get("/admin/settings/platform-fee"),
+    updatePlatformFeeSettings: (data: {
+      feeType: "PERCENTAGE" | "FIXED"; percentageRate?: number; fixedAmount?: number; isActive: boolean; reason: string;
+    }) => apiClient.patch("/admin/settings/platform-fee", data),
     getCertificates: () => apiClient.get("/admin/certificates"),
     verifyCertificate: (certificateId: string | number) => apiClient.patch(`/admin/certificates/${certificateId}/verify`),
     rejectCertificate: (certificateId: string | number) => apiClient.patch(`/admin/certificates/${certificateId}/reject`),

@@ -61,6 +61,30 @@ async function reviewTask(req, res, next) {
   }
 }
 
+async function updateTaskStatus(req, res, next) {
+  try {
+    res.json(await adminService.updateTaskStatus(req.params.id, req.body, req.user));
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getPlatformFeeSettings(req, res, next) {
+  try {
+    res.json(await adminService.getPlatformFeeSettings(req.user));
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function updatePlatformFeeSettings(req, res, next) {
+  try {
+    res.json(await adminService.updatePlatformFeeSettings(req.body, req.user));
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function getCertificates(req, res, next) {
   try {
     const result = await adminService.getCertificates(req.user);
@@ -123,6 +147,9 @@ module.exports = {
   getSuspiciousTasks,
   deleteTask,
   reviewTask,
+  updateTaskStatus,
+  getPlatformFeeSettings,
+  updatePlatformFeeSettings,
   getCertificates,
   verifyCertificate,
   rejectCertificate,

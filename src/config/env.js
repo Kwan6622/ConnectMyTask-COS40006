@@ -66,7 +66,7 @@ const env = {
   OPENAI_API_KEY: openAiApiKey,
   OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-4o-mini',
   GEMINI_API_KEY: geminiApiKey,
-  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3.5-flash',
+  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-flash-latest',
   STRIPE_SECRET_KEY: stripeSecretKey,
   STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET || '',
   STRIPE_CURRENCY: process.env.STRIPE_CURRENCY || 'vnd',

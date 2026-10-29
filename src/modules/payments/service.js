@@ -2,11 +2,15 @@ const Stripe = require('stripe');
 const paymentsRepository = require('./repository');
 const notificationRepository = require('../notifications/repository');
 const { env } = require('../../config/env');
+const {
+  LEGACY_PLATFORM_FEE_CONFIG,
+  computeSettlementBreakdown,
+  settlementFromDeposit,
+} = require('./platformFee');
 
 const stripe = env.STRIPE_SECRET_KEY
   ? new Stripe(env.STRIPE_SECRET_KEY)
   : null;
-const PLATFORM_FEE_RATE = 0.2;
 
 function ensureStripeConfigured() {
   if (!stripe) {
@@ -35,16 +39,15 @@ function toStripeAmount(amount, currency) {
   return Math.round(amount * 100);
 }
 
-function computeSettlementBreakdown(totalAmount) {
-  const normalized = Number(totalAmount || 0);
-  const platformFeeAmount = Math.round(normalized * PLATFORM_FEE_RATE);
-  const providerPayoutAmount = Math.max(0, normalized - platformFeeAmount);
-  return {
-    totalAmount: normalized,
-    escrowHeldAmount: normalized,
-    platformFeeAmount,
-    providerPayoutAmount,
-  };
+async function getCurrentPlatformFeeConfig() {
+  if (typeof paymentsRepository.getPlatformFeeConfig !== 'function') return LEGACY_PLATFORM_FEE_CONFIG;
+  try {
+    return (await paymentsRepository.getPlatformFeeConfig()) || LEGACY_PLATFORM_FEE_CONFIG;
+  } catch (error) {
+    // Before the additive migration is reviewed/applied, preserve the established 20% policy.
+    if (error?.code === 'P2021' || error?.code === 'P2022') return LEGACY_PLATFORM_FEE_CONFIG;
+    throw error;
+  }
 }
 
 function getAgreedEscrowAmount(task) {
@@ -169,7 +172,7 @@ async function createCheckoutPayment(payload, currentUser) {
 
     // The accepted bid is the agreed contract price. The task budget remains the requester's estimate.
     const amount = getAgreedEscrowAmount(task);
-    const settlement = computeSettlementBreakdown(amount);
+    const settlement = computeSettlementBreakdown(amount, await getCurrentPlatformFeeConfig());
     if (!amount || amount <= 0) {
       const err = new Error('Task escrow amount is invalid');
       err.statusCode = 400;
@@ -243,6 +246,14 @@ async function createCheckoutPayment(payload, currentUser) {
       metadata: {
         flow,
         currency,
+        feeSnapshot: {
+          feeType: settlement.feeConfig.feeType,
+          percentageRate: settlement.feeConfig.percentageRate,
+          fixedAmount: settlement.feeConfig.fixedAmount,
+          isActive: settlement.feeConfig.isActive,
+          version: settlement.feeConfig.version,
+          chargedTo: 'PROVIDER_PAYOUT',
+        },
       },
     });
 
@@ -377,8 +388,8 @@ async function releaseEscrowForTask(taskId, currentUser, options = {}) {
     throw err;
   }
 
-  const amount = Number(task.escrowAmount || task.budget || 0);
-  const settlement = computeSettlementBreakdown(amount);
+  const amount = Number(task.escrowAmount || deposit.totalAmount || deposit.amount || 0);
+  const settlement = settlementFromDeposit(deposit, amount);
   if (!amount || amount <= 0) {
     const err = new Error('Invalid escrow amount for release');
     err.statusCode = 400;
@@ -453,15 +464,14 @@ async function refundEscrowForTask(taskId, currentUser, options = {}) {
     throw err;
   }
 
-  const amount = Number(task.escrowAmount || task.budget || 0);
-  const settlement = computeSettlementBreakdown(amount);
+  const latestDeposit = await paymentsRepository.findLatestSuccessfulEscrowDeposit(taskId);
+  const amount = Number(task.escrowAmount || latestDeposit?.totalAmount || latestDeposit?.amount || 0);
+  const settlement = settlementFromDeposit(latestDeposit, amount);
   if (!amount || amount <= 0) {
     const err = new Error('Invalid escrow amount for refund');
     err.statusCode = 400;
     throw err;
   }
-
-  const latestDeposit = await paymentsRepository.findLatestSuccessfulEscrowDeposit(taskId);
 
   if (!latestDeposit?.providerTransactionId) throw Object.assign(new Error('No confirmed Stripe deposit to refund'), { statusCode: 409 });
   ensureStripeConfigured();
@@ -554,7 +564,61 @@ async function handleWebhook(signature, rawBody) {
 }
 
 async function listMyPayments(currentUser) {
-  return paymentsRepository.listPaymentsByPayer(currentUser.id);
+  if (!isRequesterRole(currentUser?.role)) {
+    throw Object.assign(new Error('Requester access required'), { statusCode: 403 });
+  }
+
+  const payments = await paymentsRepository.listPaymentsByPayer(currentUser.id);
+  return payments.map((payment) => {
+    const cardBrand = typeof payment.metadata?.cardBrand === 'string'
+      ? payment.metadata.cardBrand.slice(0, 30)
+      : null;
+    const cardLast4 = /^\d{4}$/.test(String(payment.metadata?.cardLast4 || ''))
+      ? String(payment.metadata.cardLast4)
+      : null;
+    const isRefund = payment.type === 'ESCROW_REFUND' || payment.status === 'REFUNDED';
+
+    return {
+      reference: `CMT-${String(payment.id).padStart(8, '0')}`,
+      id: payment.id,
+      taskId: payment.taskId,
+      payerId: payment.payerId,
+      providerId: payment.providerId,
+      amount: payment.amount,
+      agreedPrice: payment.amount,
+      totalAmount: payment.totalAmount ?? payment.amount,
+      platformFeeAmount: payment.platformFeeAmount ?? 0,
+      providerPayoutAmount: payment.providerPayoutAmount ?? null,
+      method: payment.method,
+      type: payment.type,
+      escrowStatus: payment.escrowStatus,
+      lifecycleStatus: payment.lifecycleStatus,
+      status: payment.status,
+      note: payment.note,
+      createdAt: payment.createdAt,
+      paidAt: payment.paidAt,
+      heldAt: payment.heldAt,
+      releasedAt: payment.releasedAt,
+      task: payment.task ? {
+        id: payment.task.id,
+        title: payment.task.title,
+        status: payment.task.status,
+        paymentStatus: payment.task.paymentStatus,
+        escrowStatus: payment.task.escrowStatus,
+        originalBudget: payment.task.budget,
+      } : null,
+      provider: payment.provider ? {
+        id: payment.provider.id,
+        name: payment.provider.name,
+      } : null,
+      card: cardBrand && cardLast4 ? { brand: cardBrand, last4: cardLast4 } : null,
+      refund: isRefund ? {
+        amount: payment.amount,
+        status: payment.status,
+        date: payment.paidAt || payment.createdAt,
+      } : null,
+    };
+  });
 }
 
 async function getTaskPaymentHistory(taskId, currentUser) {
@@ -581,7 +645,7 @@ async function getTaskPaymentHistory(taskId, currentUser) {
       status: task.status,
       escrowStatus: task.escrowStatus,
       paymentStatus: task.paymentStatus,
-      escrowAmount: task.escrowAmount || task.budget,
+      escrowAmount: task.escrowAmount ?? null,
       escrowHeldAt: task.escrowHeldAt,
       escrowReleasedAt: task.escrowReleasedAt,
     },

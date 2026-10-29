@@ -300,13 +300,13 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
 
   useEffect(() => {
     void refreshLocation();
-    const timer = setInterval(() => void refreshLocation(), 5000);
+    const timer = setInterval(() => void refreshLocation(), 10000);
     return () => clearInterval(timer);
   }, [refreshLocation]);
 
   useEffect(() => {
     void refreshArrival();
-    const timer = setInterval(() => void refreshArrival(), 15000);
+    const timer = setInterval(() => void refreshArrival(), 30000);
     return () => clearInterval(timer);
   }, [refreshArrival]);
 

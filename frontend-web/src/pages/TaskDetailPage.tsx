@@ -70,6 +70,8 @@ export const TaskDetailPage: React.FC = () => {
   const [reviewScore, setReviewScore] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [taskBids, setTaskBids] = useState<any[]>([]);
+  const [bidSort, setBidSort] = useState('NEWEST');
 
   const userRole = String(user?.role || '').toUpperCase();
   const isProvider = userRole === 'PROVIDER';
@@ -87,6 +89,18 @@ export const TaskDetailPage: React.FC = () => {
       fetchTaskById(id);
     }
   }, [id, fetchTaskById]);
+
+  useEffect(() => {
+    if (!id || !isOwner) {
+      setTaskBids([]);
+      return;
+    }
+    let active = true;
+    api.bids.getAll(id, bidSort)
+      .then((response) => { if (active) setTaskBids(Array.isArray(response.data) ? response.data : []); })
+      .catch(() => { if (active) setTaskBids([]); });
+    return () => { active = false; };
+  }, [bidSort, currentTask?._count?.bids, id, isOwner]);
 
   useEffect(() => {
     if (!currentTask) return;
@@ -172,11 +186,8 @@ export const TaskDetailPage: React.FC = () => {
 
   // Keep hook order stable across loading/not-found/success renders.
   const sortedBids = useMemo(() => {
-    const bids = currentTask?.bids || [];
-    return [...bids].sort(
-      (a, b) => new Date(String(b.createdAt)).getTime() - new Date(String(a.createdAt)).getTime()
-    );
-  }, [currentTask?.bids]);
+    return taskBids;
+  }, [taskBids]);
 
   if (!currentTask) {
     if (isLoading) {
@@ -522,8 +533,11 @@ export const TaskDetailPage: React.FC = () => {
                     <CurrencyDollarIcon className="w-5 h-5 text-success-600" />
                   </div>
                   <div>
-                    <p className="text-sm text-dark-500">Budget</p>
+                    <p className="text-sm text-dark-500">Original budget</p>
                     <p className="font-semibold text-dark-900">{task.budget != null ? formatVnd(task.budget) : 'Flexible'}</p>
+                    {task.assignedProviderId != null && task.escrowAmount != null && (
+                      <p className="mt-1 text-sm font-semibold text-primary-700">Agreed price: {formatVnd(task.escrowAmount)}</p>
+                    )}
                   </div>
                 </div>
 
@@ -601,7 +615,20 @@ export const TaskDetailPage: React.FC = () => {
 
             {isOwner && (
               <Card>
-                <h2 className="text-xl font-bold text-dark-900 mb-4">Bids Received</h2>
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <h2 className="text-xl font-bold text-dark-900">Bids Received</h2>
+                  <label className="text-sm text-dark-600">
+                    Sort by{' '}
+                    <select value={bidSort} onChange={(event) => setBidSort(event.target.value)} className="rounded-lg border border-dark-200 px-3 py-2">
+                      <option value="NEWEST">Newest</option>
+                      <option value="PRICE_ASC">Lowest price</option>
+                      <option value="PRICE_DESC">Highest price</option>
+                      <option value="EXPERTISE">Category expertise</option>
+                      <option value="RATING">Provider rating</option>
+                      <option value="EXPERIENCE">Completed tasks</option>
+                    </select>
+                  </label>
+                </div>
                 {sortedBids.length === 0 ? (
                   <p className="text-dark-600">No bids yet. Task remains OPEN.</p>
                 ) : (
@@ -614,6 +641,9 @@ export const TaskDetailPage: React.FC = () => {
                               {bid.provider?.fullName || bid.provider?.name || 'Provider'}
                             </p>
                             <p className="text-sm text-dark-600">Your Offer: {formatVnd(Number((bid as any).price ?? bid.amount ?? 0))}</p>
+                            <p className="text-xs text-dark-500 mt-1">
+                              Rating: {Number(bid.provider?.rating || 0).toFixed(1)} ({bid.provider?.ratingCount || 0}) · Completed: {bid.provider?.completedTasks || 0} · Category expertise: {bid.provider?.expertiseMatch ? 'Yes' : 'Not listed'}
+                            </p>
                             {bid.message && <p className="text-sm text-dark-600 mt-1">{bid.message}</p>}
                             {(bid as any).estimatedCompletionTime && (
                               <p className="text-sm text-dark-500 mt-1">ETA: {(bid as any).estimatedCompletionTime}</p>
