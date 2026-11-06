@@ -12,6 +12,8 @@ import joblib
 import numpy as np
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.decomposition import TruncatedSVD
+from sklearn.pipeline import make_pipeline
 
 
 app = FastAPI(
@@ -482,22 +484,24 @@ def create_synthetic_training_data(size: int = 1200) -> tuple[list[str], np.ndar
 def train_fallback_model() -> dict[str, Any]:
     texts, nums, targets = create_synthetic_training_data()
 
-    vectorizer = TfidfVectorizer(max_features=320, ngram_range=(1, 2))
-    x_text = vectorizer.fit_transform(texts).toarray()
+    tfidf = TfidfVectorizer(max_features=320, ngram_range=(1, 2))
+    svd = TruncatedSVD(n_components=50, random_state=2026)
+    text_processor = make_pipeline(tfidf, svd)
+    
+    x_text = text_processor.fit_transform(texts)
     x_all = np.hstack([x_text, nums])
 
-    # Explainable practical ensemble for capstone: GBR + RF average
     gbr = GradientBoostingRegressor(random_state=2026, n_estimators=260, max_depth=3)
     rf = RandomForestRegressor(random_state=2026, n_estimators=220, max_depth=12, n_jobs=1)
     gbr.fit(x_all, targets)
     rf.fit(x_all, targets)
 
     return {
-        "vectorizer": vectorizer,
+        "text_processor": text_processor,
         "gbr": gbr,
         "rf": rf,
-        "mode": "trained_fallback_ensemble",
-        "model_name": "GradientBoosting + RandomForest",
+        "mode": "trained_fallback_lsa_ensemble",
+        "model_name": "LSA GBR + RF Fallback",
     }
 
 
@@ -507,14 +511,10 @@ def load_model_bundle() -> dict[str, Any]:
     if bundle_path.exists():
         try:
             bundle = joblib.load(bundle_path)
-            if isinstance(bundle, dict) and "vectorizer" in bundle:
+            if isinstance(bundle, dict) and "text_processor" in bundle:
                 if "gbr" in bundle and "rf" in bundle:
-                    bundle["mode"] = "pretrained_ensemble"
-                    bundle.setdefault("model_name", "GradientBoosting + RandomForest")
-                    return bundle
-                if "regressor" in bundle:
-                    bundle["mode"] = "pretrained_single"
-                    bundle.setdefault("model_name", type(bundle["regressor"]).__name__)
+                    bundle["mode"] = "pretrained_lsa_ensemble"
+                    bundle.setdefault("model_name", "LSA GradientBoosting + RandomForest")
                     return bundle
         except Exception:
             pass
@@ -532,8 +532,8 @@ def ml_predict_sgd(context: ParsedContext) -> float:
     if not MODEL_BUNDLE:
         return rule_based_sgd(context)
 
-    vectorizer: TfidfVectorizer = MODEL_BUNDLE["vectorizer"]
-    x_text = vectorizer.transform([text_feature(context)]).toarray()
+    text_processor = MODEL_BUNDLE["text_processor"]
+    x_text = text_processor.transform([text_feature(context)])
     x_num = numerical_features(context).reshape(1, -1)
     x_all = np.hstack([x_text, x_num])
 
