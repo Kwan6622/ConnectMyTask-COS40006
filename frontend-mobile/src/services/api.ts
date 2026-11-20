@@ -117,6 +117,7 @@ class ApiService {
   };
 
   tasks = {
+    verifyAddress: (data: { district: string; streetName: string }) => apiClient.post("/tasks/verify-address", data),
     getAll: (filters?: any) => apiClient.get("/tasks", { params: filters }),
     getById: (id: string | number) => apiClient.get(`/tasks/${id}`),
     create: (data: any) => apiClient.post("/tasks", data),

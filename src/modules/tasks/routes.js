@@ -1,6 +1,6 @@
 const express = require('express');
 const { createValidationMiddleware } = require('../../shared/validation/validateRequest');
-const { authenticate, requireRoles } = require('../../shared/middlewares/auth');
+const { authenticate, authenticateIfPresent, requireRoles } = require('../../shared/middlewares/auth');
 const { createRateLimitMiddleware } = require('../../shared/middlewares/rateLimitMemory');
 const {
   createTaskSchema,
@@ -49,6 +49,7 @@ router.post(
 // GET /tasks
 router.get(
   '/',
+  authenticateIfPresent,
   createValidationMiddleware({ query: listTasksQuerySchema }),
   taskController.listTasks
 );
@@ -187,6 +188,7 @@ router.post(
 // GET /tasks/:id
 router.get(
   '/:id',
+  authenticateIfPresent,
   createValidationMiddleware({ params: taskIdParamsSchema }),
   taskController.getTaskById
 );
@@ -236,4 +238,3 @@ router.delete(
 );
 
 module.exports = router;
-

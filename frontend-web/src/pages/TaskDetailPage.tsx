@@ -72,6 +72,7 @@ export const TaskDetailPage: React.FC = () => {
 
   const userRole = String(user?.role || '').toUpperCase();
   const isProvider = userRole === 'PROVIDER';
+  const canSeeSuspiciousRisk = isProvider || userRole === 'ADMIN';
   const isRequester = userRole === 'REQUESTER' || userRole === 'CLIENT';
   const isOwner = String(user?.id || '') === String(currentTask?.createdById || currentTask?.clientId || '');
   const isAssignedProvider = String(user?.id || '') === String(currentTask?.assignedProviderId || '');
@@ -264,7 +265,7 @@ export const TaskDetailPage: React.FC = () => {
       toast.error('Only providers can submit bids for OPEN/BIDDING tasks');
       return;
     }
-    const amount = Number(bidAmount);
+    const amount = Number(bidAmount.replace(/,/g, ''));
     if (!amount || amount <= 0) {
       toast.error('Please enter a valid offer amount');
       return;
@@ -458,7 +459,7 @@ export const TaskDetailPage: React.FC = () => {
           </div>
         </div>
 
-        {task.isSuspicious && (
+        {task.isSuspicious && canSeeSuspiciousRisk && (
           <Card className="mb-6 border-amber-200 bg-amber-50">
             <div className="flex items-start gap-3">
               <ExclamationTriangleIcon className="w-6 h-6 text-amber-600 mt-0.5" />
@@ -835,9 +836,13 @@ export const TaskDetailPage: React.FC = () => {
                   <h2 className="text-lg font-bold text-dark-900 mb-4">Place Bid</h2>
                   <div className="space-y-4">
                     <Input
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
                       value={bidAmount}
-                      onChange={(e) => setBidAmount(e.target.value)}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, '');
+                        setBidAmount(digits.replace(/\B(?=(\d{3})+(?!\d))/g, ','));
+                      }}
                       placeholder="Your offer amount"
                       leftIcon={<CurrencyDollarIcon className="w-5 h-5" />}
                     />

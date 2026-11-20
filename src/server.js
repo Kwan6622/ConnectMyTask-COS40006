@@ -11,7 +11,7 @@ async function start() {
   // Initialize Socket.io on top of HTTP server
   initSocket(server);
 
-  server.listen(PORT, () => {
+  server.listen(PORT, '0.0.0.0', () => {
     // eslint-disable-next-line no-console
     console.log(`ConnectMyTask API listening on port ${PORT}`);
   });
@@ -22,4 +22,3 @@ start().catch((err) => {
   console.error('Failed to start server', err);
   process.exit(1);
 });
-

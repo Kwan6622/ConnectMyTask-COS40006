@@ -19,6 +19,7 @@ import {
   UserCircleIcon,
 } from '@heroicons/react/24/outline';
 import type { ProviderCertificate, ProviderProfile, ProviderRatingSummary } from '../types';
+import { HO_CHI_MINH_WARD_GROUPS } from '../constants/hoChiMinhWards';
 
 interface ProfileFormData {
   fullName: string;
@@ -142,7 +143,11 @@ export const ProfilePage: React.FC = () => {
   const onSubmit = async (data: ProfileFormData) => {
     setIsLoading(true);
     try {
-      await updateProfile({ fullName: data.fullName.trim(), phone: data.phone?.trim(), bio: data.bio?.trim() });
+      if (!data.location) {
+        toast.error('Please select your district');
+        return;
+      }
+      await updateProfile({ fullName: data.fullName.trim(), phone: data.phone?.trim(), location: data.location, bio: data.bio?.trim() });
       toast.success('Profile updated successfully');
       setIsEditing(false);
       reset({ ...data, fullName: data.fullName.trim(), phone: data.phone?.trim(), bio: data.bio?.trim() });
@@ -343,6 +348,23 @@ export const ProfilePage: React.FC = () => {
                   <Input {...register('email', { required: 'Email is required' })} type="email" label="Email" disabled error={errors.email?.message} />
                   <Input {...register('phone')} label="Phone Number" placeholder="+84 9xx xxx xxx" error={errors.phone?.message} />
                   <label className="block">
+                    <span className="block text-sm font-medium text-dark-700 mb-2">District *</span>
+                    <select
+                      {...register('location', { required: 'Please select your district' })}
+                      className="w-full h-12 rounded-xl border border-dark-200 bg-white px-4 text-dark-900 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    >
+                      <option value="" disabled>Select district</option>
+                      {HO_CHI_MINH_WARD_GROUPS.map((group) => (
+                        <optgroup key={group.oldDistrict} label={group.oldDistrict}>
+                          {group.wards.map((ward) => (
+                            <option key={`${group.oldDistrict}-${ward}`} value={ward}>{ward}</option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                    {errors.location && <p className="text-sm text-danger-600 mt-2">{errors.location.message}</p>}
+                  </label>
+                  <label className="block">
                     <span className="block text-sm font-medium text-dark-700 mb-2">Bio</span>
                     <textarea {...register('bio')} rows={4} className="w-full rounded-xl border border-dark-200 px-4 py-3" />
                   </label>
@@ -364,6 +386,10 @@ export const ProfilePage: React.FC = () => {
                   <div className="p-4 bg-dark-50 rounded-xl">
                     <p className="text-sm text-dark-500">Phone</p>
                     <p className="font-semibold text-dark-900">{user.phone || '-'}</p>
+                  </div>
+                  <div className="p-4 bg-dark-50 rounded-xl">
+                    <p className="text-sm text-dark-500">District</p>
+                    <p className="font-semibold text-dark-900">{user.location || '-'}</p>
                   </div>
                   <div className="p-4 bg-dark-50 rounded-xl">
                     <p className="text-sm text-dark-500">Bio</p>
