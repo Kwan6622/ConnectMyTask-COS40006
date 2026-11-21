@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import random
 import re
+import math
 from typing import Any
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, HTTPException
@@ -45,6 +46,8 @@ class TaskInput(BaseModel):
     budget: float | None = None
     complexity: str | None = None
     urgency: str | None = None
+    task_lat: float | None = None
+    task_lon: float | None = None
 
 
 class RecommendInput(BaseModel):
@@ -349,6 +352,17 @@ def infer_duration_hours(subtype: str, complexity: float, quantity: float, scope
     hours = base * (0.75 + complexity * 0.30 + quantity * 0.18 + scope * 0.20)
     return float(max(0.5, round(hours, 1)))
 
+def calculate_distance_from_center(lat: float, lon: float) -> float:
+    # Defaulting to HCMC Center (District 1). 
+    # Change to (1.2838, 103.8591) for Singapore later.
+    CENTER_LAT, CENTER_LON = 10.7769, 106.7009
+    R = 6371.0 # Earth radius in kilometers
+    
+    dlat = math.radians(lat - CENTER_LAT)
+    dlon = math.radians(lon - CENTER_LON)
+    a = math.sin(dlat / 2)**2 + math.cos(math.radians(CENTER_LAT)) * math.cos(math.radians(lat)) * math.sin(dlon / 2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
 
 def parse_task_context(
     *,
@@ -360,6 +374,8 @@ def parse_task_context(
     distance_km_legacy: float | None = None,
     duration_hours_legacy: float | None = None,
     is_urgent_legacy: int | None = None,
+    task_lat: float | None = None,   
+    task_lon: float | None = None,   
 ) -> ParsedContext:
     normalized_category = (category or "OTHER").strip().upper()
     title_text = normalize_text(title)
@@ -646,6 +662,8 @@ def resolve_payload(task: TaskInput) -> ParsedContext:
         distance_km_legacy=task.Distance_km,
         duration_hours_legacy=task.Duration_hours,
         is_urgent_legacy=task.Is_Urgent,
+        task_lat=task.task_lat,  
+        task_lon=task.task_lon,  
     )
 
 
