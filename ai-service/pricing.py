@@ -84,6 +84,9 @@ DISTRICT_NAMES = [
     "district 7", "district 8", "district 9", "district 10", "district 11", "district 12",
     "thu duc", "binh thanh", "phu nhuan", "tan binh", "tan phu", "go vap",
     "binh chanh", "nha be", "hoc mon", "cu chi",
+    # Singapore (New Market Support)
+    "jurong", "tampines", "woodlands", "hougang", "clementi", "orchard",
+    "changi", "yishun", "bedok", "sentosa", "marina bay", "punggol", "sengkang",
 ]
 
 CATEGORY_TO_DEFAULT_SUBTYPE: dict[str, str] = {
@@ -666,6 +669,13 @@ def resolve_payload(task: TaskInput) -> ParsedContext:
         task_lon=task.task_lon,  
     )
 
+@app.get("/health")
+def health() -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "model_mode": MODEL_BUNDLE.get("mode") if MODEL_BUNDLE else "rule_only",
+        "model_name": MODEL_BUNDLE.get("model_name") if MODEL_BUNDLE else "rule_only",
+    }
 
 @app.post("/predict-price")
 def predict_price(task: TaskInput) -> dict[str, Any]:
