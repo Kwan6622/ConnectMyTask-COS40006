@@ -33,8 +33,10 @@ URLs:
 
 Required env files:
 
-- Root `.env`: `DATABASE_URL=...`, `PORT=4000`, `JWT_SECRET=...`
+- Root `.env`: `DATABASE_URL=...`, `PORT=4000`, `JWT_SECRET=...`, and `FRONTEND_URL=http://localhost:5173` (use a comma-separated origin allowlist when needed)
 - `frontend-web/.env`: `VITE_API_URL=http://localhost:4000/api`, `VITE_WS_URL=ws://localhost:4000`
+
+Browser authentication uses an HttpOnly session cookie; configure `FRONTEND_URL` to the exact browser origin(s) so credentialed API requests pass CORS and origin checks. Native mobile sessions use Expo SecureStore. The public task feed supports cursor pagination with `GET /api/tasks?limit=20&cursor=...`; paged responses contain `items`, `nextCursor`, and `hasMore`. Search and location filters can be sent as `search` and `location`.
 
 ### Prerequisites
 

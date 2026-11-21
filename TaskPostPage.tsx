@@ -8,6 +8,7 @@ import { Button } from '../components/common/Button';
 import { Input } from '../components/common/Input';
 import { Card } from '../components/common/Card';
 import { uploadImageToCloudinary } from '../utils/cloudinaryUpload';
+import { TaskLocationPicker, type TaskCoordinates } from '../components/task/TaskLocationPicker';
 import toast from 'react-hot-toast';
 import {
   SparklesIcon,
@@ -29,20 +30,21 @@ interface TaskFormData {
   description: string;
   category: string;
   location: string;
-  latitude?: number;
-  longitude?: number;
+  siteAddress: string;
+  siteLatitude?: number;
+  siteLongitude?: number;
   budget?: number;
   maxBids?: number;
   deadline?: string;
   imageUrls?: string[];
 }
 
-function formatCurrencyInput(value?: number): string {
+function formatVndInput(value?: number): string {
   if (!value || value <= 0) return '';
   return value.toLocaleString('en-US');
 }
 
-function parseCurrencyInput(rawValue: string): number | undefined {
+function parseVndInput(rawValue: string): number | undefined {
   const digitsOnly = rawValue.replace(/\D/g, '');
   if (!digitsOnly) return undefined;
   const parsed = Number.parseInt(digitsOnly, 10);
@@ -72,6 +74,7 @@ export const TaskPostPage: React.FC = () => {
   const [isGettingAiBudgetSuggestion, setIsGettingAiBudgetSuggestion] = useState(false);
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [isUploadingImages, setIsUploadingImages] = useState(false);
+  const [addressSearchRequest, setAddressSearchRequest] = useState(0);
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
   const minDeadlineValue = getDateTimeLocalNow();
   const districtOptions = [
@@ -99,7 +102,22 @@ export const TaskPostPage: React.FC = () => {
     return acc;
   }, {});
 
-  const { control, register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<TaskFormData>();
+  const { control, register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = useForm<TaskFormData>();
+  const siteAddressRegistration = register('siteAddress', {
+    required: 'Precise task address is required',
+    onChange: () => {
+      setValue('siteLatitude', undefined, { shouldValidate: true });
+      setValue('siteLongitude', undefined, { shouldValidate: true });
+    },
+  });
+  const siteAddress = watch('siteAddress') || '';
+  const siteLatitude = watch('siteLatitude');
+  const siteLongitude = watch('siteLongitude');
+  const taskCoordinates: TaskCoordinates | null =
+    typeof siteLatitude === 'number' && Number.isFinite(siteLatitude)
+      && typeof siteLongitude === 'number' && Number.isFinite(siteLongitude)
+      ? { latitude: siteLatitude, longitude: siteLongitude }
+      : null;
 
   useEffect(() => {
     if (!user) {
@@ -148,7 +166,7 @@ export const TaskPostPage: React.FC = () => {
         suggestedBudget: Number(response.data?.suggestedBudget || response.data?.aiSuggestedPrice || 0),
         suggestedMin: response.data?.suggestedMin != null ? Number(response.data.suggestedMin) : undefined,
         suggestedMax: response.data?.suggestedMax != null ? Number(response.data.suggestedMax) : undefined,
-        currency: response.data?.currency || 'SGD',
+        currency: response.data?.currency || 'VND',
         explanation: response.data?.explanation || response.data?.rationale || '',
         factorsUsed: Array.isArray(response.data?.factorsUsed) ? response.data.factorsUsed : [],
       });
@@ -169,10 +187,15 @@ export const TaskPostPage: React.FC = () => {
       toast.error('Please log in to post a task');
       return;
     }
+    if (!Number.isFinite(data.siteLatitude) || !Number.isFinite(data.siteLongitude)) {
+      toast.error('Find the task address on the map and confirm its location before posting');
+      return;
+    }
 
     try {
       const taskData = {
         ...data,
+        district: data.location,
         budget: data.budget ? Number(data.budget) : undefined,
         maxBids: data.maxBids ? Number(data.maxBids) : undefined,
         // Backend schema accepts number or undefined. Do not send null.
@@ -446,6 +469,30 @@ export const TaskPostPage: React.FC = () => {
                         <span>⚠️</span> {errors.location.message}
                       </p>
                     )}
+                    <Input
+                      placeholder="Precise task address (private until assignment)"
+                      {...siteAddressRegistration}
+                      onBlur={(event) => {
+                        siteAddressRegistration.onBlur(event);
+                        if (siteAddress.trim()) setAddressSearchRequest((request) => request + 1);
+                      }}
+                      className="h-12 text-lg border-gray-200"
+                    />
+                    {errors.siteAddress && <p className="text-sm text-red-600">{errors.siteAddress.message}</p>}
+                    <input type="hidden" {...register('siteLatitude')} />
+                    <input type="hidden" {...register('siteLongitude')} />
+                    <p className="text-xs text-dark-500">
+                      Address lookup uses OpenStreetMap Nominatim to find map coordinates.
+                    </p>
+                    <TaskLocationPicker
+                      address={siteAddress}
+                      coordinates={taskCoordinates}
+                      searchRequest={addressSearchRequest}
+                      onCoordinatesChange={(coordinates) => {
+                        setValue('siteLatitude', coordinates.latitude, { shouldDirty: true, shouldValidate: true });
+                        setValue('siteLongitude', coordinates.longitude, { shouldDirty: true, shouldValidate: true });
+                      }}
+                    />
                     <div className="bg-green-50 rounded-lg p-3 border border-green-100">
                       <p className="text-sm text-green-700 flex items-center gap-2">
                         <UserGroupIcon className="w-4 h-4" />
@@ -531,11 +578,11 @@ export const TaskPostPage: React.FC = () => {
                             Suggested Budget
                           </p>
                           <p className="text-4xl font-bold text-green-600">
-                            {aiBudgetSuggestion.suggestedBudget.toLocaleString('en-US')} {aiBudgetSuggestion.currency}
+                            {aiBudgetSuggestion.suggestedBudget.toLocaleString('en-US')} VND
                           </p>
                           {aiBudgetSuggestion.suggestedMin != null && aiBudgetSuggestion.suggestedMax != null ? (
                             <p className="text-sm text-gray-700 mt-1">
-                              Estimated Budget Range: {aiBudgetSuggestion.suggestedMin.toLocaleString('en-US')} - {aiBudgetSuggestion.suggestedMax.toLocaleString('en-US')} {aiBudgetSuggestion.currency}
+                              Estimated Budget Range: {aiBudgetSuggestion.suggestedMin.toLocaleString('en-US')} - {aiBudgetSuggestion.suggestedMax.toLocaleString('en-US')} VND
                             </p>
                           ) : null}
                           <p className="text-sm text-gray-600 mt-2">
@@ -568,7 +615,7 @@ export const TaskPostPage: React.FC = () => {
                   <div className="space-y-3">
                     <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
                       <CurrencyDollarIcon className="w-5 h-5 text-blue-600" />
-                      Set Budget (SGD)
+                      Set Budget (VND)
                     </label>
                     <Controller
                       name="budget"
@@ -582,10 +629,10 @@ export const TaskPostPage: React.FC = () => {
                           type="text"
                           inputMode="numeric"
                           pattern="[0-9,]*"
-                          value={formatCurrencyInput(field.value)}
-                          onChange={(event) => field.onChange(parseCurrencyInput(event.target.value))}
+                          value={formatVndInput(field.value)}
+                          onChange={(event) => field.onChange(parseVndInput(event.target.value))}
                           onBlur={field.onBlur}
-                          placeholder="e.g., 150"
+                          placeholder="e.g., 500,000"
                           className="h-12 text-lg border-gray-200 focus:ring-2 focus:ring-blue-500"
                           leftIcon={<CurrencyDollarIcon className="w-5 h-5 text-gray-400" />}
                           error={errors.budget?.message}
@@ -594,7 +641,7 @@ export const TaskPostPage: React.FC = () => {
                     />
                     <p className="text-sm text-gray-500 flex items-center gap-1">
                       <ArrowRightIcon className="w-4 h-4" />
-                      Enter your estimated budget in SGD (e.g., 150)
+                      Enter your estimated budget in VND (e.g., 500,000)
                     </p>
                   </div>
 
