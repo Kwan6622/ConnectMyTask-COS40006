@@ -9,9 +9,11 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env'), quiet: true });
 
 const prisma = new PrismaClient();
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
-const CREDENTIALS_PATH = path.join(PROJECT_ROOT, '.test-credentials.local.json');
+const CREDENTIALS_PATH = path.join(PROJECT_ROOT, `.test-credentials.local.${process.env.NEON_BRANCH}.json`);
 const EXPECTED_DATABASE = 'connectmytask_test';
-const TEST_BRANCH_PATTERN = /^e2e-test-/;
+const EXPECTED_PROJECT_ID = 'polished-night-84339447';
+const EXPECTED_BRANCH_ID = 'br-dry-truth-b30rzu08';
+const EXPECTED_BRANCH_NAME = 'e2e-test-20261122';
 
 const groups = [
   { number: 1, label: 'Payment / Escrow', requester: 1, provider: 1, category: 'HOME_REPAIR', district: 'District 1', budget: 650000 },
@@ -25,8 +27,8 @@ function assertTestDatabase() {
   if (process.env.ALLOW_TEST_DATABASE_SEED !== 'true') {
     throw new Error('Refusing to seed: ALLOW_TEST_DATABASE_SEED=true is required');
   }
-  if (!TEST_BRANCH_PATTERN.test(process.env.NEON_BRANCH || '')) {
-    throw new Error('Refusing to seed: NEON_BRANCH must identify an e2e test branch');
+  if (process.env.NEON_BRANCH !== EXPECTED_BRANCH_NAME) {
+    throw new Error('Refusing to seed: NEON_BRANCH is not the configured test branch');
   }
   const connectionString = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
   if (!connectionString) throw new Error('Refusing to seed: database URL is missing');
@@ -176,6 +178,14 @@ async function ensureScenario(group, requester, provider) {
 
 async function main() {
   assertTestDatabase();
+  const [identity] = await prisma.$queryRaw`
+    SELECT current_database() AS database,
+      current_setting('neon.project_id', true) AS project_id,
+      current_setting('neon.branch_id', true) AS branch_id
+  `;
+  if (identity.database !== EXPECTED_DATABASE || identity.project_id !== EXPECTED_PROJECT_ID || identity.branch_id !== EXPECTED_BRANCH_ID) {
+    throw new Error('Refusing to seed: connected database is not the configured isolated TEST branch');
+  }
   const seeds = accountSeeds();
   const credentials = loadCredentials(seeds.all.map((account) => account.email));
   const usersByEmail = new Map();

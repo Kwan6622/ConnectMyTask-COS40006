@@ -1,6 +1,22 @@
 # ConnectMyTask Database Test Setup
 
-## Isolated database
+## Current TEST environment (2026-11-22)
+
+- Neon project: `polished-night-84339447`, Singapore (`aws-ap-southeast-1`)
+- Branch: `e2e-test-20261122` (`br-dry-truth-b30rzu08`), schema-only from production; no production rows copied
+- Expiration: none configured (`expire_at: null`)
+- Database: `connectmytask_test`; SQL independently confirmed database, project ID and branch ID
+- Local root `.env` and `database/.env`: pooled application URL and direct Prisma URL updated to this TEST branch; credentials remain local and hidden
+- Prisma: 16/16 repository migrations applied to the initially empty TEST database; `migrate status` up to date
+- Seed: 21 users (10 requester, 10 provider, 1 admin), 10 provider profiles, 5 demo tasks and bids
+- Credentials: gitignored `.test-credentials.local.e2e-test-20261122.json`, mode 600; previous branch's credentials file preserved
+- Focused Backend escrow tests: 18 passed, 0 failed
+- Backend `/health`: HTTP 200 after starting the API on port 4000
+- Production branch and database: untouched
+
+The section below records the previous `e2e-test-20261020` branch, which expired and was deleted. Its endpoint and data are not current.
+
+## Archived setup: expired 2026-10-20 TEST branch
 
 - Neon project: `polished-night-84339447`
 - Region: Singapore (`aws-ap-southeast-1`)

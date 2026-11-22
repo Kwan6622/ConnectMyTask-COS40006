@@ -66,4 +66,5 @@ __pycache__/
 **/Pods/
 .neon
 .test-credentials.local.json
+.test-credentials.local.*.json
 PROJECT_ENV_BACKUP_PRIVATE.txt
