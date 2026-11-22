@@ -83,7 +83,7 @@ interface TaskStore {
       markAsCompleted?: boolean;
     }
   ) => Promise<void>;
-  confirmTaskCompletion: (taskId: string | number) => Promise<void>;
+  confirmTaskCompletion: (taskId: string | number) => Promise<{ settlementPending?: boolean }>;
   openTaskDispute: (
     taskId: string | number,
     payload: {
@@ -471,8 +471,9 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   confirmTaskCompletion: async (taskId) => {
-    await api.tasks.confirmCompletion(taskId);
+    const confirmation = await api.tasks.confirmCompletion(taskId);
     await get().fetchTaskProgress(taskId);
+    return confirmation.data;
   },
 
   openTaskDispute: async (taskId, payload) => {

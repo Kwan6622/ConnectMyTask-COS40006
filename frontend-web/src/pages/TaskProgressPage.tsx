@@ -350,8 +350,10 @@ export const TaskProgressPage: React.FC = () => {
 
     setIsConfirming(true);
     try {
-      await confirmTaskCompletion(id);
-      toast.success('Task marked completed. You can proceed to payment.');
+      const result = await confirmTaskCompletion(id);
+      toast.success(result.settlementPending
+        ? 'Completion confirmed. Escrow remains held; settlement can be retried.'
+        : 'Completion confirmed. TEST/DEMO settlement recorded; no Stripe Connect payout was sent.');
     } catch (error: any) {
       const message = error?.response?.data?.message || error?.message || 'Failed to confirm completion';
       toast.error(message);
@@ -1056,13 +1058,13 @@ export const TaskProgressPage: React.FC = () => {
               }}
               disabled={isConfirming}
             >
-              {isConfirming ? 'Confirming...' : 'Confirm & Release Escrow'}
+              {isConfirming ? 'Confirming...' : 'Confirm & Settle Escrow'}
             </Button>
           </>
         )}
       >
         <p className="text-sm text-slate-600">
-          Confirming completion will release escrow payment to the assigned provider and lock this task as paid.
+          Your confirmation follows the provider's completion. This records a TEST/DEMO payout only; Stripe Connect does not transfer funds to the provider.
         </p>
       </Modal>
 

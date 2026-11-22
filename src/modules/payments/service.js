@@ -378,15 +378,20 @@ async function releaseEscrowForTask(taskId, currentUser, options = {}) {
     const latestTask = await paymentsRepository.getTaskById(taskId);
     return { task: latestTask, transaction: existingRelease };
   }
-  if (!canAdminRelease && (task.status !== 'COMPLETED' || task.escrowStatus !== 'HELD')) throw Object.assign(new Error('Requester confirmation is required before release'), { statusCode: 409 });
+  if (task.status !== 'COMPLETED' || task.escrowStatus !== 'HELD') {
+    throw Object.assign(new Error('Both provider completion and requester confirmation are required before release'), { statusCode: 409 });
+  }
+  if (await paymentsRepository.hasActiveDispute(taskId)) {
+    throw Object.assign(new Error('Escrow release is blocked while a dispute is active'), { statusCode: 409 });
+  }
+  // COMPLETED is the requester's server-validated confirmation; the provider's
+  // explicit 100% completion action is independently recorded in task activity.
+  const providerConfirmed = await paymentsRepository.hasProviderCompletionConfirmation(taskId, task.assignedProviderId);
+  if (!providerConfirmed) {
+    throw Object.assign(new Error('Both provider completion and requester confirmation are required before release'), { statusCode: 409 });
+  }
   const deposit = await paymentsRepository.findLatestSuccessfulEscrowDeposit(taskId);
   if (!deposit) throw Object.assign(new Error('No confirmed escrow deposit'), { statusCode: 409 });
-
-  if (!['HELD', 'FROZEN'].includes(task.escrowStatus)) {
-    const err = new Error('Escrow is not available for release');
-    err.statusCode = 400;
-    throw err;
-  }
 
   const amount = Number(task.escrowAmount || deposit.totalAmount || deposit.amount || 0);
   const settlement = settlementFromDeposit(deposit, amount);
@@ -394,6 +399,10 @@ async function releaseEscrowForTask(taskId, currentUser, options = {}) {
     const err = new Error('Invalid escrow amount for release');
     err.statusCode = 400;
     throw err;
+  }
+
+  if (env.NODE_ENV === 'production') {
+    throw Object.assign(new Error('Stripe Connect payouts are not configured; simulated settlement is disabled in production'), { statusCode: 503 });
   }
 
   const transaction = await paymentsRepository.createPaymentTransaction({
@@ -413,10 +422,12 @@ async function releaseEscrowForTask(taskId, currentUser, options = {}) {
     heldAt: task.escrowHeldAt || null,
     releasedAt: new Date(),
     paidAt: new Date(),
-    note: options.reason || 'Escrow released to provider',
+    note: 'TEST/DEMO simulated payout; no Stripe Connect transfer was sent',
     metadata: {
       releasedBy: currentUser.id,
-      mode: options.reason || 'auto',
+      releaseMode: 'SIMULATED_DEMO',
+      realStripeTransfer: false,
+      reason: options.reason || 'auto',
     },
   });
 
@@ -432,11 +443,12 @@ async function releaseEscrowForTask(taskId, currentUser, options = {}) {
     amount,
   });
 
-  await notifyParticipants(updatedTask, `Escrow released successfully for task "${updatedTask.title}".`, currentUser.id);
+  await notifyParticipants(updatedTask, `TEST/DEMO escrow settlement recorded for task "${updatedTask.title}". No Stripe Connect transfer was sent.`, currentUser.id);
 
   return {
     task: updatedTask,
     transaction,
+    settlementMode: 'SIMULATED_DEMO',
   };
 }
 
@@ -585,7 +597,9 @@ async function listMyPayments(currentUser) {
       payerId: payment.payerId,
       providerId: payment.providerId,
       amount: payment.amount,
-      agreedPrice: payment.amount,
+      agreedPrice: payment.type === 'ESCROW_RELEASE'
+        ? (payment.totalAmount ?? payment.amount)
+        : payment.amount,
       totalAmount: payment.totalAmount ?? payment.amount,
       platformFeeAmount: payment.platformFeeAmount ?? 0,
       providerPayoutAmount: payment.providerPayoutAmount ?? null,
@@ -595,6 +609,9 @@ async function listMyPayments(currentUser) {
       lifecycleStatus: payment.lifecycleStatus,
       status: payment.status,
       note: payment.note,
+      settlementMode: payment.type === 'ESCROW_RELEASE'
+        ? (payment.metadata?.releaseMode || 'SIMULATED_DEMO')
+        : null,
       createdAt: payment.createdAt,
       paidAt: payment.paidAt,
       heldAt: payment.heldAt,

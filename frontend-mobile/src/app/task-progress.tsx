@@ -232,8 +232,13 @@ export default function TaskProgressPage(): React.ReactElement {
     if (!selectedTaskId) return;
 
     try {
-      await confirmTaskCompletion(selectedTaskId);
-      Alert.alert("Completion confirmed", "The task has been marked completed.");
+      const result = await confirmTaskCompletion(selectedTaskId);
+      Alert.alert(
+        "Completion confirmed",
+        result.settlementPending
+          ? "Escrow remains held; settlement can be retried."
+          : "TEST/DEMO settlement recorded; no Stripe Connect payout was sent."
+      );
     } catch (error: any) {
       const message = error?.response?.data?.message || error?.message || "Failed to confirm completion.";
       Alert.alert("Confirmation failed", message);
@@ -535,7 +540,7 @@ export default function TaskProgressPage(): React.ReactElement {
             <Card title="Requester Confirmation">
               <View style={styles.confirmBox}>
                 <Text style={styles.confirmText}>
-                  Provider marked this task as completed. Confirm when work quality is accepted.
+                  Provider marked this task as completed. Confirm when work quality is accepted. Settlement is TEST/DEMO only; no Stripe Connect payout is sent.
                 </Text>
                 <Button title="Confirm Completion" onPress={() => void handleConfirmCompletion()} />
               </View>
