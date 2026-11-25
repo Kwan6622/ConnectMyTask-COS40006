@@ -1,5 +1,3 @@
-const crypto = require('crypto');
-const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const dotenv = require('dotenv');
@@ -8,8 +6,6 @@ const { PrismaClient } = require('@prisma/client');
 dotenv.config({ path: path.resolve(__dirname, '../../.env'), quiet: true });
 
 const prisma = new PrismaClient();
-const PROJECT_ROOT = path.resolve(__dirname, '../..');
-const CREDENTIALS_PATH = path.join(PROJECT_ROOT, `.test-credentials.local.${process.env.NEON_BRANCH}.json`);
 const EXPECTED_DATABASE = 'connectmytask_test';
 const EXPECTED_PROJECT_ID = 'polished-night-84339447';
 const EXPECTED_BRANCH_ID = 'br-dry-truth-b30rzu08';
@@ -39,27 +35,6 @@ function assertTestDatabase() {
   if (!parsed.hostname.endsWith('.ap-southeast-1.aws.neon.tech')) {
     throw new Error('Refusing to seed: expected Neon Singapore endpoint');
   }
-}
-
-function generatePassword() {
-  return `${crypto.randomBytes(18).toString('base64url')}aA1!`;
-}
-
-function loadCredentials(accountEmails) {
-  let document = { database: EXPECTED_DATABASE, branch: process.env.NEON_BRANCH, accounts: {} };
-  if (fs.existsSync(CREDENTIALS_PATH)) {
-    document = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
-    if (document.database !== EXPECTED_DATABASE || document.branch !== process.env.NEON_BRANCH) {
-      throw new Error('Existing credential file belongs to a different test database or branch');
-    }
-  }
-  document.accounts ||= {};
-  for (const email of accountEmails) {
-    if (!document.accounts[email]) document.accounts[email] = generatePassword();
-  }
-  fs.writeFileSync(CREDENTIALS_PATH, `${JSON.stringify(document, null, 2)}\n`, { mode: 0o600 });
-  fs.chmodSync(CREDENTIALS_PATH, 0o600);
-  return document.accounts;
 }
 
 function accountSeeds() {
@@ -187,11 +162,14 @@ async function main() {
     throw new Error('Refusing to seed: connected database is not the configured isolated TEST branch');
   }
   const seeds = accountSeeds();
-  const credentials = loadCredentials(seeds.all.map((account) => account.email));
+  const password = process.env.TEST_ACCOUNT_PASSWORD;
+  if (!password || password.length < 6) {
+    throw new Error('TEST_ACCOUNT_PASSWORD must contain at least 6 characters');
+  }
   const usersByEmail = new Map();
   const accountResults = [];
   for (const seed of seeds.all) {
-    const result = await ensureUser(seed, credentials[seed.email]);
+    const result = await ensureUser(seed, password);
     usersByEmail.set(seed.email, result.user);
     accountResults.push({ email: seed.email, role: seed.role, status: result.status });
   }
@@ -215,7 +193,6 @@ async function main() {
     accounts: accountResults,
     providerProfiles: profileResults,
     scenarios: scenarioResults,
-    credentialsFile: path.basename(CREDENTIALS_PATH),
   }, null, 2));
 }
 

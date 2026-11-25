@@ -1,8 +1,8 @@
 # ConnectMyTask E2E Test Accounts
 
-Environment: Neon branch `e2e-test-20261020`, database `connectmytask_test` (Singapore). These accounts do not exist in the production database through this setup.
+Environment: Neon branch `e2e-test-20261122`, database `connectmytask_test` (Singapore). These accounts do not exist in the production database through this setup.
 
-Passwords are stored only in `.test-credentials.local.json` at the project root. The file is gitignored and has mode `600`; passwords are intentionally omitted here.
+Demo account passwords are supplied locally when needed; this repository stores no credential file.
 
 | Email | Role | Test group | Features | Creation / login |
 |---|---|---:|---|---|

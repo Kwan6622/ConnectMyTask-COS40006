@@ -9,7 +9,7 @@
 - Local root `.env` and `database/.env`: pooled application URL and direct Prisma URL updated to this TEST branch; credentials remain local and hidden
 - Prisma: 16/16 repository migrations applied to the initially empty TEST database; `migrate status` up to date
 - Seed: 21 users (10 requester, 10 provider, 1 admin), 10 provider profiles, 5 demo tasks and bids
-- Credentials: gitignored `.test-credentials.local.e2e-test-20261122.json`, mode 600; previous branch's credentials file preserved
+- Demo seeding reads `TEST_ACCOUNT_PASSWORD` from the local environment and does not write credential files.
 - Focused Backend escrow tests: 18 passed, 0 failed
 - Backend `/health`: HTTP 200 after starting the API on port 4000
 - Production branch and database: untouched
