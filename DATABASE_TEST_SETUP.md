@@ -14,6 +14,16 @@
 - Backend `/health`: HTTP 200 after starting the API on port 4000
 - Production branch and database: untouched
 
+## Join the shared TEST environment
+
+1. Ask the team owner for the TEST branch pooled and direct Neon connection URLs through a private channel. Do not use the production `.neon` pointer or commit URLs to Git.
+2. Copy `.env.example` to root `.env`. Set `DATABASE_URL` to the pooled TEST URL, `DATABASE_URL_UNPOOLED` to the direct TEST URL, `NEON_BRANCH=e2e-test-20261122`, and a local `JWT_SECRET`. Keep `.env` ignored by Git. The hostname must be a Singapore Neon endpoint and the database name must be `connectmytask_test`.
+3. From the project root run `npm install`, `npx prisma generate`, then `npm run dev`. Check `http://localhost:4000/health`. The shared TEST database already has its schema and 21 demo accounts; do not run `prisma db push`, migrations, seed, or reset for setup.
+4. In another terminal run `cd frontend-web`, `npm install`, then `npm run dev`. The web app uses the local backend at `http://localhost:4000/api`.
+5. For a physical phone, set `EXPO_PUBLIC_API_URL=http://YOUR_COMPUTER_LAN_IP:4000/api` in `frontend-mobile/.env` using the current backend computer's LAN IP. Web and Mobile connect through that backend; neither should contain a Neon URL. Ask the team owner for the demo login password privately.
+
+The shared TEST branch currently has no automatic expiration configured. Each teammate's backend must use this same branch to see the same accounts and task data.
+
 The section below records the previous `e2e-test-20261020` branch, which expired and was deleted. Its endpoint and data are not current.
 
 ## Archived setup: expired 2026-10-20 TEST branch
@@ -26,7 +36,7 @@ The section below records the previous `e2e-test-20261020` branch, which expired
 - Automatic expiry: 2026-11-18 23:59 UTC
 - Local application endpoint: `http://localhost:4000`
 - Local Web endpoint: `http://localhost:5173`
-- Mobile API endpoint: `http://192.168.1.214:4000/api` for the current LAN run; Metro is `exp://192.168.1.214:8081`. No database credentials are present in Mobile/Web.
+- During that archived run, Mobile used a machine-specific LAN endpoint. Each teammate must use their current backend computer's LAN IP. No database credentials belong in Mobile/Web.
 
 The production URL was preserved in gitignored `.env.production.local` and `database/.env.production.local`; both have mode `600`. Active local `.env` files point to the test database and also have mode `600`. Connection strings and secrets are intentionally omitted.
 

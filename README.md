@@ -6,7 +6,7 @@ Node.js / Express backend for the **ConnectMyTask** capstone project. This servi
 
 ### Quick Run Commands (Windows/macOS/Linux)
 
-Use 2 terminals.
+Use 2 terminals. For the shared Neon TEST database, follow [DATABASE_TEST_SETUP.md](DATABASE_TEST_SETUP.md#join-the-shared-test-environment) first. Its schema and demo accounts already exist.
 
 Terminal 1 (root): backend + Prisma
 
@@ -14,7 +14,6 @@ Terminal 1 (root): backend + Prisma
 cd <project-root>
 npm install
 npx prisma generate
-npx prisma db push
 npm run dev
 ```
 
@@ -40,7 +39,7 @@ Required env files:
 
 - Node.js `>=18`
 - npm `>=9`
-- A valid Postgres database URL (local Postgres or Neon)
+- A valid Postgres database URL (local Postgres or Neon). For team testing, use the shared Neon TEST branch described in `DATABASE_TEST_SETUP.md`.
 
 ### 1) Backend setup (root folder)
 
@@ -71,11 +70,10 @@ Update `.env`:
 - `PORT=4000`
 - `JWT_SECRET` (any secure random string)
 
-Then prepare Prisma:
+Then prepare Prisma (shared TEST schema already exists):
 
 ```bash
 npx prisma generate
-npx prisma db push
 ```
 
 Run backend:
@@ -117,7 +115,6 @@ From project root (backend + Prisma):
 ```bash
 npm install
 npx prisma generate
-npx prisma db push
 ```
 
 Then from web folder:
@@ -199,7 +196,7 @@ If register/login fails on another machine, 90% of cases are:
 
 - Wrong `DATABASE_URL` in root `.env`
 - Forgot `npx prisma generate`
-- Forgot `npx prisma db push`
+- Backend is connected to the wrong database or an unprepared schema (see `DATABASE_TEST_SETUP.md` for the shared TEST environment)
 - Web `.env` still points to wrong API port
 - Backend is not running on `4000`
 
