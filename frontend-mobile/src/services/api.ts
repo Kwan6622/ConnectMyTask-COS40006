@@ -117,6 +117,7 @@ class ApiService {
   };
 
   tasks = {
+    verifyAddress: (data: { district: string; streetName: string }) => apiClient.post("/tasks/verify-address", data),
     getAll: (filters?: any) => apiClient.get("/tasks", { params: filters }),
     getById: (id: string | number) => apiClient.get(`/tasks/${id}`),
     create: (data: any) => apiClient.post("/tasks", data),
@@ -193,7 +194,7 @@ class ApiService {
   users = {
     getProfile: (id: string | number) => apiClient.get(`/users/${id}`),
     getMe: () => apiClient.get('/users/me'),
-    updateProfile: (data: { name?: string; phone?: string | null; bio?: string | null; profilePhotoUrl?: string }) =>
+    updateProfile: (data: { name?: string; phone?: string | null; location?: string; bio?: string | null; profilePhotoUrl?: string }) =>
       apiClient.patch('/users/me', data),
     updateProfilePhoto: (profilePhotoUrl: string) => apiClient.patch("/users/me", { profilePhotoUrl }),
     updateProviderProfile: (data: {

@@ -135,8 +135,8 @@ export default function SupportScreen(): React.ReactElement {
         {creating && <Card><Text style={styles.subtitle}>Category</Text>{optionRow(categories, category, setCategory)}
           <TextInput style={styles.input} placeholder="Subject" value={subject} onChangeText={setSubject} maxLength={160} />
           <TextInput style={[styles.input, styles.multiline]} multiline placeholder="Detailed description" value={description} onChangeText={setDescription} maxLength={10000} />
-          <TextInput style={styles.input} placeholder="Related task ID (optional)" keyboardType="numeric" value={taskId} onChangeText={setTaskId} />
-          <TextInput style={styles.input} placeholder="Related payment ID (optional)" keyboardType="numeric" value={paymentId} onChangeText={setPaymentId} />
+          <TextInput style={styles.input} placeholder="Task ID (optional)" keyboardType="numeric" value={taskId} onChangeText={setTaskId} />
+          <TextInput style={styles.input} placeholder="Payment ID (optional)" keyboardType="numeric" value={paymentId} onChangeText={setPaymentId} />
           <Button title="Add evidence images" variant="outline" onPress={() => void addEvidence('ticket')} />{evidenceLinks(evidence)}
           <Button title="Submit ticket" loading={busy} disabled={subject.trim().length < 3 || description.trim().length < 10} onPress={() => void createTicket()} />
         </Card>}

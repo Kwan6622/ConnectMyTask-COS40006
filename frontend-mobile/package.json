@@ -4,7 +4,7 @@
   "description": "ConnectMyTask Mobile App - React Native with Expo",
   "main": "expo-router/entry",
   "scripts": {
-    "start": "expo start",
+    "start": "expo start --lan",
     "start:tunnel": "expo start --tunnel",
     "android": "node ./scripts/run-android.js",
     "android:lan": "expo start --android --lan",

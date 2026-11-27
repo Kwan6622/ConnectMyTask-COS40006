@@ -5,6 +5,7 @@ const trackingService = require('../tracking/service');
 const { evaluateTaskRisk } = require('./riskEvaluator');
 const { generateSuggestedSubtasks } = require('./subtaskTemplates');
 const { isSameDistrict, isNearbyDistrict } = require('./districtAdjacency');
+const { verifyAddress } = require('../geocoding/service');
 
 const GLOBAL_MAX_BIDS = 100;
 const DEFAULT_MAX_BIDS = 30;
@@ -39,7 +40,11 @@ function normalizeRole(role) {
   return String(role || '').toUpperCase();
 }
 
-function toPublicTask(task) {
+function canViewRisk(user) {
+  return ['PROVIDER', 'ADMIN'].includes(normalizeRole(user?.role));
+}
+
+function toPublicTask(task, viewer) {
   if (!task) return task;
   const {
     siteAddress: _siteAddress,
@@ -52,6 +57,11 @@ function toPublicTask(task) {
   } = task;
   // Legacy location may contain a precise address; never expose it as a public fallback.
   const district = task.district || 'District not provided';
+  if (!canViewRisk(viewer)) {
+    delete safe.isSuspicious;
+    delete safe.suspiciousReason;
+    delete safe.riskLevel;
+  }
   return { ...safe, district, location: district };
 }
 
@@ -445,9 +455,17 @@ async function getPublicTaskById(id) {
   return toPublicTask(await getTaskById(id));
 }
 
+async function getTaskForViewer(id, viewer) {
+  return toPublicTask(await getTaskById(id), viewer);
+}
+
 async function createTask(payload, currentUser) {
   assertRequesterRole(currentUser);
   validateImageUrls(payload.imageUrls);
+  const verifiedAddress = await verifyAddress({
+    district: payload.district,
+    streetName: payload.streetName || payload.siteAddress,
+  });
 
   const dueDate = parseDueDate(payload.dueDate || payload.deadline);
 
@@ -466,9 +484,9 @@ async function createTask(payload, currentUser) {
     maxBids: parseMaxBids(payload.maxBids),
     location: payload.district,
     district: payload.district,
-    siteAddress: payload.siteAddress,
-    siteLatitude: payload.siteLatitude,
-    siteLongitude: payload.siteLongitude,
+    siteAddress: verifiedAddress.address,
+    siteLatitude: verifiedAddress.latitude,
+    siteLongitude: verifiedAddress.longitude,
     imageUrls: payload.imageUrls || [],
     dueDate,
     createdById: currentUser.id,
@@ -494,10 +512,10 @@ async function createTask(payload, currentUser) {
     generatedSubtasks: suggestedSubtasks.length,
   });
 
-  return getTaskById(task.id);
+  return toPublicTask(await getTaskById(task.id), currentUser);
 }
 
-async function listTasks(filters) {
+async function listTasks(filters, viewer) {
   triggerAutoAssignExpiredBiddingTasks();
   const tasks = await taskRepository.listTasks(filters);
   const hydratedTasks = await hydrateTaskListWithOverdue(tasks);
@@ -507,7 +525,7 @@ async function listTasks(filters) {
     const isOverdueUnassigned = Boolean(task?.isOverdue) && !task?.assignedProviderId;
     return !isAssigned && !isOverdueUnassigned;
   });
-  return [...browseEligibleTasks].sort(compareTasksForBrowse).map(toPublicTask);
+  return [...browseEligibleTasks].sort(compareTasksForBrowse).map((task) => toPublicTask(task, viewer));
 }
 
 async function updateTaskStatus(id, status, currentUser) {
@@ -542,7 +560,10 @@ async function updateTaskStatus(id, status, currentUser) {
     }
 
     if (status === task.status) return task;
-    if (!((task.status === 'ASSIGNED' && status === 'IN_PROGRESS') || (task.status === 'IN_PROGRESS' && status === 'PENDING_CONFIRMATION'))) {
+    if (status === 'PENDING_CONFIRMATION') {
+      throw Object.assign(new Error('Use a 100% progress update to explicitly mark the task completed'), { statusCode: 409 });
+    }
+    if (!(task.status === 'ASSIGNED' && status === 'IN_PROGRESS')) {
       throw Object.assign(new Error('Invalid provider status transition'), { statusCode: 409 });
     }
     const updatedTask = await taskRepository.updateTaskStatus(id, status);
@@ -736,7 +757,8 @@ async function listSuggestedTasksForProvider(currentUser) {
   assertProviderRole(currentUser);
   const profile = await taskRepository.getProviderProfileByUserId(currentUser.id);
   const specialties = profile?.specialties || (currentUser?.skills ? [currentUser.skills] : []);
-  const providerDistrict = profile?.district || null;
+  // Fall back to the ward chosen at signup/profile when the provider profile has no district.
+  const providerDistrict = profile?.district || await taskRepository.getUserLocationById(currentUser.id);
 
   const tasks = await taskRepository.listTasks({});
   const hydratedTasks = await hydrateTaskListWithOverdue(tasks);
@@ -965,51 +987,55 @@ async function createTaskProgressUpdate(taskId, payload, currentUser) {
 
 async function confirmTaskCompletion(taskId, currentUser) {
   assertRequesterRole(currentUser);
-  const task = await getTaskById(taskId);
-
-  if (task.createdById !== currentUser.id) {
-    const err = new Error('You can only confirm completion for your own tasks');
-    err.statusCode = 403;
-    throw err;
-  }
-
-  if (task.status === 'PAID' && task.escrowStatus === 'RELEASED') return { success: true, task };
-  if (!['PENDING_CONFIRMATION', 'COMPLETED'].includes(task.status)) {
-    const err = new Error('Task must be pending confirmation before requester confirmation');
-    err.statusCode = 400;
-    throw err;
-  }
-
-  if (task.escrowStatus !== 'HELD') {
-    const err = new Error('Escrow must be held before completion confirmation and payment release');
-    err.statusCode = 400;
-    throw err;
-  }
-
-  if (task.status === 'PAID') {
-    const err = new Error('Task has already been settled');
-    err.statusCode = 409;
-    throw err;
-  }
-
-  await taskRepository.updateTask(taskId, {
-    status: 'COMPLETED',
+  const confirmationTask = await require('../../database/taskTransaction').withTaskLock(taskId, async () => {
+    const task = await getTaskById(taskId);
+    if (task.createdById !== currentUser.id) {
+      throw Object.assign(new Error('You can only confirm completion for your own tasks'), { statusCode: 403 });
+    }
+    if (task.status === 'PAID' && task.escrowStatus === 'RELEASED') return task;
+    if (!['PENDING_CONFIRMATION', 'COMPLETED'].includes(task.status)) {
+      throw Object.assign(new Error('Task must be pending confirmation before requester confirmation'), { statusCode: 400 });
+    }
+    if (task.escrowStatus !== 'HELD') {
+      throw Object.assign(new Error('Escrow must be held before completion confirmation and payment release'), { statusCode: 400 });
+    }
+    if (task.status === 'PENDING_CONFIRMATION'
+      && !(await require('../payments/repository').hasProviderCompletionConfirmation(taskId, task.assignedProviderId))) {
+      throw Object.assign(new Error('Provider must explicitly mark 100% completion before requester confirmation'), { statusCode: 409 });
+    }
+    if (task.status !== 'COMPLETED') {
+      await taskRepository.updateTask(taskId, { status: 'COMPLETED' });
+      await logActivity(taskId, currentUser.id, 'COMPLETION_CONFIRMED', 'Requester confirmed provider completion.', {
+        previousStatus: task.status,
+      });
+    }
+    return task;
   });
+  if (confirmationTask.status === 'PAID' && confirmationTask.escrowStatus === 'RELEASED') {
+    return { success: true, task: confirmationTask };
+  }
 
-  await logActivity(taskId, currentUser.id, 'COMPLETION_CONFIRMED', 'Requester confirmed provider completion.', {
-    previousStatus: task.status,
-  });
-
-  // Auto release escrow after requester confirmation.
-  const releaseResult = await paymentService.releaseEscrowForTask(taskId, currentUser, {
-    reason: 'Auto release after requester confirmation',
-  });
+  // Confirmation/audit commits separately so a failed settlement stays retryable.
+  let releaseResult;
+  try {
+    releaseResult = await paymentService.releaseEscrowForTask(taskId, currentUser, {
+      reason: 'Auto release after requester confirmation',
+    });
+  } catch (_error) {
+    return {
+      success: true,
+      settlementPending: true,
+      message: 'Completion confirmed. Escrow remains held; settlement can be retried.',
+      task: await getTaskById(taskId),
+    };
+  }
 
   return {
     success: true,
-    message: 'Completion confirmed and escrow released to provider',
+    message: 'Completion confirmed and TEST/DEMO settlement recorded; no Stripe Connect transfer was sent.',
     task: releaseResult.task,
     releaseTransaction: releaseResult.transaction,
+    settlementMode: releaseResult.settlementMode,
   };
 }
 
@@ -1234,6 +1260,7 @@ module.exports = {
   listTasks,
   getTaskById,
   getPublicTaskById,
+  getTaskForViewer,
   updateTaskStatus,
   updateTask,
   saveTask,
@@ -1256,7 +1283,7 @@ module.exports = {
 };
 
 // The same task lock also serializes payment confirmation, refund and GPS writes.
-for (const name of ['updateTaskStatus', 'updateTask', 'updateTaskSubtaskStatus', 'createTaskProgressUpdate', 'confirmTaskCompletion', 'openTaskDispute', 'reviewDisputeByAdmin', 'cancelTask']) {
+for (const name of ['updateTaskStatus', 'updateTask', 'updateTaskSubtaskStatus', 'createTaskProgressUpdate', 'openTaskDispute', 'reviewDisputeByAdmin', 'cancelTask']) {
   const action = module.exports[name];
   module.exports[name] = (taskId, ...args) => require('../../database/taskTransaction').withTaskLock(taskId, () => action(taskId, ...args));
 }

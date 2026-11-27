@@ -11,9 +11,11 @@ export type TaskCoordinates = {
 type TaskLocationPickerMapProps = {
   coordinates: TaskCoordinates;
   onCoordinatesChange: (coordinates: TaskCoordinates) => void;
+  /** Preview only: the pin cannot be moved. */
+  readOnly?: boolean;
 };
 
-function createMapHtml(initialCoordinates: TaskCoordinates): string {
+function createMapHtml(initialCoordinates: TaskCoordinates, readOnly = false): string {
   const center = JSON.stringify([initialCoordinates.latitude, initialCoordinates.longitude]);
   return `<!doctype html>
 <html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
@@ -24,9 +26,9 @@ function createMapHtml(initialCoordinates: TaskCoordinates): string {
 if(window.L){
 const map=L.map('map').setView(${center},16);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
-const marker=L.marker(${center},{draggable:true}).addTo(map);
+const marker=L.marker(${center},{draggable:${readOnly ? "false" : "true"}}).addTo(map);
 const sendPoint=function(point){window.ReactNativeWebView.postMessage(JSON.stringify({latitude:point.lat,longitude:point.lng}));};
-map.on('click',function(event){marker.setLatLng(event.latlng);sendPoint(event.latlng);});
+if(!${readOnly ? "true" : "false"}){map.on('click',function(event){marker.setLatLng(event.latlng);sendPoint(event.latlng);});}
 marker.on('dragend',function(){sendPoint(marker.getLatLng());});
 window.setTaskLocation=function(latitude,longitude){const point=[latitude,longitude];marker.setLatLng(point);map.setView(point,Math.max(map.getZoom(),16));};
 setTimeout(function(){map.invalidateSize();},250);
@@ -37,10 +39,11 @@ setTimeout(function(){map.invalidateSize();},250);
 export function TaskLocationPickerMap({
   coordinates,
   onCoordinatesChange,
+  readOnly = false,
 }: TaskLocationPickerMapProps): React.ReactElement {
   const mapRef = useRef<WebView<object> | null>(null);
   const [mapError, setMapError] = useState(false);
-  const [html] = useState(() => createMapHtml(coordinates));
+  const [html] = useState(() => createMapHtml(coordinates, readOnly));
 
   useEffect(() => {
     mapRef.current?.injectJavaScript(
@@ -75,7 +78,9 @@ export function TaskLocationPickerMap({
   return (
     <View style={styles.container}>
       <Text style={styles.helper}>
-        Check the pin. Tap the map or drag the pin to correct the exact task location.
+        {readOnly
+          ? "Location from the verified address. This pin is used for provider check-in."
+          : "Check the pin. Tap the map or drag the pin to correct the exact task location."}
       </Text>
       <View style={styles.mapFrame}>
         <WebView

@@ -7,8 +7,8 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env'), quiet: true });
 
 const EXPECTED_DATABASE = 'connectmytask_test';
 const EXPECTED_PROJECT_ID = 'polished-night-84339447';
-const EXPECTED_BRANCH_ID = 'br-lucky-heart-b3zzinct';
-const EXPECTED_BRANCH_NAME = 'e2e-test-20261020';
+const EXPECTED_BRANCH_ID = 'br-dry-truth-b30rzu08';
+const EXPECTED_BRANCH_NAME = 'e2e-test-20261122';
 const EXPECTED_NEON_REGION = '.ap-southeast-1.aws.neon.tech';
 const TEST_ACCOUNTS = [
   ...Array.from({ length: 10 }, (_, index) => ({

@@ -1,3 +1,5 @@
+const { HO_CHI_MINH_WARD_GROUPS } = require('../../shared/hoChiMinhWards');
+
 const DISTRICT_NEIGHBORS = {
   'district 1': ['district 3', 'district 4', 'district 5', 'binh thanh', 'phu nhuan'],
   'district 2': ['district 1', 'district 9', 'thu duc', 'binh thanh'],
@@ -25,21 +27,53 @@ function normalizeDistrict(value) {
   return String(value || '').toLowerCase().trim();
 }
 
+// Tasks and users now store a ward (e.g. "Ben Thanh"), while provider
+// profiles and older tasks may still hold a former district (e.g. "District 1").
+// Map both forms to former-district keys so the two can be compared.
+const WARD_TO_DISTRICTS = HO_CHI_MINH_WARD_GROUPS.reduce((acc, group) => {
+  const districtKey = normalizeDistrict(group.oldDistrict);
+  group.wards.forEach((ward) => {
+    const wardKey = normalizeDistrict(ward);
+    acc[wardKey] = [...(acc[wardKey] || []), districtKey];
+  });
+  return acc;
+}, {});
+
+const KNOWN_DISTRICTS = new Set([
+  ...Object.keys(DISTRICT_NEIGHBORS),
+  ...HO_CHI_MINH_WARD_GROUPS.map((group) => normalizeDistrict(group.oldDistrict)),
+]);
+
+function resolveDistricts(value) {
+  const key = normalizeDistrict(value);
+  if (!key) return [];
+  const districts = new Set(WARD_TO_DISTRICTS[key] || []);
+  if (KNOWN_DISTRICTS.has(key)) districts.add(key);
+  return [...districts];
+}
+
 function isSameDistrict(a, b) {
-  return normalizeDistrict(a) && normalizeDistrict(a) === normalizeDistrict(b);
+  const aKey = normalizeDistrict(a);
+  const bKey = normalizeDistrict(b);
+  if (!aKey || !bKey) return false;
+  if (aKey === bKey) return true;
+  const bDistricts = resolveDistricts(bKey);
+  return resolveDistricts(aKey).some((district) => bDistricts.includes(district));
 }
 
 function isNearbyDistrict(base, target) {
-  const baseKey = normalizeDistrict(base);
-  const targetKey = normalizeDistrict(target);
-  if (!baseKey || !targetKey) return false;
-  const neighbors = DISTRICT_NEIGHBORS[baseKey] || [];
-  return neighbors.includes(targetKey);
+  const baseDistricts = resolveDistricts(base);
+  const targetDistricts = resolveDistricts(target);
+  if (!baseDistricts.length || !targetDistricts.length) return false;
+  return baseDistricts.some((district) => (
+    (DISTRICT_NEIGHBORS[district] || []).some((neighbor) => targetDistricts.includes(neighbor))
+  ));
 }
 
 module.exports = {
   DISTRICT_NEIGHBORS,
   normalizeDistrict,
+  resolveDistricts,
   isSameDistrict,
   isNearbyDistrict,
 };

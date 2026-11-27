@@ -201,16 +201,18 @@ export const HomePage: React.FC = () => {
 
         <div className="mt-5 rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-lg backdrop-blur md:p-5">
           <form onSubmit={applyFilters} className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-center">
-            <Input
-              placeholder="Search tasks..."
-              value={effectiveSearch}
-              onChange={(e) => {
-                setDraftSearch(e.target.value);
-                setIsDraftDirty(true);
-              }}
-              className="md:col-span-4"
-              leftIcon={<MagnifyingGlassIcon className="w-5 h-5" />}
-            />
+            {/* Input wraps the <input> in its own div, so the grid span goes on this wrapper. */}
+            <div className="md:col-span-4">
+              <Input
+                placeholder="Search tasks..."
+                value={effectiveSearch}
+                onChange={(e) => {
+                  setDraftSearch(e.target.value);
+                  setIsDraftDirty(true);
+                }}
+                leftIcon={<MagnifyingGlassIcon className="w-5 h-5" />}
+              />
+            </div>
             <select
               value={effectiveStatus}
               onChange={(e) => {
@@ -230,17 +232,18 @@ export const HomePage: React.FC = () => {
               <option value="PAID">Paid</option>
               <option value="DISPUTED">Disputed</option>
             </select>
-            <Input
-              type="number"
-              placeholder="Min Budget"
-              value={effectiveMinBudget}
-              onChange={(e) => {
-                setDraftMinBudget(e.target.value);
-                setIsDraftDirty(true);
-              }}
-              className="md:col-span-3"
-              leftIcon={<CurrencyDollarIcon className="w-5 h-5" />}
-            />
+            <div className="md:col-span-3">
+              <Input
+                type="number"
+                placeholder="Min Budget"
+                value={effectiveMinBudget}
+                onChange={(e) => {
+                  setDraftMinBudget(e.target.value);
+                  setIsDraftDirty(true);
+                }}
+                leftIcon={<CurrencyDollarIcon className="w-5 h-5" />}
+              />
+            </div>
             <div className="flex gap-2 md:col-span-2">
               <Button type="submit" className="flex-1">
                 <FunnelIcon className="w-4 h-4 mr-2" />

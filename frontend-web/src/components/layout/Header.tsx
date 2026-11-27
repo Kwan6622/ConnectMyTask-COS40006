@@ -4,6 +4,7 @@ import { useAuthStore } from '../../stores/auth.store';
 import { useTaskStore } from '../../stores/task.store';
 import { Button } from '../common/Button';
 import { api } from '../../services/api';
+import { formatVnd } from '../../utils';
 import { 
   BellIcon, 
   BookmarkIcon,
@@ -381,7 +382,7 @@ export const Header: React.FC = () => {
                           >
                             <p className="text-sm font-medium text-gray-900 truncate">{item.task.title}</p>
                             <p className="text-xs text-gray-500 mt-1">
-                              Budget: {item.task.budget != null ? `${item.task.budget.toLocaleString()} đ` : 'Flexible'}
+                              Budget: {item.task.budget != null ? formatVnd(item.task.budget) : 'Flexible'}
                             </p>
                             <p className="text-xs text-gray-500">
                               {item.task.location || 'No location'}

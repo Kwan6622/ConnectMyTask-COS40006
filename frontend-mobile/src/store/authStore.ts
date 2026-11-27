@@ -123,7 +123,7 @@ export const useAuthStore = create<AuthStore>()(
     }
   },
 
-  signUp: async ({ fullName, email, phoneNumber, accountType, password }: SignUpInput) => {
+  signUp: async ({ fullName, email, phoneNumber, location, accountType, password }: SignUpInput) => {
     const role = accountType === "service_provider" ? "PROVIDER" : "CLIENT";
     set({ isLoading: true, error: null });
     try {
@@ -133,6 +133,7 @@ export const useAuthStore = create<AuthStore>()(
         password,
         role,
         phone: phoneNumber,
+        location,
       });
       const token = data?.accessToken || null;
       const user = mapApiUser(data?.user);
@@ -180,6 +181,7 @@ export const useAuthStore = create<AuthStore>()(
       const response = await api.users.updateProfile({
         name: data.fullName || data.name,
         phone: data.phoneNumber || data.phone,
+        ...(data.location ? { location: data.location } : {}),
         bio: data.bio,
       });
       set((state) => ({

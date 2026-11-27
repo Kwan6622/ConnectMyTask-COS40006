@@ -20,7 +20,7 @@ import { Modal } from '../components/common/Modal';
 import { useAuthStore } from '../stores/auth.store';
 import { useTaskStore } from '../stores/task.store';
 import { api } from '../services/api';
-import { formatDate, formatRelativeTime } from '../utils';
+import { formatDate, formatRelativeTime, formatVnd } from '../utils';
 import { uploadImageToCloudinary } from '../utils/cloudinaryUpload';
 import {
   AWAITING_DEPOSIT_MESSAGE,
@@ -350,8 +350,10 @@ export const TaskProgressPage: React.FC = () => {
 
     setIsConfirming(true);
     try {
-      await confirmTaskCompletion(id);
-      toast.success('Task marked completed. You can proceed to payment.');
+      const result = await confirmTaskCompletion(id);
+      toast.success(result.settlementPending
+        ? 'Completion confirmed. Escrow remains held; settlement can be retried.'
+        : 'Completion confirmed. TEST/DEMO settlement recorded; no Stripe Connect payout was sent.');
     } catch (error: any) {
       const message = error?.response?.data?.message || error?.message || 'Failed to confirm completion';
       toast.error(message);
@@ -807,7 +809,7 @@ export const TaskProgressPage: React.FC = () => {
                   <span className="text-slate-500">Escrow amount</span>
                   <span className="font-semibold text-slate-900">
                     {(taskPaymentSummary?.escrowAmount ?? currentTask.escrowAmount) != null
-                      ? `${Number(taskPaymentSummary?.escrowAmount ?? currentTask.escrowAmount).toLocaleString()} đ`
+                      ? formatVnd(Number(taskPaymentSummary?.escrowAmount ?? currentTask.escrowAmount))
                       : 'Not available'}
                   </span>
                 </div>
@@ -833,7 +835,7 @@ export const TaskProgressPage: React.FC = () => {
                           <span className="text-[11px] text-slate-500">{tx.status}</span>
                         </div>
                         <p className="text-xs text-slate-600 mt-1">
-                          {Number(tx.amount || 0).toLocaleString()} đ · {formatDate(tx.createdAt)}
+                          {formatVnd(Number(tx.amount || 0))} · {formatDate(tx.createdAt)}
                         </p>
                       </div>
                     ))}
@@ -879,7 +881,7 @@ export const TaskProgressPage: React.FC = () => {
                       value={milestoneStatus}
                       onChange={(e) => setMilestoneStatus(e.target.value)}
                       className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Example: Wiring completed"
+                      placeholder="e.g. Wiring done"
                     />
                   </div>
 
@@ -1056,13 +1058,13 @@ export const TaskProgressPage: React.FC = () => {
               }}
               disabled={isConfirming}
             >
-              {isConfirming ? 'Confirming...' : 'Confirm & Release Escrow'}
+              {isConfirming ? 'Confirming...' : 'Confirm & Settle Escrow'}
             </Button>
           </>
         )}
       >
         <p className="text-sm text-slate-600">
-          Confirming completion will release escrow payment to the assigned provider and lock this task as paid.
+          Your confirmation follows the provider's completion. This records a TEST/DEMO payout only; Stripe Connect does not transfer funds to the provider.
         </p>
       </Modal>
 

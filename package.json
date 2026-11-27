@@ -19,7 +19,10 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:seed": "node database/prisma/seed.js",
     "prisma:seed:test": "node database/prisma/seed-test-accounts.js",
-    "accounts:reset-test-passwords": "node database/prisma/reset-test-account-passwords.js"
+    "accounts:reset-test-passwords": "node database/prisma/reset-test-account-passwords.js",
+    "test:e2e": "node --test test_folder/workflow.e2e.test.js",
+    "test:flows": "node --test test_folder/requester.flow.test.js test_folder/provider.flow.test.js test_folder/fraud.flow.test.js",
+    "test:unit": "node --test \"src/**/*.test.js\""
   },
   "keywords": [
     "express",

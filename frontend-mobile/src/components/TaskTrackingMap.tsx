@@ -78,14 +78,24 @@ const map=L.map('map').setView(${center},14);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
 const taskIcon=L.divIcon({className:'',html:'<div class="marker task-marker">T</div>',iconSize:[36,36],iconAnchor:[18,18]});
 const providerIcon=L.divIcon({className:'',html:'<div class="marker provider-marker">P</div>',iconSize:[36,36],iconAnchor:[18,18]});
-let taskMarker=null,providerMarker=null;
+let taskMarker=null,providerMarker=null,youMarker=null,youAccuracy=null;
+const shown={};
 window.updateTaskTracking=function(data){
 const task=data.taskLocation&&[data.taskLocation.latitude,data.taskLocation.longitude];
 const provider=data.providerLocation&&[data.providerLocation.latitude,data.providerLocation.longitude];
+const you=data.myLocation&&[data.myLocation.latitude,data.myLocation.longitude];
 if(task){if(taskMarker)taskMarker.setLatLng(task);else taskMarker=L.marker(task,{icon:taskIcon}).addTo(map).bindPopup('Requester-set task location');}
-if(provider){if(providerMarker)providerMarker.setLatLng(provider);else providerMarker=L.marker(provider,{icon:providerIcon}).addTo(map).bindPopup('Provider location');}
-const points=[task,provider].filter(Boolean);
-if(points.length>1)map.fitBounds(L.latLngBounds(points),{padding:[32,32],maxZoom:15});else if(points.length===1)map.setView(points[0],15);
+if(provider){if(providerMarker)providerMarker.setLatLng(provider);else providerMarker=L.marker(provider,{icon:providerIcon}).addTo(map).bindPopup('Provider location (last shared)');}
+if(you){
+const acc=Math.max(Number(data.myLocation.accuracy)||0,5);
+if(youMarker){youMarker.setLatLng(you);youAccuracy.setLatLng(you).setRadius(acc);}
+else{youAccuracy=L.circle(you,{radius:acc,color:'#9333ea',weight:1,fillColor:'#a855f7',fillOpacity:0.15,interactive:false}).addTo(map);
+youMarker=L.circleMarker(you,{radius:8,color:'#ffffff',weight:3,fillColor:'#9333ea',fillOpacity:1}).addTo(map).bindPopup('You are here');}
+}
+// Re-frame only when a marker first appears, so live updates never fight the user's panning.
+const fresh=[['task',task],['provider',provider],['you',you]].filter(([k,p])=>p&&!shown[k]).map(([k])=>(shown[k]=true)).length>0;
+if(fresh){const points=[task,you||provider].filter(Boolean);
+if(points.length>1)map.fitBounds(L.latLngBounds(points),{padding:[40,40],maxZoom:17});else if(points.length===1)map.setView(points[0],16);}
 };
 window.ReactNativeWebView.postMessage('map-ready');
 }</script></body></html>`;
@@ -120,22 +130,28 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
   const [sharingError, setSharingError] = useState("");
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState(false);
+  // The assigned provider's own live device position ("you are here"), separate
+  // from the last location they shared with the requester.
+  const [myLocation, setMyLocation] = useState<(Point & { accuracy: number | null }) | null>(null);
+  const [myLocationError, setMyLocationError] = useState("");
   const mapRef = useRef<WebView<object> | null>(null);
   const sharingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sendInFlightRef = useRef(false);
   const mountedRef = useRef(true);
   const providerPoint = useMemo(() => getProviderPoint(latest), [latest]);
-  const initialCenter = taskPoint || providerPoint || { latitude: 10.7769, longitude: 106.7009 };
-  const html = useMemo(
-    () => createMapHtml(initialCenter),
-    [initialCenter.latitude, initialCenter.longitude]
-  );
+  // The map page is built once; later positions are pushed with injectJavaScript,
+  // so changing the centre must not rebuild the HTML (that reloads the WebView).
+  const initialCenterRef = useRef(taskPoint || providerPoint || { latitude: 10.7769, longitude: 106.7009 });
+  const html = useMemo(() => createMapHtml(initialCenterRef.current), []);
 
+  // Parent screens refetch the task (focus, polling), which gives a new `task`
+  // object with the same data. Only reload the site when the site itself changes,
+  // and keep showing the current address while reloading so it does not flicker.
+  const siteKey = [task.id, task.escrowStatus, task.siteLatitude, task.siteLongitude, task.siteAddress].join("|");
   useEffect(() => {
     let mounted = true;
-    setTaskPoint(getTaskPoint(task));
-    setSiteAddress("");
-    setSiteLocationError("");
+    const fallbackPoint = getTaskPoint(task);
+    if (fallbackPoint) setTaskPoint(fallbackPoint);
     api.tracking.taskSiteLocation(task.id)
       .then((response) => {
         if (!mounted) return;
@@ -156,7 +172,8 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
     return () => {
       mounted = false;
     };
-  }, [task]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteKey]);
 
   const refreshLocation = useCallback(async () => {
     try {
@@ -232,7 +249,7 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
         timestamp: new Date(point.timestamp).toISOString(),
       });
       setSharingError("");
-      Alert.alert("Location verified", `You are ${response.data.distanceMeters} m from the task site.`);
+      Alert.alert("Location verified", "You are at the task site. You can start work now.");
     } catch (error: any) {
       if (mountedRef.current) {
         setSharingError(getTrackingErrorMessage(error, "Unable to confirm arrival."));
@@ -327,10 +344,44 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
   }, [assignedProvider, stopSharing]);
 
   useEffect(() => {
+    if (Platform.OS === "web" || !assignedProvider) return undefined;
+    let subscription: Location.LocationSubscription | null = null;
+    let cancelled = false;
+    (async () => {
+      try {
+        const current = await Location.getForegroundPermissionsAsync();
+        const permission = current.status === "granted" ? current : await Location.requestForegroundPermissionsAsync();
+        if (cancelled) return;
+        if (permission.status !== "granted") {
+          setMyLocationError("Allow location access to see where you are on the map.");
+          return;
+        }
+        const watcher = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.High, timeInterval: 3000, distanceInterval: 3 },
+          (position) => {
+            const point = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+            if (!mountedRef.current || !isValidPoint(point)) return;
+            setMyLocation({ ...point, accuracy: position.coords.accuracy ?? null });
+            setMyLocationError("");
+          }
+        );
+        if (cancelled) watcher.remove();
+        else subscription = watcher;
+      } catch (error: any) {
+        if (!cancelled) setMyLocationError(error?.message || "Unable to show your current location.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+      subscription?.remove();
+    };
+  }, [assignedProvider]);
+
+  useEffect(() => {
     if (!mapReady) return;
-    const data = JSON.stringify({ taskLocation: taskPoint, providerLocation: providerPoint });
+    const data = JSON.stringify({ taskLocation: taskPoint, providerLocation: providerPoint, myLocation });
     mapRef.current?.injectJavaScript(`window.updateTaskTracking(${data}); true;`);
-  }, [mapReady, providerPoint, taskPoint]);
+  }, [mapReady, myLocation, providerPoint, taskPoint]);
 
   const handleMapMessage = (event: WebViewMessageEvent): void => {
     if (event.nativeEvent.data === "map-ready") {
@@ -345,7 +396,7 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
     <Card title="Task live tracking">
       <Text style={styles.description}>
         {assignedProvider
-          ? "Share your journey with the requester. GPS updates every 5 seconds; verify your location within 1 km of the task site after escrow is funded."
+          ? "Share your journey with the requester. GPS updates every 5 seconds. When you arrive at the task site, verify your location to start work."
           : "Green marks the location set by the requester; blue shows the provider's latest shared location."}
       </Text>
       {assignedProvider && siteAddress ? (
@@ -372,7 +423,9 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
       <View style={styles.legend}>
         <Text style={styles.legendText}>Green: requester-set task location</Text>
         <Text style={styles.legendText}>Blue: provider</Text>
+        {assignedProvider ? <Text style={[styles.legendText, styles.legendYou]}>Purple: you</Text> : null}
       </View>
+      {assignedProvider && myLocationError ? <Text style={styles.helperText}>{myLocationError}</Text> : null}
       {!taskPoint ? (
         <Text style={styles.helperText}>Precise task coordinates are not available.</Text>
       ) : null}
@@ -385,7 +438,7 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
       ) : null}
       {assignedProvider ? (
         <Text style={styles.helperText}>
-          {isArrived ? "Location verified within 1 km of the task site." : "Task location has not been verified yet."}
+          {isArrived ? "Location verified: you are at the task site." : "Task location has not been verified yet."}
         </Text>
       ) : null}
       {assignedProvider && !escrowFunded ? (
@@ -406,7 +459,7 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
             onPress={() => (isSharing ? stopSharing() : void startSharing())}
           />
           <Button
-            title={isVerifyingArrival ? "Checking location..." : isArrived ? "Recheck location (1 km)" : "Verify location (1 km)"}
+            title={isVerifyingArrival ? "Checking location..." : isArrived ? "Recheck location" : "Verify location"}
             variant="outline"
             loading={isVerifyingArrival}
             disabled={isStarting || isVerifyingArrival || !canVerifyArrival}
@@ -451,9 +504,13 @@ const styles = StyleSheet.create({
   },
   legend: {
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "space-between",
     gap: 8,
     marginTop: 8,
+  },
+  legendYou: {
+    color: "#9333ea",
   },
   legendText: {
     color: colors.dark[700],

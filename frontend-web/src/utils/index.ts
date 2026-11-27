@@ -6,8 +6,9 @@ export const formatCurrency = (amount: number, currency: string = 'USD'): string
   }).format(amount);
 };
 
+// Amounts use comma thousand separators everywhere (1,000 đ), matching the budget/bid inputs.
 export const formatVnd = (amount: number): string => {
-  return `${new Intl.NumberFormat('vi-VN').format(amount)} đ`;
+  return `${new Intl.NumberFormat('en-US').format(amount)} đ`;
 };
 
 // Format date

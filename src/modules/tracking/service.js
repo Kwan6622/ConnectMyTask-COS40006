@@ -3,7 +3,8 @@ const notificationRepository = require('../notifications/repository');
 const taskRepository = require('../tasks/repository');
 const { withTaskLock } = require('../../database/taskTransaction');
 
-const VERIFICATION_RADIUS_METERS = 1000;
+// Provider must be within this distance of the verified task address to start work.
+const VERIFICATION_RADIUS_METERS = 100;
 const MAX_GPS_ACCURACY_METERS = 100;
 const MAX_LOCATION_AGE_MS = 2 * 60 * 1000;
 const MAX_FUTURE_SKEW_MS = 15 * 1000;
@@ -131,7 +132,7 @@ async function verifyTaskLocation(taskId, payload, user) {
     assertAccuracy(payload.accuracy);
     const measuredDistance = distanceMeters(payload.lat, payload.lng, task.siteLatitude, task.siteLongitude);
     if (measuredDistance > VERIFICATION_RADIUS_METERS) {
-      throw Object.assign(new Error('Provider is outside the 1 km location verification radius'), {
+      throw Object.assign(new Error("You are not at the job site yet. Move closer to the task address and try again."), {
         statusCode: 409,
         details: { distanceMeters: Math.round(measuredDistance), allowedMeters: VERIFICATION_RADIUS_METERS },
       });

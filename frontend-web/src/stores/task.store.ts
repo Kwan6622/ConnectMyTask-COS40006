@@ -96,7 +96,7 @@ interface TaskState {
     subtaskId: string | number,
     status: 'PENDING' | 'IN_PROGRESS' | 'DONE'
   ) => Promise<void>;
-  confirmTaskCompletion: (taskId: string) => Promise<void>;
+  confirmTaskCompletion: (taskId: string) => Promise<{ settlementPending?: boolean }>;
   openTaskDispute: (
     taskId: string,
     payload: {
@@ -263,7 +263,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   },
 
   confirmTaskCompletion: async (taskId: string) => {
-    await api.tasks.confirmCompletion(taskId);
+    const confirmation = await api.tasks.confirmCompletion(taskId);
     await get().fetchTaskProgress(taskId);
     const response = await api.tasks.getById(taskId);
     const nextTask = normalizeTask(response.data);
@@ -273,6 +273,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       requesterTasks: state.requesterTasks.map((task) => (String(task.id) === String(taskId) ? nextTask : task)),
       assignedTasks: state.assignedTasks.map((task) => (String(task.id) === String(taskId) ? nextTask : task)),
     }));
+    return confirmation.data;
   },
 
   openTaskDispute: async (taskId: string, payload) => {

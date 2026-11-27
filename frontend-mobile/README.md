@@ -36,6 +36,8 @@ A React Native mobile application for task management built with Expo, TypeScrip
    ```bash
    npm start
    ```
+   This starts Expo in LAN mode so a physical device can reach the development
+   server. Keep the computer and device on the same Wi-Fi network.
 
 4. **Run on your platform**:
    - **iOS**: Press `i` in the terminal or run `npm run ios`
@@ -47,6 +49,24 @@ A React Native mobile application for task management built with Expo, TypeScrip
     - if `adb` is missing, it falls back to Expo LAN mode for QR testing on Android device
    - **Android via LAN (physical device)**: run `npm run android:lan`
    - **Web**: Press `w` in the terminal or run `npm run web`
+
+If Expo Go shows `Failed to download remote update`, stop any previous Expo
+process using port 8081 and start again:
+
+```bash
+npm start
+```
+
+If the device and computer cannot connect over the same Wi-Fi network, use the
+tunnel instead:
+
+```bash
+npm run start:tunnel
+```
+
+The tunnel only exposes the JavaScript bundle. Any API URL in
+`EXPO_PUBLIC_API_URL` must still be reachable from the device; do not use
+`localhost` for a physical device.
 
 ### Windows Quick Run
 
@@ -149,8 +169,12 @@ npm run prebuild
 Create a `.env.local` file in the project root:
 
 ```env
-EXPO_PUBLIC_API_URL=http://localhost:4000/api
+EXPO_PUBLIC_API_URL=http://YOUR_COMPUTER_LAN_IP:4000/api
 ```
+
+For Expo Go on a physical phone, replace `YOUR_COMPUTER_LAN_IP` with the
+computer's Wi-Fi IPv4 address (for example, `172.16.5.3`). Do not use
+`localhost`, because that points to the phone itself.
 
 Notes:
 - Android emulator automatically maps `localhost` API host to `10.0.2.2`

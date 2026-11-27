@@ -13,13 +13,15 @@ const getUserParamsSchema = z.object({
 const updateProfileSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
   phone: z.string().trim().max(30).nullable().optional(),
+  location: z.string().trim().min(2, 'Location is required').optional(),
   bio: z.string().trim().max(500).nullable().optional(),
   profilePhotoUrl: z.string().url().optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, 'Provide at least one profile field');
 
 const updateProviderProfileSchema = z.object({
   address: z.string().trim().min(3).max(200).optional(),
-  district: z.string().trim().min(2).max(80).optional(),
+  // Empty string clears the district so suggestions fall back to the user's ward.
+  district: z.union([z.string().trim().min(2).max(80), z.literal('')]).optional(),
   city: z.string().trim().min(2).max(80).optional(),
   specialties: z.array(z.string().trim().min(2).max(40)).max(12).optional(),
   safetyComplianceAgreed: z.boolean().optional(),
@@ -50,4 +52,3 @@ module.exports = {
   certificateIdParamsSchema,
   verifyProviderCertificateSchema,
 };
-

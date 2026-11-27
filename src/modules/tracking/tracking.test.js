@@ -66,11 +66,12 @@ function reset() {
   verifications = []; activities = []; notifications = [];
 }
 
-test('within 1 km verifies task location and enables participant tracking', async () => {
+test('within 100 m verifies task location and enables participant tracking', async () => {
   reset();
+  assert.equal(service.constants.VERIFICATION_RADIUS_METERS, 100);
   const result = await service.verifyTaskLocation(task.id, point(), provider);
   assert.equal(result.isValid, true);
-  assert.ok(result.distanceMeters <= 1000);
+  assert.ok(result.distanceMeters <= 100);
   assert.equal((await service.getLatestLocation(task.id, requester)).lat, 10.775);
   await service.recordLocationUpdate({ taskId: task.id, ...point(), requestId: undefined }, provider);
   const latest = await service.getLatestLocation(task.id, requester);
@@ -79,19 +80,30 @@ test('within 1 km verifies task location and enables participant tracking', asyn
   assert.equal((await service.getVerificationStatus(task.id, requester)).isValid, true);
 });
 
-test('location verification allows 999 m and rejects 1001 m from task site', async () => {
+test('location verification allows 99 m and rejects 101 m from task site', async () => {
   reset();
   const offsetForMeters = meters => (meters / 6371000) * (180 / Math.PI);
-  const nearPoint = point({ lat: task.siteLatitude + offsetForMeters(999) });
+  const nearPoint = point({ lat: task.siteLatitude + offsetForMeters(99) });
   const result = await service.verifyTaskLocation(task.id, nearPoint, provider);
   assert.equal(result.isValid, true);
-  assert.ok(result.distanceMeters <= 1000);
+  assert.ok(result.distanceMeters <= 100);
 
   reset();
-  const farPoint = point({ lat: task.siteLatitude + offsetForMeters(1001) });
+  const farPoint = point({ lat: task.siteLatitude + offsetForMeters(101) });
   await assert.rejects(service.verifyTaskLocation(task.id, farPoint, provider), {
     statusCode: 409,
-    message: 'Provider is outside the 1 km location verification radius',
+    message: 'You are not at the job site yet. Move closer to the task address and try again.',
+  });
+  assert.equal(verifications.length, 0);
+
+  // 300 m was accepted under the old 1 km radius and must now be rejected.
+  reset();
+  const formerlyAccepted = point({ lat: task.siteLatitude + offsetForMeters(300) });
+  await assert.rejects(service.verifyTaskLocation(task.id, formerlyAccepted, provider), (error) => {
+    assert.equal(error.statusCode, 409);
+    assert.equal(error.details.allowedMeters, 100);
+    assert.ok(error.details.distanceMeters >= 299 && error.details.distanceMeters <= 301);
+    return true;
   });
 });
 
@@ -133,7 +145,7 @@ test('provider can share journey outside verification radius before verifying lo
   assert.ok(await service.getLatestLocation(task.id, requester));
   await assert.rejects(service.verifyTaskLocation(task.id, journeyPoint, provider), {
     statusCode: 409,
-    message: 'Provider is outside the 1 km location verification radius',
+    message: 'You are not at the job site yet. Move closer to the task address and try again.',
   });
   assert.equal(verifications.length, 0);
 });

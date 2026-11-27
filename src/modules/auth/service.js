@@ -30,6 +30,7 @@ async function signup(payload) {
     passwordHash,
     role: mapRole(payload.role),
     phone: payload.phone || null,
+    location: payload.location,
   });
 
   const accessToken = signToken(user);
@@ -110,4 +111,3 @@ module.exports = {
   login,
   getCurrentUser,
 };
-

@@ -18,6 +18,7 @@ interface AuthState {
     fullName: string;
     role: 'CLIENT' | 'PROVIDER';
     phone?: string;
+    location: string;
   }) => Promise<void>;
   logout: () => void;
   setUser: (user: User | null) => void;
@@ -100,6 +101,7 @@ export const useAuthStore = create<AuthState>()(
           const response = await api.users.updateProfile({
             name: data.fullName || data.name,
             phone: data.phone,
+            location: data.location,
             bio: data.bio,
           });
           set((state) => ({

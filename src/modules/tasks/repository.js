@@ -91,6 +91,11 @@ async function listTasks(filters) {
   });
 }
 
+async function getUserLocationById(userId) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { location: true } });
+  return user?.location || null;
+}
+
 async function getProviderProfileByUserId(userId) {
   return prisma.providerProfile.findUnique({
     where: { userId },
@@ -644,6 +649,7 @@ module.exports = {
   createTask,
   listTasks,
   getProviderProfileByUserId,
+  getUserLocationById,
   getTaskById,
   updateTaskStatus,
   updateTask,

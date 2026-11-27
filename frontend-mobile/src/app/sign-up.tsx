@@ -7,12 +7,13 @@ import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { Input } from "@/components/Input";
+import { WardSelect } from "@/components/WardSelect";
 import { useAuthStore } from "@/store/authStore";
 import { useResponsiveLayout } from "@/theme/responsive";
 import { colors, radius } from "@/theme/tokens";
 import { AccountType } from "@/types";
 
-type FieldErrors = Partial<Record<"fullName" | "email" | "password" | "confirmPassword", string>>;
+type FieldErrors = Partial<Record<"fullName" | "email" | "location" | "password" | "confirmPassword", string>>;
 
 const accountTypeOptions: Array<{ label: string; value: AccountType }> = [
   { label: "Client", value: "client" },
@@ -22,11 +23,13 @@ const accountTypeOptions: Array<{ label: string; value: AccountType }> = [
 function validateSignUp({
   fullName,
   email,
+  location,
   password,
   confirmPassword,
 }: {
   fullName: string;
   email: string;
+  location: string;
   password: string;
   confirmPassword: string;
 }): FieldErrors {
@@ -42,6 +45,10 @@ function validateSignUp({
     errors.email = "Email address is required.";
   } else if (!emailRegex.test(normalizedEmail)) {
     errors.email = "Enter a valid email address.";
+  }
+
+  if (!location.trim()) {
+    errors.location = "Please select your district.";
   }
 
   if (!password) {
@@ -68,6 +75,7 @@ export default function SignUpScreen(): React.ReactElement {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [location, setLocation] = useState("");
   const [accountType, setAccountType] = useState<AccountType>("client");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -79,6 +87,7 @@ export default function SignUpScreen(): React.ReactElement {
     const validationErrors = validateSignUp({
       fullName,
       email,
+      location,
       password,
       confirmPassword,
     });
@@ -95,6 +104,7 @@ export default function SignUpScreen(): React.ReactElement {
         fullName: fullName.trim(),
         email: email.trim().toLowerCase(),
         phoneNumber: phoneNumber.trim() || undefined,
+        location,
         accountType,
         password,
       });
@@ -152,6 +162,13 @@ export default function SignUpScreen(): React.ReactElement {
                 value={phoneNumber}
                 onChangeText={setPhoneNumber}
                 keyboardType="phone-pad"
+              />
+
+              <WardSelect
+                label="District*"
+                value={location}
+                onChange={setLocation}
+                error={errors.location}
               />
 
               <View style={styles.radioSection}>

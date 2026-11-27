@@ -13,6 +13,8 @@ type TaskLocationPickerProps = {
   coordinates: TaskCoordinates | null;
   searchRequest: number;
   onCoordinatesChange: (coordinates: TaskCoordinates) => void;
+  /** Preview only: hides the search button and locks the pin. */
+  readOnly?: boolean;
 };
 
 type GeocodingResult = {
@@ -49,6 +51,7 @@ export function TaskLocationPicker({
   coordinates,
   searchRequest,
   onCoordinatesChange,
+  readOnly = false,
 }: TaskLocationPickerProps): React.ReactElement {
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
@@ -104,16 +107,18 @@ export function TaskLocationPicker({
 
   return (
     <div className="space-y-2">
-      <button
+      {!readOnly && (<button
         type="button"
         onClick={() => void findAddress()}
         disabled={isSearching}
         className="rounded-xl border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 disabled:opacity-60"
       >
         {isSearching ? 'Finding address...' : 'Find address on map'}
-      </button>
+      </button>)}
       <p className="text-sm text-dark-500">
-        {coordinates
+        {readOnly
+          ? 'Location from the verified address. This pin is used for provider check-in.'
+          : coordinates
           ? 'Check the pin. Click or drag it to correct the exact task location.'
           : 'Find the address to preview its location, then adjust the pin if needed.'}
       </p>
@@ -126,11 +131,11 @@ export function TaskLocationPicker({
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
               <MapViewport coordinates={coordinates} />
-              <MapClickHandler onCoordinatesChange={onCoordinatesChange} />
+              {!readOnly && <MapClickHandler onCoordinatesChange={onCoordinatesChange} />}
               <Marker
                 position={[coordinates.latitude, coordinates.longitude]}
                 icon={locationIcon}
-                draggable
+                draggable={!readOnly}
                 eventHandlers={{
                   dragend: (event) => {
                     const position = event.target.getLatLng();

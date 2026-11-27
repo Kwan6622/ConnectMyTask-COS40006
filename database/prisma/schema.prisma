@@ -15,6 +15,8 @@ model User {
   passwordHash        String
   role                String
   phone               String?
+  location            String?
+  locationId          Int?
   skills              String?
   bio                 String?
   availability        String?
@@ -52,6 +54,9 @@ model User {
   platformFeeUpdates    PlatformFeeConfig[]        @relation("PlatformFeeUpdatedBy")
   platformFeeAudits     PlatformFeeAudit[]         @relation("PlatformFeeChangedBy")
 
+  locationRef Location? @relation("UserLocation", fields: [locationId], references: [id], onDelete: SetNull)
+
+  @@index([locationId])
   @@map("USERS")
 }
 
@@ -60,6 +65,7 @@ model ProviderProfile {
   userId                 Int      @unique
   address                String?
   district               String?
+  serviceDistrictId      Int?
   city                   String?
   specialties            String[] @default([])
   safetyComplianceAgreed Boolean  @default(false)
@@ -70,7 +76,10 @@ model ProviderProfile {
   user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   certificates ProviderCertificate[] @relation("ProfileCertificates")
 
+  serviceDistrict District? @relation("ProviderServiceDistrict", fields: [serviceDistrictId], references: [id], onDelete: SetNull)
+
   @@index([district])
+  @@index([serviceDistrictId])
   @@map("PROVIDER_PROFILES")
 }
 
@@ -110,6 +119,7 @@ model Task {
   riskAssessment     Json?
   location           String
   district           String?
+  locationId         Int?
   siteAddress        String?
   siteLatitude       Float?
   siteLongitude      Float?
@@ -158,7 +168,10 @@ model Task {
   activityLogs          TaskActivityLog[]
   supportTickets        SupportTicket[]
 
+  locationRef Location? @relation("TaskLocation", fields: [locationId], references: [id], onDelete: SetNull)
+
   @@index([biddingEndsAt])
+  @@index([locationId])
   @@map("TASKS")
 }
 
@@ -601,4 +614,46 @@ enum CertificateVerificationStatus {
   PENDING
   VERIFIED
   REJECTED
+}
+
+/// Former HCMC district (quan cu), e.g. "District 1". Groups wards for filters.
+model District {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  city      String   @default("Ho Chi Minh City")
+  createdAt DateTime @default(now())
+
+  wards            Location[]
+  neighbors        DistrictNeighbor[] @relation("DistrictNeighborFrom")
+  neighborOf       DistrictNeighbor[] @relation("DistrictNeighborTo")
+  providerProfiles ProviderProfile[]  @relation("ProviderServiceDistrict")
+
+  @@map("DISTRICTS")
+}
+
+/// New HCMC ward (phuong) after the 2025 merger, e.g. "Ben Thanh".
+model Location {
+  id         Int      @id @default(autoincrement())
+  ward       String   @unique
+  districtId Int
+  createdAt  DateTime @default(now())
+
+  district District @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  users    User[]   @relation("UserLocation")
+  tasks    Task[]   @relation("TaskLocation")
+
+  @@index([districtId])
+  @@map("LOCATIONS")
+}
+
+/// Adjacent former districts, used for "nearby" task suggestions.
+model DistrictNeighbor {
+  districtId Int
+  neighborId Int
+
+  district District @relation("DistrictNeighborFrom", fields: [districtId], references: [id], onDelete: Cascade)
+  neighbor District @relation("DistrictNeighborTo", fields: [neighborId], references: [id], onDelete: Cascade)
+
+  @@id([districtId, neighborId])
+  @@map("DISTRICT_NEIGHBORS")
 }

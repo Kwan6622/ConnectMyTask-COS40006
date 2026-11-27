@@ -231,6 +231,7 @@ export interface PaymentTransaction {
   providerTransactionId?: string | null;
   checkoutSessionId?: string | null;
   note?: string | null;
+  settlementMode?: 'SIMULATED_DEMO' | string | null;
   createdAt: string;
   paidAt?: string | null;
   heldAt?: string | null;
@@ -289,6 +290,7 @@ export interface SignUpInput {
   fullName: string;
   email: string;
   phoneNumber?: string;
+  location: string;
   accountType: AccountType;
   password: string;
 }

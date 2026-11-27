@@ -4,6 +4,7 @@ import type { Task } from '../../types';
 import { TaskStatus, TaskCategory } from '../../types';
 import { Button } from '../common/Button';
 import { useAuthStore } from '../../stores/auth.store';
+import { formatVnd } from '../../utils';
 import {
   TruckIcon,
   WrenchIcon,
@@ -133,7 +134,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, showActions = true, on
           {/* Budget */}
           <div className="text-right">
             <p className="text-2xl font-bold text-success-600">
-              {displayBudget ? `${displayBudget.toLocaleString()} đ` : 'N/A'}
+              {displayBudget ? formatVnd(displayBudget) : 'N/A'}
             </p>
             {task.aiSuggestedPrice && (
               <p className="text-xs text-dark-500">AI Budget Suggestion</p>
@@ -181,7 +182,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, showActions = true, on
 
           <div className="flex items-center text-dark-600 text-sm">
             <CurrencyDollarIcon className="w-4 h-4 mr-2 text-dark-400" />
-            <span>Budget: {task.budget ? `${task.budget.toLocaleString()} đ` : 'Flexible'}</span>
+            <span>Budget: {task.budget ? formatVnd(task.budget) : 'Flexible'}</span>
           </div>
 
           <div className="flex items-center text-dark-600 text-sm">

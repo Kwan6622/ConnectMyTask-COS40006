@@ -7,6 +7,7 @@ function mock(path, exports) {
 }
 let state, session, creates, failRelease, failRefund, event;
 let expires;
+const mockEnv = { STRIPE_SECRET_KEY: 'mock-only', STRIPE_WEBHOOK_SECRET: 'mock-only', STRIPE_CURRENCY: 'vnd' };
 let queue = Promise.resolve();
 const copy = value => structuredClone(value);
 const matches = (row, where) => Object.entries(where).every(([k, v]) => row[k] === v);
@@ -35,7 +36,10 @@ const db = {
     },
     update: async ({ where, data }) => Object.assign(state.payments.find(p => p.id === where.id), data),
   },
-  taskActivityLog: { create: async ({ data }) => { state.logs.push(data); return data; } },
+  taskActivityLog: {
+    create: async ({ data }) => { state.logs.push(data); return data; },
+    findFirst: async ({ where }) => copy(state.logs.find(log => log.taskId === where.taskId && log.actorId === where.actorId && log.action === where.action) || null),
+  },
   taskSubtask: {
     findFirst: async () => ({ id: 1, taskId: 1, title: 'Work', status: state.subtaskStatus || 'PENDING' }),
     findMany: async () => [{ id: 1, status: state.subtaskStatus || 'PENDING' }],
@@ -58,13 +62,14 @@ const db = {
     },
   },
   dispute: {
+    findFirst: async () => copy(state.activeDispute ? { id: 99 } : null),
     findUnique: async () => ({ id: 1, taskId: 1, status: 'OPEN' }),
     update: async ({ data }) => ({ id: 1, taskId: 1, ...data }),
   },
   notification: { create: async ({ data }) => data },
 };
 mock('../../database/prisma', { prisma: db });
-mock('../../config/env', { env: { STRIPE_SECRET_KEY: 'mock-only', STRIPE_WEBHOOK_SECRET: 'mock-only', STRIPE_CURRENCY: 'vnd' } });
+mock('../../config/env', { env: mockEnv });
 mock('stripe', class {
   checkout = { sessions: {
     create: async (data, options) => {
@@ -89,7 +94,7 @@ const tasks = require('../tasks/service');
 const requester = { id: 1, role: 'REQUESTER' };
 const provider = { id: 2, role: 'PROVIDER' };
 function reset() {
-  state = { task: { id: 1, createdById: 1, assignedProviderId: 2, status: 'ASSIGNED', escrowStatus: 'PENDING_DEPOSIT', budget: 150000, escrowAmount: 100000, bids: [{ id: 1, providerId: 2, price: 100000, status: 'ACCEPTED' }], title: 'Test task', isDeleted: false, siteVersion: 1, siteAddress: 'Test', siteLatitude: 1, siteLongitude: 103 }, payments: [], logs: [], verifications: [] };
+  state = { task: { id: 1, createdById: 1, assignedProviderId: 2, status: 'ASSIGNED', escrowStatus: 'PENDING_DEPOSIT', budget: 150000, escrowAmount: 100000, bids: [{ id: 1, providerId: 2, price: 100000, status: 'ACCEPTED' }], title: 'Test task', isDeleted: false, siteVersion: 1, siteAddress: 'Test', siteLatitude: 1, siteLongitude: 103 }, payments: [], logs: [], verifications: [], activeDispute: false };
   creates = 0; expires = 0; failRelease = false; failRefund = false;
 }
 const deposit = () => payments.createCheckoutPayment({ taskId: 1, flow: 'ESCROW_DEPOSIT' }, requester);
@@ -115,6 +120,7 @@ test('unfunded work, unauthorized provider and generic payment bypass rejected',
   await assert.rejects(tasks.createTaskProgressUpdate(1, { progressPercent: 50 }, { id: 3, role: 'PROVIDER' }), { statusCode: 403 });
   await tasks.updateTaskStatus(1, 'IN_PROGRESS', provider);
   await tasks.updateTaskStatus(1, 'IN_PROGRESS', provider);
+  await assert.rejects(tasks.updateTaskStatus(1, 'PENDING_CONFIRMATION', provider), { statusCode: 409 });
   await assert.rejects(tasks.updateTaskStatus(1, 'ASSIGNED', provider), { statusCode: 409 });
   assert.equal(state.logs.filter(l => l.action === 'STATUS_CHANGED').length, 1);
 });
@@ -164,6 +170,12 @@ test('deposit uses accepted bid, keeps VND zero-decimal, and replaces mismatched
   assert.equal(state.payments[0].status, 'CANCELED');
   assert.equal(state.task.escrowAmount, 590000);
 });
+test('escrow deposit cannot be created before provider assignment', async () => {
+  reset(); state.task.status = 'BIDDING'; state.task.assignedProviderId = null;
+  await assert.rejects(deposit(), { statusCode: 400 });
+  assert.equal(state.payments.length, 0);
+  assert.equal(creates, 0);
+});
 test('requester transaction history is owner-scoped and omits Stripe internal identifiers', async () => {
   reset();
   await deposit();
@@ -191,15 +203,69 @@ test('Stripe binding and late payment checks fail closed', async () => {
     assert.notEqual(state.task.escrowStatus, 'HELD');
   }
 });
-test('completion release failure rolls back; retry and concurrent retry settle once', async () => {
-  reset(); await fund(); state.task.status = 'PENDING_CONFIRMATION'; failRelease = true;
-  await assert.rejects(tasks.confirmTaskCompletion(1, requester), /Simulated release failure/);
+test('provider completion alone and early requester/admin release keep escrow held', async () => {
+  reset(); await fund(); verify();
+  await tasks.createTaskProgressUpdate(1, { progressPercent: 100, note: 'Finished', markAsCompleted: true }, provider);
+  assert.equal(state.task.status, 'PENDING_CONFIRMATION');
+  await assert.rejects(payments.releaseEscrowForTask(1, requester), { statusCode: 409 });
+  await assert.rejects(payments.releaseEscrowForTask(1, { id: 3, role: 'ADMIN' }), { statusCode: 409 });
+  assert.equal(state.task.escrowStatus, 'HELD');
+  assert.equal(state.payments.filter(p => p.type === 'ESCROW_RELEASE').length, 0);
+});
+test('requester confirmation cannot complete a task without provider completion evidence', async () => {
+  reset(); await fund(); state.task.status = 'PENDING_CONFIRMATION';
+  await assert.rejects(tasks.confirmTaskCompletion(1, requester), { statusCode: 409 });
   assert.equal(state.task.status, 'PENDING_CONFIRMATION');
   assert.equal(state.logs.filter(l => l.action === 'COMPLETION_CONFIRMED').length, 0);
+  assert.equal(state.payments.filter(p => p.type === 'ESCROW_RELEASE').length, 0);
+});
+test('completion confirmation is audited while failed settlement stays held; retry settles once as simulated demo', async () => {
+  reset(); await fund(); state.task.status = 'PENDING_CONFIRMATION';
+  state.logs.push({ taskId: 1, actorId: 2, action: 'PROGRESS_MARKED_COMPLETED', metadata: { markAsCompleted: true } });
+  failRelease = true;
+  const pending = await tasks.confirmTaskCompletion(1, requester);
+  assert.equal(pending.settlementPending, true);
+  assert.equal(state.task.status, 'COMPLETED');
+  assert.equal(state.task.escrowStatus, 'HELD');
+  assert.equal(state.logs.filter(l => l.action === 'COMPLETION_CONFIRMED').length, 1);
   failRelease = false;
   await Promise.all([tasks.confirmTaskCompletion(1, requester), tasks.confirmTaskCompletion(1, requester)]);
   assert.equal(state.task.status, 'PAID');
   assert.equal(state.payments.filter(p => p.type === 'ESCROW_RELEASE').length, 1);
+  const release = state.payments.find(p => p.type === 'ESCROW_RELEASE');
+  assert.equal(release.metadata.releaseMode, 'SIMULATED_DEMO');
+  assert.equal(release.note, 'TEST/DEMO simulated payout; no Stripe Connect transfer was sent');
+  assert.equal(state.logs.filter(l => l.action === 'COMPLETION_CONFIRMED').length, 1);
+  assert.equal(state.payments[0].platformFeeAmount, 20000);
+  assert.equal(state.payments[0].providerPayoutAmount, 80000);
+});
+test('active dispute blocks even an admin manual release without changing held escrow', async () => {
+  reset(); await fund();
+  state.task.status = 'COMPLETED'; state.activeDispute = true;
+  state.logs.push(
+    { taskId: 1, actorId: 2, action: 'PROGRESS_MARKED_COMPLETED' },
+    { taskId: 1, actorId: 1, action: 'COMPLETION_CONFIRMED' },
+  );
+  await assert.rejects(payments.releaseEscrowForTask(1, { id: 3, role: 'ADMIN' }), { statusCode: 409 });
+  const confirmation = await tasks.confirmTaskCompletion(1, requester);
+  assert.equal(confirmation.settlementPending, true);
+  assert.equal(state.task.escrowStatus, 'HELD');
+  assert.equal(state.payments.filter(p => p.type === 'ESCROW_RELEASE').length, 0);
+});
+test('COMPLETED without provider completion evidence cannot release funds', async () => {
+  reset(); await fund(); state.task.status = 'COMPLETED';
+  await assert.rejects(payments.releaseEscrowForTask(1, requester), { statusCode: 409 });
+  assert.equal(state.task.escrowStatus, 'HELD');
+  assert.equal(state.payments.filter(p => p.type === 'ESCROW_RELEASE').length, 0);
+});
+test('simulated settlement is disabled in production mode', async () => {
+  reset(); await fund(); state.task.status = 'COMPLETED';
+  state.logs.push({ taskId: 1, actorId: 2, action: 'PROGRESS_MARKED_COMPLETED' });
+  mockEnv.NODE_ENV = 'production';
+  await assert.rejects(payments.releaseEscrowForTask(1, requester), { statusCode: 503 });
+  delete mockEnv.NODE_ENV;
+  assert.equal(state.task.escrowStatus, 'HELD');
+  assert.equal(state.payments.filter(p => p.type === 'ESCROW_RELEASE').length, 0);
 });
 test('refund failure preserves held funds; retry/replayed funding cannot revive refund', async () => {
   reset(); await fund(); failRefund = true;
@@ -238,6 +304,7 @@ test('expired or revoked verification blocks every provider work mutation', asyn
 
 test('historical COMPLETED/HELD settlement remains retryable', async () => {
   reset(); await fund(); state.task.status = 'COMPLETED';
+  state.logs.push({ taskId: 1, actorId: 2, action: 'PROGRESS_MARKED_COMPLETED' });
   await tasks.confirmTaskCompletion(1, requester);
   assert.equal(state.task.status, 'PAID');
 });

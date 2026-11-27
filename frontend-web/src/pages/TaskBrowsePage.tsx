@@ -7,9 +7,25 @@ import { Button } from '../components/common/Button';
 import { Input } from '../components/common/Input';
 import { Card } from '../components/common/Card';
 import { TaskCategory, TaskStatus } from '../types';
+import { HO_CHI_MINH_WARD_GROUPS } from '../constants/hoChiMinhWards';
+
+const normalizeLocation = (value: string) => value.trim().toLowerCase();
+
+// A filter can be a ward ("Ben Thanh") or a former district ("District 1").
+// Older tasks store a former district; new tasks store a ward.
+const matchesLocationFilter = (taskLocation: string, filter: string) => {
+  const task = normalizeLocation(taskLocation || '');
+  const wanted = normalizeLocation(filter);
+  if (!wanted) return true;
+  if (task.includes(wanted)) return true;
+  const group = HO_CHI_MINH_WARD_GROUPS.find((item) => normalizeLocation(item.oldDistrict) === wanted);
+  return Boolean(group?.wards.some((ward) => normalizeLocation(ward) === task));
+};
 import {
   MagnifyingGlassIcon,
   FunnelIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   MapPinIcon,
   ArrowPathIcon,
   ClockIcon,
@@ -63,28 +79,9 @@ export const TaskBrowsePage: React.FC = () => {
   const [sortBy, setSortBy] = useState('opportunity');
   const [currentPage, setCurrentPage] = useState(1);
   const [browseMode, setBrowseMode] = useState<'all' | 'suggested'>('all');
+  const [isFiltersOpen, setIsFiltersOpen] = useState(true);
   const [suggestedTasks, setSuggestedTasks] = useState<any[]>([]);
-  const locationOptions = [
-    '',
-    'District 1',
-    'District 2',
-    'District 3',
-    'District 4',
-    'District 5',
-    'District 6',
-    'District 7',
-    'District 8',
-    'District 9',
-    'District 10',
-    'District 11',
-    'District 12',
-    'Binh Thanh',
-    'Phu Nhuan',
-    'Go Vap',
-    'Tan Binh',
-    'Tan Phu',
-    'Thu Duc',
-  ];
+  // Ward list grouped by former district; see matchesLocationFilter for how both forms match.
 
   useEffect(() => {
     fetchTasks();
@@ -194,7 +191,7 @@ export const TaskBrowsePage: React.FC = () => {
       return false;
     }
 
-    if (filters.location && !task.location.toLowerCase().includes(filters.location.toLowerCase())) {
+    if (filters.location && !matchesLocationFilter(task.location, filters.location)) {
       return false;
     }
 
@@ -319,11 +316,28 @@ export const TaskBrowsePage: React.FC = () => {
       </div>
 
       {/* Filters & Tasks */}
-      <div className="relative container mx-auto px-4 py-12">
-        <div className="grid lg:grid-cols-12 gap-8">
+      <div className="relative mx-auto max-w-screen-2xl px-4 py-12">
+        <button
+          type="button"
+          onClick={() => setIsFiltersOpen((open) => !open)}
+          className="fixed left-0 top-1/2 z-50 -translate-y-1/2 rounded-r-xl border border-blue-200 bg-blue-600 px-2 py-4 text-white shadow-lg transition hover:bg-blue-700"
+          aria-label={isFiltersOpen ? 'Close filters' : 'Open filters'}
+          title={isFiltersOpen ? 'Close filters' : 'Open filters'}
+        >
+          {isFiltersOpen ? <ChevronLeftIcon className="h-5 w-5" /> : <ChevronRightIcon className="h-5 w-5" />}
+        </button>
+        {isFiltersOpen && (
+          <button
+            type="button"
+            aria-label="Close filters"
+            className="fixed inset-0 z-30 bg-slate-900/30"
+            onClick={() => setIsFiltersOpen(false)}
+          />
+        )}
+        <div className="grid gap-8">
           {/* Filters Sidebar */}
-          <div className="lg:col-span-4">
-            <Card className="sticky top-24 shadow-xl border-0 bg-white/95 backdrop-blur-sm">
+          {isFiltersOpen && <div className="fixed inset-y-0 left-0 z-40 w-[min(90vw,24rem)] overflow-hidden p-4 pt-20">
+            <Card className="shadow-xl border-0 bg-white/95 backdrop-blur-sm">
               <div className="p-7 max-h-[calc(100vh-7rem)] overflow-y-auto">
                 <div className="flex items-center gap-3 mb-6">
                   <div className="p-2 bg-blue-500 rounded-lg">
@@ -334,7 +348,7 @@ export const TaskBrowsePage: React.FC = () => {
 
                 <form onSubmit={handleSearch} className="mb-8 space-y-3">
                   <Input
-                    placeholder="Search by title/description"
+                    placeholder="Search title or details"
                     value={effectiveSearch}
                     onChange={(e) => {
                       setSearchQuery(e.target.value);
@@ -355,10 +369,14 @@ export const TaskBrowsePage: React.FC = () => {
                       }}
                       className="w-full h-10 rounded-lg border border-gray-200 bg-white pl-10 pr-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      {locationOptions.map((option) => (
-                        <option key={option || 'all'} value={option}>
-                          {option || 'All locations'}
-                        </option>
+                      <option value="">All locations</option>
+                      {HO_CHI_MINH_WARD_GROUPS.map((group) => (
+                        <optgroup key={group.oldDistrict} label={group.oldDistrict}>
+                          <option value={group.oldDistrict}>All of {group.oldDistrict}</option>
+                          {group.wards.map((ward) => (
+                            <option key={`${group.oldDistrict}-${ward}`} value={ward}>{ward}</option>
+                          ))}
+                        </optgroup>
                       ))}
                     </select>
                   </div>
@@ -468,10 +486,10 @@ export const TaskBrowsePage: React.FC = () => {
                 )}
               </div>
             </Card>
-          </div>
+          </div>}
 
           {/* Tasks Content */}
-          <div className="lg:col-span-8">
+          <div className="min-w-0">
             {/* Results Header */}
             <div className="flex items-center justify-between mb-6">
               <div>
@@ -543,7 +561,7 @@ export const TaskBrowsePage: React.FC = () => {
               </div>
             ) : filteredTasks.length > 0 ? (
               <>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                   {paginatedTasks.map((task) => (
                     <TaskCard
                       key={task.id}

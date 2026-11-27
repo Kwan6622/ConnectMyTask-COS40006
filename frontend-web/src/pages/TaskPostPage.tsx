@@ -8,7 +8,8 @@ import { Button } from '../components/common/Button';
 import { Input } from '../components/common/Input';
 import { Card } from '../components/common/Card';
 import { uploadImageToCloudinary } from '../utils/cloudinaryUpload';
-import { TaskLocationPicker, type TaskCoordinates } from '../components/task/TaskLocationPicker';
+import { HO_CHI_MINH_WARD_GROUPS } from '../constants/hoChiMinhWards';
+import { TaskLocationPicker } from '../components/task/TaskLocationPicker';
 import toast from 'react-hot-toast';
 import {
   SparklesIcon,
@@ -30,9 +31,7 @@ interface TaskFormData {
   description: string;
   category: string;
   location: string;
-  siteAddress: string;
-  siteLatitude?: number;
-  siteLongitude?: number;
+  streetName: string;
   budget?: number;
   maxBids?: number;
   deadline?: string;
@@ -74,50 +73,56 @@ export const TaskPostPage: React.FC = () => {
   const [isGettingAiBudgetSuggestion, setIsGettingAiBudgetSuggestion] = useState(false);
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [isUploadingImages, setIsUploadingImages] = useState(false);
-  const [addressSearchRequest, setAddressSearchRequest] = useState(0);
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+  const [addressVerification, setAddressVerification] = useState<{
+    status: 'idle' | 'verifying' | 'verified' | 'error';
+    message?: string;
+    latitude?: number;
+    longitude?: number;
+  }>({ status: 'idle' });
   const minDeadlineValue = getDateTimeLocalNow();
-  const districtOptions = [
-    'District 1',
-    'District 2',
-    'District 3',
-    'District 4',
-    'District 5',
-    'District 6',
-    'District 7',
-    'District 8',
-    'District 9',
-    'District 10',
-    'District 11',
-    'District 12',
-    'Binh Thanh',
-    'Phu Nhuan',
-    'Go Vap',
-    'Tan Binh',
-    'Tan Phu',
-    'Thu Duc',
-  ];
   const categoryCounts = tasks.reduce<Record<string, number>>((acc, task) => {
     acc[task.category] = (acc[task.category] || 0) + 1;
     return acc;
   }, {});
 
-  const { control, register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = useForm<TaskFormData>();
-  const siteAddressRegistration = register('siteAddress', {
-    required: 'Precise task address is required',
-    onChange: () => {
-      setValue('siteLatitude', undefined, { shouldValidate: true });
-      setValue('siteLongitude', undefined, { shouldValidate: true });
-    },
-  });
-  const siteAddress = watch('siteAddress') || '';
-  const siteLatitude = watch('siteLatitude');
-  const siteLongitude = watch('siteLongitude');
-  const taskCoordinates: TaskCoordinates | null =
-    typeof siteLatitude === 'number' && Number.isFinite(siteLatitude)
-      && typeof siteLongitude === 'number' && Number.isFinite(siteLongitude)
-      ? { latitude: siteLatitude, longitude: siteLongitude }
-      : null;
+  const { control, register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<TaskFormData>();
+  const district = watch('location');
+  const streetName = watch('streetName');
+
+  useEffect(() => {
+    const street = String(streetName || '').trim();
+    if (!district || street.length < 3) {
+      setAddressVerification({ status: 'idle' });
+      return;
+    }
+
+    let cancelled = false;
+    setAddressVerification({ status: 'verifying' });
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await api.tasks.verifyAddress({ district, streetName: street });
+        if (cancelled) return;
+        setAddressVerification({
+          status: 'verified',
+          message: 'Address verified successfully. GPS coordinates have been detected.',
+          latitude: Number(response.data.latitude),
+          longitude: Number(response.data.longitude),
+        });
+      } catch (error: any) {
+        if (cancelled) return;
+        setAddressVerification({
+          status: 'error',
+          message: error?.response?.data?.message || 'Unable to verify this address. Please enter a valid address in Vietnam.',
+        });
+      }
+    }, 450);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [district, streetName]);
 
   useEffect(() => {
     if (!user) {
@@ -187,8 +192,10 @@ export const TaskPostPage: React.FC = () => {
       toast.error('Please log in to post a task');
       return;
     }
-    if (!Number.isFinite(data.siteLatitude) || !Number.isFinite(data.siteLongitude)) {
-      toast.error('Find the task address on the map and confirm its location before posting');
+    if (addressVerification.status !== 'verified'
+      || !Number.isFinite(addressVerification.latitude)
+      || !Number.isFinite(addressVerification.longitude)) {
+      toast.error(addressVerification.message || 'Please verify the task address before posting.');
       return;
     }
 
@@ -198,6 +205,10 @@ export const TaskPostPage: React.FC = () => {
         district: data.location,
         budget: data.budget ? Number(data.budget) : undefined,
         maxBids: data.maxBids ? Number(data.maxBids) : undefined,
+        streetName: data.streetName,
+        siteAddress: `${data.streetName}, ${data.location}, Ho Chi Minh City, Vietnam`,
+        siteLatitude: addressVerification.latitude,
+        siteLongitude: addressVerification.longitude,
         // Backend schema accepts number or undefined. Do not send null.
         aiSuggestedPrice: aiBudgetSuggestion?.suggestedBudget ?? undefined,
         imageUrls,
@@ -307,7 +318,7 @@ export const TaskPostPage: React.FC = () => {
                       required: 'Title is required',
                       minLength: { value: 5, message: 'Title must be at least 5 characters' }
                     })}
-                    placeholder="e.g., Fix air conditioner in living room"
+                    placeholder="e.g. Fix air conditioner"
                     className="h-12 text-lg border-gray-200 focus:ring-2 focus:ring-blue-500"
                     error={errors.title?.message}
                   />
@@ -443,24 +454,28 @@ export const TaskPostPage: React.FC = () => {
                   <div className="space-y-3">
                     <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
                       <MapPinIcon className="w-5 h-5 text-blue-600" />
-                      Location *
+                      District *
                     </label>
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                         <MapPinIcon className="w-5 h-5" />
                       </span>
                       <select
-                        {...register('location', { required: 'Location is required' })}
+                        {...register('location', { required: 'District is required' })}
                         className="w-full h-12 text-lg border border-gray-200 rounded-xl pl-11 pr-4 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         defaultValue=""
                       >
                         <option value="" disabled>
                           Select district
                         </option>
-                        {districtOptions.map((district) => (
-                          <option key={district} value={district}>
-                            {district}
-                          </option>
+                        {HO_CHI_MINH_WARD_GROUPS.map((group) => (
+                          <optgroup key={group.oldDistrict} label={group.oldDistrict}>
+                            {group.wards.map((ward) => (
+                              <option key={`${group.oldDistrict}-${ward}`} value={ward}>
+                                {ward}
+                              </option>
+                            ))}
+                          </optgroup>
                         ))}
                       </select>
                     </div>
@@ -470,29 +485,38 @@ export const TaskPostPage: React.FC = () => {
                       </p>
                     )}
                     <Input
-                      placeholder="Precise task address (private until assignment)"
-                      {...siteAddressRegistration}
-                      onBlur={(event) => {
-                        siteAddressRegistration.onBlur(event);
-                        if (siteAddress.trim()) setAddressSearchRequest((request) => request + 1);
-                      }}
+                      label="Street address (with house number) *"
+                      placeholder="e.g. A35 Bach Dang"
+                      {...register('streetName', {
+                        required: 'Address is required',
+                        minLength: { value: 3, message: 'Enter at least 3 characters' },
+                      })}
                       className="h-12 text-lg border-gray-200"
                     />
-                    {errors.siteAddress && <p className="text-sm text-red-600">{errors.siteAddress.message}</p>}
-                    <input type="hidden" {...register('siteLatitude')} />
-                    <input type="hidden" {...register('siteLongitude')} />
-                    <p className="text-xs text-dark-500">
-                      Address lookup uses OpenStreetMap Nominatim to find map coordinates.
-                    </p>
-                    <TaskLocationPicker
-                      address={siteAddress}
-                      coordinates={taskCoordinates}
-                      searchRequest={addressSearchRequest}
-                      onCoordinatesChange={(coordinates) => {
-                        setValue('siteLatitude', coordinates.latitude, { shouldDirty: true, shouldValidate: true });
-                        setValue('siteLongitude', coordinates.longitude, { shouldDirty: true, shouldValidate: true });
-                      }}
-                    />
+                    {errors.streetName && <p className="text-sm text-red-600">{errors.streetName.message}</p>}
+                    <div className="flex min-h-5 items-center gap-2 text-sm" aria-live="polite">
+                      {addressVerification.status === 'verifying' && <span className="h-4 w-4 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />}
+                      {addressVerification.status === 'verified' && <CheckCircleIcon className="h-5 w-5 text-green-600" />}
+                      {addressVerification.status === 'error' && <span className="font-bold text-red-600">✕</span>}
+                      {addressVerification.status === 'verifying' ? (
+                        <span className="text-blue-600">Verifying address...</span>
+                      ) : addressVerification.message ? (
+                        <span className={addressVerification.status === 'verified' ? 'text-green-700' : 'text-red-600'}>
+                          {addressVerification.message}
+                        </span>
+                      ) : null}
+                    </div>
+                    {addressVerification.status === 'verified'
+                      && Number.isFinite(addressVerification.latitude)
+                      && Number.isFinite(addressVerification.longitude) && (
+                      <TaskLocationPicker
+                        readOnly
+                        address={String(streetName || '')}
+                        coordinates={{ latitude: addressVerification.latitude as number, longitude: addressVerification.longitude as number }}
+                        searchRequest={0}
+                        onCoordinatesChange={() => undefined}
+                      />
+                    )}
                     <div className="bg-green-50 rounded-lg p-3 border border-green-100">
                       <p className="text-sm text-green-700 flex items-center gap-2">
                         <UserGroupIcon className="w-4 h-4" />
@@ -679,7 +703,7 @@ export const TaskPostPage: React.FC = () => {
                   </Button>
                   <Button
                     type="submit"
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || addressVerification.status !== 'verified'}
                     className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-xl px-8 py-3 text-lg font-semibold min-w-[160px]"
                   >
                     {isSubmitting ? (

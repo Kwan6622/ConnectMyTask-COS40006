@@ -7,6 +7,7 @@ import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { Input } from "@/components/Input";
+import { WardSelect } from "@/components/WardSelect";
 import { api } from "@/services/api";
 import { useAuthStore } from "@/store/authStore";
 import { useTaskStore } from "@/store/taskStore";
@@ -168,12 +169,17 @@ export default function ProfilePage(): React.ReactElement {
   };
 
   const handleSaveProfile = async (): Promise<void> => {
+    if (!location.trim()) {
+      Alert.alert("Missing district", "Please select your district.");
+      return;
+    }
     try {
       await updateProfile({
         fullName: fullName.trim(),
         name: fullName.trim(),
         phone: phoneNumber.trim(),
         phoneNumber: phoneNumber.trim(),
+        location,
         bio: bio.trim(),
       });
       setIsEditing(false);
@@ -308,7 +314,7 @@ export default function ProfilePage(): React.ReactElement {
           <View style={styles.form}>
             <Input
               label="Specialties (comma separated)"
-              placeholder="Cleaning, Delivery, Home Repair"
+              placeholder="e.g. Cleaning, Delivery"
               value={(providerProfile.specialties || []).join(", ")}
               onChangeText={(value) =>
                 setProviderProfile((prev) => ({
@@ -414,6 +420,7 @@ export default function ProfilePage(): React.ReactElement {
             <Input label="Full Name" value={fullName} onChangeText={setFullName} />
             <InfoRow label="Email" value={email || "-"} />
             <Input label="Phone Number" value={phoneNumber} onChangeText={setPhoneNumber} />
+            <WardSelect label="District*" value={location} onChange={setLocation} />
             <Input label="Bio" value={bio} onChangeText={setBio} multiline numberOfLines={4} />
             <Button title="Save Changes" onPress={() => void handleSaveProfile()} />
           </View>
@@ -422,7 +429,7 @@ export default function ProfilePage(): React.ReactElement {
             <InfoRow label="Full Name" value={fullName || "-"} />
             <InfoRow label="Email" value={email || "-"} />
             <InfoRow label="Phone Number" value={phoneNumber || "-"} />
-            <InfoRow label="Location" value={location || "-"} />
+            <InfoRow label="District" value={location || "-"} />
             <InfoRow label="Bio" value={bio || "No bio added yet."} multiline />
           </View>
         )}

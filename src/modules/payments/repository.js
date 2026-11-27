@@ -127,6 +127,20 @@ async function findSuccessfulEscrowRelease(taskId) {
   });
 }
 
+async function hasProviderCompletionConfirmation(taskId, providerId) {
+  return Boolean(await prisma.taskActivityLog.findFirst({
+    where: { taskId, actorId: providerId, action: 'PROGRESS_MARKED_COMPLETED' },
+    select: { id: true },
+  }));
+}
+
+async function hasActiveDispute(taskId) {
+  return Boolean(await prisma.dispute.findFirst({
+    where: { taskId, status: { in: ['OPEN', 'UNDER_REVIEW'] } },
+    select: { id: true },
+  }));
+}
+
 async function getPlatformFeeConfig() {
   if (!prisma.platformFeeConfig) return null;
   return prisma.platformFeeConfig.findUnique({ where: { id: 1 } });
@@ -146,6 +160,8 @@ module.exports = {
   listPaymentsByTask,
   findLatestSuccessfulEscrowDeposit,
   findSuccessfulEscrowRelease,
+  hasProviderCompletionConfirmation,
+  hasActiveDispute,
   getPlatformFeeConfig,
   createTaskActivity,
 };
