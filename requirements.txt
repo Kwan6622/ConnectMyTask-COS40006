@@ -1,0 +1,14 @@
+fastapi==0.162.5
+starlette==1.7.0
+uvicorn[standard]==0.54.0
+# pydantic pinned: newer pydantic_core DLLs are blocked by Windows Smart App Control on the team's machines
+pydantic==2.10.6
+pydantic_core==2.27.2
+scikit-learn==1.7.2
+pandas==2.3.3
+numpy==2.2.6
+matplotlib==3.10.9
+joblib==1.6.0
+# tests
+httpx==0.28.1
+pytest==9.2.0

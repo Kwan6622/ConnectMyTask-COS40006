@@ -1,0 +1,8 @@
+family,config,val_pr_auc,fit_seconds
+Logistic Regression (TF-IDF word+char + engineered),C=0.3,0.955876811806585,1.502037525177002
+Logistic Regression (TF-IDF word+char + engineered),C=1.0,0.9569490481767198,1.7015340328216553
+Logistic Regression (TF-IDF word+char + engineered),C=3.0,0.9550381892744223,2.1157071590423584
+Random Forest (TF-IDF word + engineered),"trees=400,min_leaf=1",0.9463159174082441,0.9390721321105957
+Random Forest (TF-IDF word + engineered),"trees=400,min_leaf=3",0.9459218122884986,0.9469211101531982
+Hist Gradient Boosting (SVD text + engineered),lr=0.05,0.9487050559453897,2.5262954235076904
+Hist Gradient Boosting (SVD text + engineered),lr=0.1,0.9504983066731476,1.9410274028778076

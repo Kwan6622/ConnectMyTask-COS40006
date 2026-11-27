@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ConnectMyTask · Fraud Task Detection AI</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">C</span> ConnectMyTask <span class="sub">Trust &amp; Safety · Fraud Task AI</span></div>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="post" role="tab">Post a task</button>
+      <button class="tab" data-tab="feed" role="tab">Task feed</button>
+      <button class="tab" data-tab="review" role="tab">Admin review <span id="reviewCount" class="pill hidden">0</span></button>
+      <button class="tab" data-tab="model" role="tab">Model report</button>
+    </nav>
+    <div id="engine" class="engine">…</div>
+  </header>
+
+  <main>
+    <!-- POST -->
+    <section id="tab-post" class="panel active">
+      <div class="grid">
+        <form id="taskForm" class="card" novalidate>
+          <div class="card-head">
+            <h1>Post a new task</h1>
+            <div class="samples">
+              <span>Try:</span>
+              <button type="button" class="ghost" data-sample="legit">Legit task</button>
+              <button type="button" class="ghost" data-sample="scam">Scam task</button>
+              <button type="button" class="ghost" data-sample="subtle">Subtle scam</button>
+              <button type="button" class="ghost" data-sample="underpay">Underpaid</button>
+            </div>
+          </div>
+
+          <label>Task title *
+            <input name="title" required minlength="5" maxlength="120" placeholder="e.g., Fix air conditioner in living room" />
+          </label>
+          <label>Description *
+            <textarea name="description" rows="5" required minlength="10" maxlength="2000"
+              placeholder="Describe your task in detail. Include any specific requirements, materials needed, or special instructions..."></textarea>
+          </label>
+
+          <label>Task images (max 3)
+            <input type="file" name="images" accept="image/*" multiple />
+            <div id="thumbs" class="thumbs"></div>
+          </label>
+
+          <fieldset>
+            <legend>Category *</legend>
+            <div id="categories" class="categories"></div>
+          </fieldset>
+
+          <div class="row">
+            <label>District *
+              <select name="district" required><option value="">Select district</option></select>
+            </label>
+            <label>Street address *
+              <input name="streetName" required minlength="3" placeholder="Address, e.g. A35 Bach Dang" />
+            </label>
+          </div>
+
+          <div class="row">
+            <label>Budget (VND) *
+              <input name="budget" inputmode="numeric" required placeholder="e.g., 500,000" />
+              <small id="budgetHint" class="hint"></small>
+            </label>
+            <label>Max bids
+              <input name="maxBids" type="number" min="1" max="30" value="30" />
+            </label>
+          </div>
+
+          <div class="row">
+            <label>Deadline
+              <input name="deadline" type="datetime-local" />
+            </label>
+            <label>Urgency
+              <div class="seg">
+                <input type="radio" id="urg-n" name="urgency" value="NORMAL" checked /><label for="urg-n">Normal</label>
+                <input type="radio" id="urg-u" name="urgency" value="URGENT" /><label for="urg-u">Urgent</label>
+              </div>
+            </label>
+          </div>
+
+          <div id="formError" class="error hidden"></div>
+          <div class="actions">
+            <button type="button" id="checkBtn" class="secondary">Check with AI</button>
+            <button type="submit" class="primary">Post task</button>
+          </div>
+        </form>
+
+        <aside class="card result" id="result">
+          <h2>AI validation</h2>
+          <p class="muted" id="resultEmpty">Fill in the form and press <b>Check with AI</b> - or just post it. Every posted task is scored before it goes live.</p>
+          <div id="resultBody" class="hidden">
+            <div class="gauge"><div class="gauge-fill" id="gaugeFill"></div><div class="gauge-mark" id="markReview"></div><div class="gauge-mark block" id="markBlock"></div></div>
+            <div class="score-row"><span>Fraud score <b id="score">-</b></span><span id="decision" class="badge">-</span></div>
+            <p id="outcome" class="outcome"></p>
+            <h3>Why</h3>
+            <ul id="reasons"></ul>
+            <dl class="meta">
+              <dt>Rule baseline score</dt><dd id="ruleScore">-</dd>
+              <dt>Risk level</dt><dd id="riskLevel">-</dd>
+              <dt>Engine</dt><dd id="engineUsed">-</dd>
+            </dl>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- FEED -->
+    <section id="tab-feed" class="panel">
+      <div class="card">
+        <div class="card-head"><h1>Open tasks</h1><p class="muted">Only tasks the AI approved (or an admin cleared) appear here.</p></div>
+        <div id="feed" class="list"></div>
+      </div>
+    </section>
+
+    <!-- REVIEW -->
+    <section id="tab-review" class="panel">
+      <div class="card">
+        <div class="card-head">
+          <h1>Admin review queue</h1>
+          <div class="filters">
+            <button class="ghost active" data-status="PENDING_REVIEW">Needs review</button>
+            <button class="ghost" data-status="BLOCKED">Blocked</button>
+            <button class="ghost" data-status="REJECTED">Rejected</button>
+            <button class="ghost" data-status="ALL">All</button>
+          </div>
+        </div>
+        <div id="queue" class="list"></div>
+      </div>
+    </section>
+
+    <!-- MODEL -->
+    <section id="tab-model" class="panel">
+      <div class="card">
+        <div class="card-head"><h1>Model evaluation</h1>
+          <p class="muted">Selected on a validation split, measured once on a held-out test split grouped by requester / scam campaign.
+          Full report: <a href="/reports/model_evaluation_report.md" target="_blank">model_evaluation_report.md</a> ·
+          <a href="/reports/model_comparison.csv" target="_blank">model_comparison.csv</a> ·
+          <a href="/docs" target="_blank">API docs</a></p></div>
+        <div id="modelStats" class="stats"></div>
+        <h2>Model vs rule-based baselines (held-out test)</h2>
+        <div id="baselineTable"></div>
+        <div class="figs">
+          <figure><img src="/reports/figures/model_comparison.png" alt="Model comparison" /><figcaption>Precision / recall / F1 per model</figcaption></figure>
+          <figure><img src="/reports/figures/pr_roc_curves.png" alt="PR and ROC curves" /><figcaption>PR and ROC curves</figcaption></figure>
+          <figure><img src="/reports/figures/recall_by_fraud_type.png" alt="Recall by fraud type" /><figcaption>Recall by fraud type</figcaption></figure>
+          <figure><img src="/reports/figures/leakage_checks.png" alt="Leakage checks" /><figcaption>Leakage checks</figcaption></figure>
+          <figure><img src="/reports/figures/threshold_tradeoff.png" alt="Threshold trade-off" /><figcaption>Decision thresholds</figcaption></figure>
+          <figure><img src="/reports/figures/confusion_matrix.png" alt="Confusion matrix" /><figcaption>Confusion matrix</figcaption></figure>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
