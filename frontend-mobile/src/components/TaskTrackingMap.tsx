@@ -8,9 +8,22 @@ import { api } from "@/services/api";
 import { Task, User } from "@/types";
 import { colors, radius } from "@/theme/tokens";
 import { buildLocationEvidence, buildVerificationEvidence } from "@/utils/locationVerification";
+import {
+  LOCATION_SAMPLE_INTERVAL_MS,
+  shouldUploadLocation,
+  type LastUploadedLocation,
+} from "@/utils/locationSharing";
 import { isProvider } from "@/utils/taskUtils";
 
 type Point = { latitude: number; longitude: number };
+type RoadRoute = {
+  coordinates: Point[];
+  distanceKm: number;
+  durationMinutes: number;
+};
+const MAX_LOCATION_SHARING_ACCURACY_METERS = 100;
+const MAX_VERIFICATION_ACCURACY_METERS = 20;
+const VERIFICATION_RADIUS_METERS = 100;
 type TrackingLog = {
   id: string | number;
   taskId: string | number;
@@ -32,7 +45,7 @@ function isValidPoint(point: Point | null): point is Point {
     && Number.isFinite(point.longitude) && point.longitude >= -180 && point.longitude <= 180);
 }
 
-function getTaskPoint(task: Task): Point | null {
+function getTaskPoint(task: Pick<Task, "siteLatitude" | "siteLongitude">): Point | null {
   if (task.siteLatitude == null || task.siteLongitude == null) return null;
   const latitude = Number(task.siteLatitude);
   const longitude = Number(task.siteLongitude);
@@ -78,13 +91,16 @@ const map=L.map('map').setView(${center},14);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
 const taskIcon=L.divIcon({className:'',html:'<div class="marker task-marker">T</div>',iconSize:[36,36],iconAnchor:[18,18]});
 const providerIcon=L.divIcon({className:'',html:'<div class="marker provider-marker">P</div>',iconSize:[36,36],iconAnchor:[18,18]});
-let taskMarker=null,providerMarker=null;
+let taskMarker=null,providerMarker=null,routeLine=null;
 window.updateTaskTracking=function(data){
 const task=data.taskLocation&&[data.taskLocation.latitude,data.taskLocation.longitude];
 const provider=data.providerLocation&&[data.providerLocation.latitude,data.providerLocation.longitude];
 if(task){if(taskMarker)taskMarker.setLatLng(task);else taskMarker=L.marker(task,{icon:taskIcon}).addTo(map).bindPopup('Requester-set task location');}
 if(provider){if(providerMarker)providerMarker.setLatLng(provider);else providerMarker=L.marker(provider,{icon:providerIcon}).addTo(map).bindPopup('Provider location');}
-const points=[task,provider].filter(Boolean);
+if(routeLine){map.removeLayer(routeLine);routeLine=null;}
+const route=Array.isArray(data.routeCoordinates)?data.routeCoordinates.map(point=>[point.latitude,point.longitude]):[];
+if(route.length>1)routeLine=L.polyline(route,{color:'#2563eb',weight:5,opacity:0.85}).addTo(map);
+const points=route.length>1?route:[task,provider].filter(Boolean);
 if(points.length>1)map.fitBounds(L.latLngBounds(points),{padding:[32,32],maxZoom:15});else if(points.length===1)map.setView(points[0],15);
 };
 window.ReactNativeWebView.postMessage('map-ready');
@@ -92,6 +108,11 @@ window.ReactNativeWebView.postMessage('map-ready');
 }
 
 export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.ReactElement {
+  const taskId = task.id;
+  const taskSiteLatitude = task.siteLatitude;
+  const taskSiteLongitude = task.siteLongitude;
+  const [roadRoute, setRoadRoute] = useState<RoadRoute | null>(null);
+  const [routeError, setRouteError] = useState("");
   const [taskPoint, setTaskPoint] = useState<Point | null>(() => getTaskPoint(task));
   const [siteAddress, setSiteAddress] = useState("");
   const [siteLocationError, setSiteLocationError] = useState("");
@@ -100,7 +121,8 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
   );
   const escrowFunded = task.escrowStatus === "HELD";
   const taskIsActive = ["ASSIGNED", "IN_PROGRESS", "PENDING_CONFIRMATION"].includes(String(task.status));
-  const canVerifyArrival = Platform.OS !== "web" && escrowFunded && taskIsActive && taskPoint != null;
+  const canVerifyArrival = Platform.OS !== "web" && escrowFunded && taskIsActive
+    && taskPoint != null;
   const verificationBlockMessage = Platform.OS === "web"
     ? "Location verification is only available in the mobile app."
     : !escrowFunded
@@ -111,7 +133,6 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
           ? "Location verification needs a saved task map pin. Ask the requester to update the task location."
           : null;
   const [latest, setLatest] = useState<TrackingLog | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSharing, setIsSharing] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [isVerifyingArrival, setIsVerifyingArrival] = useState(false);
@@ -122,24 +143,76 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
   const [mapError, setMapError] = useState(false);
   const mapRef = useRef<WebView<object> | null>(null);
   const sharingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sharingSessionRef = useRef(0);
   const sendInFlightRef = useRef(false);
+  const routeRequestIdRef = useRef(0);
+  const lastUploadedLocationRef = useRef<LastUploadedLocation | null>(null);
   const mountedRef = useRef(true);
   const providerPoint = useMemo(() => getProviderPoint(latest), [latest]);
-  const initialCenter = taskPoint || providerPoint || { latitude: 10.7769, longitude: 106.7009 };
+  const initialCenter = taskPoint || providerPoint || { latitude: 0, longitude: 0 };
   const html = useMemo(
     () => createMapHtml(initialCenter),
     [initialCenter.latitude, initialCenter.longitude]
   );
+  const routeOriginLatitude = providerPoint?.latitude;
+  const routeOriginLongitude = providerPoint?.longitude;
+  const routeDestinationLatitude = taskPoint?.latitude;
+  const routeDestinationLongitude = taskPoint?.longitude;
+
+  useEffect(() => {
+    if (routeOriginLatitude == null || routeOriginLongitude == null
+      || routeDestinationLatitude == null || routeDestinationLongitude == null) {
+      setRoadRoute(null);
+      setRouteError("");
+      return;
+    }
+
+    const requestId = ++routeRequestIdRef.current;
+    api.tracking.route(taskId)
+      .then((response) => {
+        if (!mountedRef.current || requestId !== routeRequestIdRef.current) return;
+        const route = response.data as RoadRoute | null;
+        if (!route || !Array.isArray(route.coordinates) || route.coordinates.length < 2) {
+          setRoadRoute(null);
+          setRouteError("");
+          return;
+        }
+        setRoadRoute(route);
+        setRouteError("");
+      })
+      .catch((error: any) => {
+        if (!mountedRef.current || requestId !== routeRequestIdRef.current) return;
+        setRoadRoute(null);
+        setRouteError(getTrackingErrorMessage(error, "Unable to update the road route."));
+      });
+
+    return () => {
+      if (routeRequestIdRef.current === requestId) routeRequestIdRef.current += 1;
+    };
+  }, [
+    routeDestinationLatitude,
+    routeDestinationLongitude,
+    routeOriginLatitude,
+    routeOriginLongitude,
+    taskId,
+  ]);
 
   useEffect(() => {
     let mounted = true;
     setTaskPoint(getTaskPoint(task));
     setSiteAddress("");
     setSiteLocationError("");
-    api.tracking.taskSiteLocation(task.id)
+    api.tracking.taskSiteLocation(taskId)
       .then((response) => {
         if (!mounted) return;
-        const point = getTaskPoint({ ...task, ...response.data });
+        const point = getTaskPoint({
+          siteLatitude: response.data?.siteLatitude !== undefined
+            ? response.data.siteLatitude
+            : taskSiteLatitude,
+          siteLongitude: response.data?.siteLongitude !== undefined
+            ? response.data.siteLongitude
+            : taskSiteLongitude,
+        });
         setTaskPoint(point);
         setSiteAddress(typeof response.data?.siteAddress === "string" ? response.data.siteAddress : "");
         setSiteLocationError(point
@@ -156,7 +229,7 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
     return () => {
       mounted = false;
     };
-  }, [task]);
+  }, [taskId, taskSiteLatitude, taskSiteLongitude]);
 
   const refreshLocation = useCallback(async () => {
     try {
@@ -168,33 +241,56 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
       if (mountedRef.current) {
         setLoadError(error?.response?.data?.message || error?.message || "Unable to load provider location.");
       }
-    } finally {
-      if (mountedRef.current) setIsLoading(false);
     }
   }, [task.id]);
 
   const stopSharing = useCallback(() => {
+    sharingSessionRef.current += 1;
     if (sharingIntervalRef.current) clearInterval(sharingIntervalRef.current);
     sharingIntervalRef.current = null;
+    lastUploadedLocationRef.current = null;
     setIsSharing(false);
   }, []);
 
-  const sendLocation = useCallback(async (coords: Location.LocationObjectCoords, timestamp: number): Promise<boolean> => {
+  useEffect(() => {
+    if (!assignedProvider || !escrowFunded || !taskIsActive) {
+      stopSharing();
+    }
+  }, [assignedProvider, escrowFunded, stopSharing, taskIsActive]);
+
+  const sendLocation = useCallback(async (
+    coords: Location.LocationObjectCoords,
+    timestamp: number,
+    sharingSession: number
+  ): Promise<boolean> => {
+    if (sharingSession !== sharingSessionRef.current) return false;
     if (sendInFlightRef.current) return false;
-    if (coords.accuracy == null || !Number.isFinite(coords.accuracy) || coords.accuracy <= 0) {
-      setSharingError("GPS did not provide an accurate location sample.");
+    if (coords.accuracy == null || !Number.isFinite(coords.accuracy)
+      || coords.accuracy <= 0 || coords.accuracy > MAX_LOCATION_SHARING_ACCURACY_METERS) {
+      setSharingError(`GPS accuracy must be ${MAX_LOCATION_SHARING_ACCURACY_METERS} metres or better to share your location.`);
       return false;
     }
+    const uploadStartedAt = Date.now();
+    if (!shouldUploadLocation(coords, lastUploadedLocationRef.current, uploadStartedAt)) return true;
     sendInFlightRef.current = true;
     try {
       const evidence = buildLocationEvidence(coords, timestamp);
-      const response = await api.tracking.update({ taskId: Number(task.id), ...evidence });
-      if (!mountedRef.current) return false;
+      const response = await api.tracking.update({
+        taskId: Number(task.id),
+        ...evidence,
+        source: "GPS",
+      });
+      if (!mountedRef.current || sharingSession !== sharingSessionRef.current) return false;
+      lastUploadedLocationRef.current = {
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        uploadedAt: uploadStartedAt,
+      };
       setLatest(response.data);
       setSharingError("");
       return true;
     } catch (error: any) {
-      if (mountedRef.current) {
+      if (mountedRef.current && sharingSession === sharingSessionRef.current) {
         if (error?.response?.status === 409) stopSharing();
         setSharingError(getTrackingErrorMessage(error, "Unable to share your location."));
       }
@@ -216,6 +312,10 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
       const permission = await Location.requestForegroundPermissionsAsync();
       if (permission.status !== "granted") throw new Error("Allow foreground location access to verify your location.");
       const point = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      if (point.coords.accuracy == null || !Number.isFinite(point.coords.accuracy)
+        || point.coords.accuracy <= 0 || point.coords.accuracy > MAX_VERIFICATION_ACCURACY_METERS) {
+        throw new Error(`GPS accuracy must be ${MAX_VERIFICATION_ACCURACY_METERS} metres or better to verify your location.`);
+      }
       const response = await api.tracking.verify(
         task.id,
         buildVerificationEvidence(point.coords, point.timestamp)
@@ -268,22 +368,23 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
 
     setIsStarting(true);
     setSharingError("");
+    const sharingSession = ++sharingSessionRef.current;
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
       if (permission.status !== "granted") throw new Error("Allow location access to share your live position.");
       const point = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      const firstLocationSent = await sendLocation(point.coords, point.timestamp);
+      const firstLocationSent = await sendLocation(point.coords, point.timestamp, sharingSession);
       if (!firstLocationSent) return;
       if (!mountedRef.current) return;
       sharingIntervalRef.current = setInterval(() => {
         void Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
-          .then((position) => sendLocation(position.coords, position.timestamp))
+          .then((position) => sendLocation(position.coords, position.timestamp, sharingSession))
           .catch((error: any) => {
             if (mountedRef.current) {
               setSharingError(getTrackingErrorMessage(error, "Unable to get your current location."));
             }
           });
-      }, 5000);
+      }, LOCATION_SAMPLE_INTERVAL_MS);
       setIsSharing(true);
     } catch (error: any) {
       if (mountedRef.current) {
@@ -328,9 +429,13 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
 
   useEffect(() => {
     if (!mapReady) return;
-    const data = JSON.stringify({ taskLocation: taskPoint, providerLocation: providerPoint });
+    const data = JSON.stringify({
+      taskLocation: taskPoint,
+      providerLocation: latest && providerPoint ? providerPoint : null,
+      routeCoordinates: roadRoute?.coordinates || null,
+    });
     mapRef.current?.injectJavaScript(`window.updateTaskTracking(${data}); true;`);
-  }, [mapReady, providerPoint, taskPoint]);
+  }, [latest, mapReady, providerPoint, roadRoute, taskPoint]);
 
   const handleMapMessage = (event: WebViewMessageEvent): void => {
     if (event.nativeEvent.data === "map-ready") {
@@ -345,11 +450,14 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
     <Card title="Task live tracking">
       <Text style={styles.description}>
         {assignedProvider
-          ? "Share your journey with the requester. GPS updates every 5 seconds; verify your location within 1 km of the task site after escrow is funded."
-          : "Green marks the location set by the requester; blue shows the provider's latest shared location."}
+          ? "Your live location is shared with the requester while you work."
+          : "Follow the provider's route to the requester location."}
       </Text>
       {assignedProvider && siteAddress ? (
-        <Text style={styles.helperText}>Requester task address: {siteAddress}</Text>
+        <View style={styles.addressBox}>
+          <Text style={styles.addressLabel}>Requester task address:</Text>
+          <Text style={styles.addressText}>{siteAddress}</Text>
+        </View>
       ) : null}
       <View style={styles.mapFrame}>
         <WebView<object>
@@ -370,23 +478,22 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
         ) : null}
       </View>
       <View style={styles.legend}>
-        <Text style={styles.legendText}>Green: requester-set task location</Text>
-        <Text style={styles.legendText}>Blue: provider</Text>
+        <Text style={styles.legendText}>
+          Blue: {assignedProvider ? "Your Location" : "Provider Location"}
+        </Text>
+        <Text style={styles.legendText}>
+          Green: {assignedProvider ? "Requester Location" : "Your Task Location"}
+        </Text>
       </View>
-      {!taskPoint ? (
-        <Text style={styles.helperText}>Precise task coordinates are not available.</Text>
+      {roadRoute ? (
+        <Text style={styles.helperText}>
+          Road route: {roadRoute.distanceKm.toFixed(1)} km · about {Math.round(roadRoute.durationMinutes)} min
+        </Text>
       ) : null}
+      {routeError ? <Text accessibilityRole="alert" style={styles.errorText}>{routeError}</Text> : null}
       {siteLocationError ? <Text accessibilityRole="alert" style={styles.errorText}>{siteLocationError}</Text> : null}
-      {!latest && !isLoading ? (
-        <Text style={styles.helperText}>No provider GPS update yet.</Text>
-      ) : null}
       {latest?.timestamp ? (
         <Text style={styles.helperText}>Last update: {new Date(latest.timestamp).toLocaleString()}</Text>
-      ) : null}
-      {assignedProvider ? (
-        <Text style={styles.helperText}>
-          {isArrived ? "Location verified within 1 km of the task site." : "Task location has not been verified yet."}
-        </Text>
       ) : null}
       {assignedProvider && !escrowFunded ? (
         <Text style={styles.helperText}>{verificationBlockMessage}</Text>
@@ -406,7 +513,7 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
             onPress={() => (isSharing ? stopSharing() : void startSharing())}
           />
           <Button
-            title={isVerifyingArrival ? "Checking location..." : isArrived ? "Recheck location (1 km)" : "Verify location (1 km)"}
+            title={isVerifyingArrival ? "Checking location..." : isArrived ? `Recheck location (${VERIFICATION_RADIUS_METERS} m)` : `Verify location (${VERIFICATION_RADIUS_METERS} m)`}
             variant="outline"
             loading={isVerifyingArrival}
             disabled={isStarting || isVerifyingArrival || !canVerifyArrival}
@@ -471,5 +578,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     marginTop: 8,
+  },
+  addressBox: {
+    marginBottom: 12,
+    gap: 2,
+  },
+  addressLabel: {
+    color: colors.dark[600],
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  addressText: {
+    color: colors.dark[900],
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "600",
   },
 });

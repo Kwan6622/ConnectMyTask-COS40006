@@ -6,7 +6,9 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.connectmytask.mobile",
@@ -45,7 +47,8 @@
         {
           "locationWhenInUsePermission": "ConnectMyTask uses your foreground location to verify and share your position on an assigned task while the app is open."
         }
-      ]
+      ],
+      "expo-status-bar"
     ]
   }
 }

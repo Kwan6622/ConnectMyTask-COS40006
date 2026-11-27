@@ -80,6 +80,11 @@ export const PrivacyPolicyPage: React.FC = () => {
                       with your direction, or when required by law. We keep data only as long as needed for legitimate
                       business and legal purposes.
                     </div>
+                    <p className="mt-3 text-sm text-gray-600 leading-relaxed">
+                      To calculate a driving route, our API sends the provider&apos;s latest coordinates and the saved
+                      task pin to the public OSRM routing service. OSRM&apos;s own handling of those coordinates is
+                      outside our control.
+                    </p>
                   </section>
                 </div>
               </div>

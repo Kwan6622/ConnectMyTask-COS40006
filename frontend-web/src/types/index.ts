@@ -174,6 +174,7 @@ export interface TrackingLog {
   lat: number;
   lng: number;
   accuracy?: number | null;
+  source?: 'GPS' | 'DEMO';
   timestamp: string;
   receivedAt?: string;
 }

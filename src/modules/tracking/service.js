@@ -3,13 +3,23 @@ const notificationRepository = require('../notifications/repository');
 const taskRepository = require('../tasks/repository');
 const { withTaskLock } = require('../../database/taskTransaction');
 
-const VERIFICATION_RADIUS_METERS = 1000;
-const MAX_GPS_ACCURACY_METERS = 100;
+const VERIFICATION_RADIUS_METERS = 100;
+const MAX_LOCATION_UPDATE_ACCURACY_METERS = 100;
+const MAX_VERIFICATION_ACCURACY_METERS = 20;
 const MAX_LOCATION_AGE_MS = 2 * 60 * 1000;
 const MAX_FUTURE_SKEW_MS = 15 * 1000;
 const VERIFICATION_TTL_MS = 60 * 60 * 1000;
+const DISTANCE_COMPARISON_TOLERANCE_METERS = 1e-6;
+const OSRM_ROUTING_BASE_URL = 'https://router.project-osrm.org';
+const ROUTE_CACHE_TTL_MS = 30 * 1000;
+const ROUTE_CACHE_MAX_AGE_MS = 2 * 60 * 1000;
+const ROUTE_REFRESH_DISTANCE_METERS = 200;
+const ROUTE_OFF_PATH_THRESHOLD_METERS = 40;
+const ROUTE_REQUEST_TIMEOUT_MS = 10 * 1000;
 const ACTIVE_TASK_STATUSES = ['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION'];
 const liveLocations = new Map();
+const routeCache = new Map();
+const routeRequests = new Map();
 let liveLocationSequence = 0;
 
 function validateTaskId(taskId) {
@@ -36,7 +46,7 @@ function assertEscrowFunded(task) {
   }
 }
 
-function saveLiveLocation(taskId, providerId, payload, timestamp) {
+function saveLiveLocation(taskId, providerId, payload, timestamp, source = 'GPS') {
   const now = Date.now();
   for (const [cachedTaskId, location] of liveLocations) {
     if (now - location.receivedAt > MAX_LOCATION_AGE_MS) liveLocations.delete(cachedTaskId);
@@ -49,6 +59,7 @@ function saveLiveLocation(taskId, providerId, payload, timestamp) {
     lat: payload.lat,
     lng: payload.lng,
     accuracy: payload.accuracy,
+    source,
     timestamp: timestamp.toISOString(),
     receivedAt: now,
   };
@@ -68,9 +79,9 @@ function parseLocationTimestamp(value, now = Date.now()) {
   return timestamp;
 }
 
-function assertAccuracy(accuracy) {
-  if (!Number.isFinite(accuracy) || accuracy <= 0 || accuracy > MAX_GPS_ACCURACY_METERS) {
-    throw Object.assign(new Error(`GPS accuracy must be within ${MAX_GPS_ACCURACY_METERS} metres`), { statusCode: 409 });
+function assertAccuracy(accuracy, maximum) {
+  if (!Number.isFinite(accuracy) || accuracy <= 0 || accuracy > maximum) {
+    throw Object.assign(new Error(`GPS accuracy must be within ${maximum} metres`), { statusCode: 409 });
   }
 }
 
@@ -82,6 +93,37 @@ function distanceMeters(lat1, lng1, lat2, lng2) {
   const a = Math.sin(dLat / 2) ** 2
     + Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(dLng / 2) ** 2;
   return earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function distanceFromPointToRouteMeters(point, routeCoordinates) {
+  if (!Array.isArray(routeCoordinates) || routeCoordinates.length < 2) return Infinity;
+  const metersPerLatitudeDegree = 111320;
+  const metersPerLongitudeDegree = metersPerLatitudeDegree
+    * Math.max(0.01, Math.cos(point.latitude * Math.PI / 180));
+  const project = coordinate => ({
+    x: (coordinate.longitude - point.longitude) * metersPerLongitudeDegree,
+    y: (coordinate.latitude - point.latitude) * metersPerLatitudeDegree,
+  });
+  let minimumDistanceSquared = Infinity;
+
+  for (let index = 0; index < routeCoordinates.length - 1; index += 1) {
+    const start = project(routeCoordinates[index]);
+    const end = project(routeCoordinates[index + 1]);
+    const segmentX = end.x - start.x;
+    const segmentY = end.y - start.y;
+    const segmentLengthSquared = segmentX ** 2 + segmentY ** 2;
+    const fraction = segmentLengthSquared === 0
+      ? 0
+      : Math.max(0, Math.min(1, -(start.x * segmentX + start.y * segmentY) / segmentLengthSquared));
+    const distanceX = start.x + fraction * segmentX;
+    const distanceY = start.y + fraction * segmentY;
+    minimumDistanceSquared = Math.min(
+      minimumDistanceSquared,
+      distanceX ** 2 + distanceY ** 2
+    );
+  }
+
+  return Math.sqrt(minimumDistanceSquared);
 }
 
 function assertProviderTask(task, user) {
@@ -128,10 +170,10 @@ async function verifyTaskLocation(taskId, payload, user) {
       throw Object.assign(new Error('Location verification request was already used'), { statusCode: 409 });
     }
     const locationTimestamp = parseLocationTimestamp(payload.timestamp);
-    assertAccuracy(payload.accuracy);
+    assertAccuracy(payload.accuracy, MAX_VERIFICATION_ACCURACY_METERS);
     const measuredDistance = distanceMeters(payload.lat, payload.lng, task.siteLatitude, task.siteLongitude);
-    if (measuredDistance > VERIFICATION_RADIUS_METERS) {
-      throw Object.assign(new Error('Provider is outside the 1 km location verification radius'), {
+    if (measuredDistance - VERIFICATION_RADIUS_METERS > DISTANCE_COMPARISON_TOLERANCE_METERS) {
+      throw Object.assign(new Error('Provider is outside the 100 m location verification radius'), {
         statusCode: 409,
         details: { distanceMeters: Math.round(measuredDistance), allowedMeters: VERIFICATION_RADIUS_METERS },
       });
@@ -179,13 +221,17 @@ async function recordLocationUpdate(payload, user) {
   if (payload.providerId != null && payload.providerId !== user.id) {
     throw Object.assign(new Error('Provider identity mismatch'), { statusCode: 403 });
   }
+  const source = payload.source || 'GPS';
+  if (source === 'DEMO' && process.env.NODE_ENV === 'production') {
+    throw Object.assign(new Error('Simulated GPS updates are disabled in production'), { statusCode: 403 });
+  }
   return withTaskLock(payload.taskId, async () => {
     const task = await trackingRepository.getTaskById(payload.taskId);
     assertProviderTask(task, user);
     assertEscrowFunded(task);
     const timestamp = parseLocationTimestamp(payload.timestamp);
-    assertAccuracy(payload.accuracy);
-    return saveLiveLocation(payload.taskId, user.id, payload, timestamp);
+    assertAccuracy(payload.accuracy, MAX_LOCATION_UPDATE_ACCURACY_METERS);
+    return saveLiveLocation(payload.taskId, user.id, payload, timestamp, source);
   });
 }
 
@@ -209,8 +255,107 @@ async function getLatestLocation(taskId, user) {
     lat: location.lat,
     lng: location.lng,
     accuracy: location.accuracy,
+    source: location.source,
     timestamp: location.timestamp,
   };
+}
+
+async function getDrivingRoute(taskId, user) {
+  const id = validateTaskId(taskId);
+  const task = await trackingRepository.getTaskById(id);
+  assertTaskParticipant(task, user, 'view tracking');
+  assertEscrowFunded(task);
+
+  const hasTaskCoordinates = Number.isFinite(task.siteLatitude)
+    && Number.isFinite(task.siteLongitude)
+    && task.siteLatitude >= -90 && task.siteLatitude <= 90
+    && task.siteLongitude >= -180 && task.siteLongitude <= 180;
+  if (!hasTaskCoordinates) {
+    throw Object.assign(new Error('Task has no saved requester map pin'), { statusCode: 409 });
+  }
+
+  const providerLocation = await getLatestLocation(id, user);
+  if (!providerLocation) return null;
+  const origin = { latitude: providerLocation.lat, longitude: providerLocation.lng };
+  const destination = { latitude: task.siteLatitude, longitude: task.siteLongitude };
+  const now = Date.now();
+
+  for (const [cachedTaskId, cachedRoute] of routeCache) {
+    if (now - cachedRoute.cachedAt > ROUTE_CACHE_MAX_AGE_MS) routeCache.delete(cachedTaskId);
+  }
+
+  const cached = routeCache.get(id);
+  if (cached
+    && cached.destination.latitude === destination.latitude
+    && cached.destination.longitude === destination.longitude
+    && now - cached.cachedAt < ROUTE_CACHE_TTL_MS
+    && distanceMeters(origin.latitude, origin.longitude, cached.origin.latitude, cached.origin.longitude)
+      < ROUTE_REFRESH_DISTANCE_METERS
+    && distanceFromPointToRouteMeters(origin, cached.route.coordinates)
+      <= Math.max(ROUTE_OFF_PATH_THRESHOLD_METERS, providerLocation.accuracy || 0)) {
+    return cached.route;
+  }
+
+  const pendingRequest = routeRequests.get(id);
+  if (pendingRequest
+    && pendingRequest.destination.latitude === destination.latitude
+    && pendingRequest.destination.longitude === destination.longitude
+    && distanceMeters(origin.latitude, origin.longitude, pendingRequest.origin.latitude, pendingRequest.origin.longitude) < 1) {
+    return pendingRequest.promise;
+  }
+
+  const routeUrl = new URL(
+    `${OSRM_ROUTING_BASE_URL}/route/v1/driving/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}`
+  );
+  routeUrl.searchParams.set('overview', 'full');
+  routeUrl.searchParams.set('geometries', 'geojson');
+
+  const routePromise = (async () => {
+    let response;
+    let result;
+    try {
+      response = await fetch(routeUrl, { signal: AbortSignal.timeout(ROUTE_REQUEST_TIMEOUT_MS) });
+      if (!response.ok) throw new Error(`OSRM returned ${response.status}`);
+      result = await response.json();
+    } catch (error) {
+      throw Object.assign(new Error('Unable to retrieve a road route from OSRM'), {
+        statusCode: 502,
+        cause: error,
+      });
+    }
+
+    const route = result?.routes?.[0];
+    const coordinates = route?.geometry?.coordinates;
+    const validCoordinates = Array.isArray(coordinates)
+      && coordinates.length >= 2
+      && coordinates.every(coordinate => Array.isArray(coordinate)
+        && coordinate.length >= 2
+        && Number.isFinite(coordinate[0])
+        && Number.isFinite(coordinate[1])
+        && Math.abs(coordinate[0]) <= 180
+        && Math.abs(coordinate[1]) <= 90);
+    if (result?.code !== 'Ok'
+      || !validCoordinates
+      || !Number.isFinite(route.distance)
+      || !Number.isFinite(route.duration)) {
+      throw Object.assign(new Error('OSRM did not return a usable driving route'), { statusCode: 502 });
+    }
+
+    const roadRoute = {
+      coordinates: coordinates.map(([longitude, latitude]) => ({ latitude, longitude })),
+      distanceKm: route.distance / 1000,
+      durationMinutes: route.duration / 60,
+    };
+    routeCache.set(id, { origin, destination, route: roadRoute, cachedAt: Date.now() });
+    return roadRoute;
+  })();
+  routeRequests.set(id, { origin, destination, promise: routePromise });
+
+  try {
+    return await routePromise;
+  } finally {
+    if (routeRequests.get(id)?.promise === routePromise) routeRequests.delete(id);
+  }
 }
 
 async function getLocationHistory(taskId, user) {
@@ -275,6 +420,7 @@ const revokeTaskVerification = (taskId, reason) =>
 module.exports = {
   recordLocationUpdate,
   getLatestLocation,
+  getDrivingRoute,
   getLocationHistory,
   verifyTaskLocation,
   getVerificationStatus,
@@ -284,7 +430,8 @@ module.exports = {
   distanceMeters,
   constants: {
     VERIFICATION_RADIUS_METERS,
-    MAX_GPS_ACCURACY_METERS,
+    MAX_LOCATION_UPDATE_ACCURACY_METERS,
+    MAX_VERIFICATION_ACCURACY_METERS,
     MAX_LOCATION_AGE_MS,
     MAX_FUTURE_SKEW_MS,
     VERIFICATION_TTL_MS,

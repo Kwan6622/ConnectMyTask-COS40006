@@ -9,9 +9,10 @@ This guide explains how task tracking works in the current project, how to run i
 - Tracking and the requester's precise task address are available to task participants only after requester escrow funding is confirmed (`HELD`). The public task district remains visible before funding.
 - The requester and assigned provider can see the map inside the selected task in **My Assigned Tasks** / task progress.
 - The requester can view the map on web or mobile. Only the assigned provider can send GPS, and only from the mobile app while it is open.
-- The assigned provider opts in with **Start sharing journey**. The mobile app sends a GPS sample every five seconds while the tracking screen is open and the app is in the foreground.
+- The assigned provider opts in with **Start sharing journey**. The mobile app samples GPS every five seconds while the tracking screen is open and the app is in the foreground. It uploads a point when at least 20 seconds have elapsed since the previous successful upload or the provider has moved at least 20 metres.
 - The requester-set task-site marker is always shown separately from the provider's latest shared location.
-- After escrow is funded, the provider can share the journey and verify their location from the mobile app. Verification accepts a fresh GPS sample within 1 km of the task site.
+- In a development mobile build, the assigned provider can use **GPS demo controls** to start from a fresh device GPS fix and simulate 50 m moves. The requester pin comes from the task's saved site coordinates. The API requests a driving route from the public OSRM service using those two coordinates; OSRM receives the provider's latest point and the task pin. The route and ETA do not include traffic data. Demo points are labeled, cannot verify arrival, are rejected by a production API, and remain visible until replaced or they expire after two minutes.
+- After escrow is funded, the provider can share the journey and verify their location from the mobile app. Journey samples must have accuracy of 100 metres or better. Verification accepts a fresh GPS sample within 100 metres of the task site and accuracy of 20 metres or better.
 - Maps use Leaflet/OpenStreetMap on web and a Leaflet map inside a mobile WebView. Internet access is needed to load map tiles.
 
 ## Requirements before testing
@@ -90,8 +91,8 @@ Scan the QR code in Expo Go. Allow Node/Expo through Windows Firewall on a priva
 2. Sign in as a provider and submit a bid for that task.
 3. As the requester, assign that provider's bid and fund escrow. The tracking map and precise requester task address appear for task participants after payment confirmation.
 4. On the provider's phone, open **My Assigned Tasks**, select the assigned task and tap **Start sharing journey**. Allow foreground location access.
-5. Confirm the provider marker updates while travelling, including when it is more than 1 km from the task site.
-6. After escrow is funded, tap **Verify location**. The GPS sample must be accurate to 100 metres or better, no more than two minutes old, and within 1 km of the saved task site. Verification expires after one hour; provider progress is blocked in the web and mobile apps after expiry until the provider verifies again.
+5. Confirm the provider marker updates while travelling, including when it is more than 100 metres from the task site. Updates are sampled every five seconds and uploaded after 20 seconds or 20 metres of movement.
+6. After escrow is funded, tap **Verify location**. The GPS sample must be accurate to 20 metres or better, no more than two minutes old, and within 100 metres of the saved task site. Verification expires after one hour; provider progress is blocked in the web and mobile apps after expiry until the provider verifies again.
 7. Open that same task as the requester on web or mobile. The map shows the requester-set task pin and the provider's latest live point.
 8. Leave the provider app and selected task screen open while testing. Sharing stops when the app moves out of the foreground, the screen is left, or the provider stops sharing.
 
@@ -105,6 +106,7 @@ All routes are under `/api/tracking` and require authentication.
 |---|---|---|
 | `GET` | `/tasks/:taskId/site-location` | Get saved requester-set coordinates for a task participant |
 | `GET` | `/tasks/:taskId/latest` | Get the latest in-memory location for an authorized task participant (expires after two minutes) |
+| `GET` | `/tasks/:taskId/route` | Get an OSRM driving route from the latest provider location to the saved task pin |
 | `GET` | `/tasks/:taskId/history` | Return an empty list; provider journey history is not stored |
 | `GET` | `/tasks/:taskId/verification` | Read task location-verification status |
 | `POST` | `/tasks/:taskId/verify` | Verify the assigned provider's current GPS point against the task site |
@@ -135,7 +137,7 @@ Check that:
 ### The provider cannot confirm arrival
 
 - Location verification is separate from journey sharing, but both require funded escrow; they also require an active task and valid site coordinates.
-- The provider must be within 1 km of the saved task coordinates and the GPS sample must be accurate to 100 metres or better and no more than two minutes old.
+- The provider must be within 100 metres of the saved task coordinates and the GPS sample must be accurate to 20 metres or better and no more than two minutes old.
 - If the pin is incorrect, update the task-site address/location before relying on location verification.
 
 ### The requester sees the map but no provider marker
@@ -148,11 +150,7 @@ The Leaflet map tiles are fetched from OpenStreetMap over the internet. Check co
 
 ### Tracking tests
 
-The backend tracking service tests use mocked database operations and do not require a live database. From the repository root:
-
-```powershell
-node --test src/modules/tracking/tracking.test.js
-```
+The GPS demo and automated tracking tests are included in the separate `ConnectMyTask-GPS-Demo-Test.zip` bundle. Extract it to a separate folder to access the test files and run the included test setup.
 
 ## Privacy and scope
 

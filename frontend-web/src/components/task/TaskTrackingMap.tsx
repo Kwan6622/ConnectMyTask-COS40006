@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import 'leaflet/dist/leaflet.css';
-import { CircleMarker, MapContainer, Popup, TileLayer, useMap } from 'react-leaflet';
+import { CircleMarker, MapContainer, Polyline, Popup, TileLayer, useMap } from 'react-leaflet';
 import { api } from '../../services/api';
 import type { Task, TrackingLog } from '../../types';
 
@@ -14,6 +14,11 @@ type TaskTrackingMapProps = {
 };
 
 type Coordinates = [number, number];
+type RoadRoute = {
+  coordinates: Coordinates[];
+  distanceKm: number;
+  durationMinutes: number;
+};
 
 function MapViewport({ points }: { points: Coordinates[] }) {
   const map = useMap();
@@ -39,6 +44,42 @@ function getTaskCoordinates(task: Task): Coordinates | null {
   return [latitude, longitude];
 }
 
+function normalizeRoadRoute(value: unknown): RoadRoute | null {
+  if (value == null) return null;
+  if (typeof value !== 'object') {
+    throw new Error('The road route response is invalid.');
+  }
+
+  const route = value as Record<string, unknown>;
+  if (!Array.isArray(route.coordinates) || route.coordinates.length < 2
+    || typeof route.distanceKm !== 'number' || !Number.isFinite(route.distanceKm)
+    || typeof route.durationMinutes !== 'number' || !Number.isFinite(route.durationMinutes)) {
+    throw new Error('The road route response is incomplete.');
+  }
+
+  const coordinates = (route.coordinates as unknown[]).map((value): Coordinates => {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw new Error('The road route contains an invalid coordinate.');
+    }
+
+    const point = value as Record<string, unknown>;
+    const latitude = point.latitude;
+    const longitude = point.longitude;
+    if (typeof latitude !== 'number' || !Number.isFinite(latitude) || latitude < -90 || latitude > 90
+      || typeof longitude !== 'number' || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+      throw new Error('The road route contains an invalid coordinate.');
+    }
+
+    return [latitude, longitude];
+  });
+
+  return {
+    coordinates,
+    distanceKm: route.distanceKm,
+    durationMinutes: route.durationMinutes,
+  };
+}
+
 export const TaskTrackingMap: React.FC<TaskTrackingMapProps> = ({
   task,
   isProvider,
@@ -52,6 +93,9 @@ export const TaskTrackingMap: React.FC<TaskTrackingMapProps> = ({
   const [isLoadingSiteLocation, setIsLoadingSiteLocation] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [taskCoordinates, setTaskCoordinates] = useState<Coordinates | null>(() => getTaskCoordinates(task));
+  const [roadRoute, setRoadRoute] = useState<RoadRoute | null>(null);
+  const [routeError, setRouteError] = useState<string | null>(null);
+  const routeRequestIdRef = useRef(0);
 
   useEffect(() => {
     let mounted = true;
@@ -118,11 +162,54 @@ export const TaskTrackingMap: React.FC<TaskTrackingMapProps> = ({
       ? [latitude, longitude]
       : null;
   }, [latest]);
+  const routeOriginLatitude = providerCoordinates?.[0];
+  const routeOriginLongitude = providerCoordinates?.[1];
+  const routeDestinationLatitude = taskCoordinates?.[0];
+  const routeDestinationLongitude = taskCoordinates?.[1];
+  useEffect(() => {
+    if (routeOriginLatitude == null || routeOriginLongitude == null
+      || routeDestinationLatitude == null || routeDestinationLongitude == null) {
+      setRoadRoute(null);
+      setRouteError(null);
+      return;
+    }
+
+    const requestId = ++routeRequestIdRef.current;
+    api.tracking.getRoute(String(task.id))
+      .then((response) => {
+        if (requestId !== routeRequestIdRef.current) return;
+        const route = normalizeRoadRoute(response.data);
+        if (!route) {
+          setRoadRoute(null);
+          setRouteError(null);
+          return;
+        }
+        setRoadRoute(route);
+        setRouteError(null);
+      })
+      .catch((error: unknown) => {
+        if (requestId !== routeRequestIdRef.current) return;
+        const apiError = error as { response?: { data?: { message?: string } }; message?: string } | null;
+        setRoadRoute(null);
+        setRouteError(apiError?.response?.data?.message || apiError?.message || 'Unable to update the road route.');
+      });
+
+    return () => {
+      if (routeRequestIdRef.current === requestId) routeRequestIdRef.current += 1;
+    };
+  }, [
+    routeDestinationLatitude,
+    routeDestinationLongitude,
+    routeOriginLatitude,
+    routeOriginLongitude,
+    task.id,
+  ]);
   const points = useMemo(
-    () => [taskCoordinates, providerCoordinates].filter((point): point is Coordinates => point !== null),
-    [providerCoordinates, taskCoordinates]
+    () => [taskCoordinates, providerCoordinates, ...(roadRoute?.coordinates || [])]
+      .filter((point): point is Coordinates => point !== null),
+    [providerCoordinates, roadRoute, taskCoordinates]
   );
-  const center = points[0] || [10.7769, 106.7009];
+  const center = points[0] || [0, 0];
 
   return (
     <section className="rounded-2xl border border-dark-100 bg-white p-5 shadow-sm">
@@ -131,18 +218,23 @@ export const TaskTrackingMap: React.FC<TaskTrackingMapProps> = ({
           <h2 className="text-lg font-bold text-dark-900">Task live tracking</h2>
           <p className="mt-1 text-sm text-dark-600">
             {isProvider
-              ? 'Your location is shared from the mobile app after escrow is funded and you verify this task.'
-              : 'Provider location refreshes automatically. You can view it on any device.'}
+              ? 'Your location and route are shown here.'
+              : 'Follow the provider’s route to your task location.'}
           </p>
         </div>
         {isProvider && siteAddress && (
-          <p className="mb-3 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-900">
+          <p className="mb-3 rounded-lg bg-blue-50 px-3 py-2 text-base text-blue-900">
             <span className="font-semibold">Requester task address:</span> {siteAddress}
           </p>
         )}
         {latest?.timestamp && (
           <span className="text-xs text-dark-500">
-            Updated {new Date(latest.timestamp).toLocaleTimeString()}
+            Last update: {new Date(latest.timestamp).toLocaleTimeString()}
+          </span>
+        )}
+        {latest?.source === 'DEMO' && (
+          <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-900">
+            DEMO LOCATION: simulated, not live GPS
           </span>
         )}
       </div>
@@ -155,6 +247,12 @@ export const TaskTrackingMap: React.FC<TaskTrackingMapProps> = ({
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             <MapViewport points={points} />
+            {roadRoute && roadRoute.coordinates.length > 1 && (
+              <Polyline
+                positions={roadRoute.coordinates}
+                pathOptions={{ color: '#2563eb', weight: 5, opacity: 0.85 }}
+              />
+            )}
             {taskCoordinates && (
               <CircleMarker center={taskCoordinates} radius={10} pathOptions={{ color: '#15803d', fillColor: '#22c55e', fillOpacity: 0.9 }}>
                 <Popup>Requester&apos;s task location</Popup>
@@ -162,7 +260,11 @@ export const TaskTrackingMap: React.FC<TaskTrackingMapProps> = ({
             )}
             {providerCoordinates && (
               <CircleMarker center={providerCoordinates} radius={10} pathOptions={{ color: '#1d4ed8', fillColor: '#3b82f6', fillOpacity: 0.9 }}>
-                <Popup>Provider&apos;s latest location</Popup>
+                <Popup>
+                  {latest?.source === 'DEMO'
+                    ? 'Simulated provider location (DEMO)'
+                    : "Provider's latest location"}
+                </Popup>
               </CircleMarker>
             )}
           </MapContainer>
@@ -175,10 +277,15 @@ export const TaskTrackingMap: React.FC<TaskTrackingMapProps> = ({
         )}
       </div>
 
+      {roadRoute && (
+        <p className="mt-2 text-xs text-dark-600">
+          Road route: {roadRoute.distanceKm.toFixed(1)} km, about {Math.round(roadRoute.durationMinutes)} min (no traffic data).
+        </p>
+      )}
+      {routeError && <p role="alert" className="mt-2 text-sm text-red-700">{routeError}</p>}
       {loadError && <p role="alert" className="mt-3 text-sm text-red-700">{loadError}</p>}
       {siteLocationError && <p role="alert" className="mt-3 text-sm text-red-700">{siteLocationError}</p>}
       {!latest && isLoading && <p className="mt-3 text-sm text-dark-500">Loading provider location...</p>}
-      {isLoadingSiteLocation && <p className="mt-2 text-xs text-dark-500">Loading requester task pin...</p>}
       {!taskCoordinates && !isLoadingSiteLocation && !siteLocationError && (
         <p className="mt-2 text-xs text-dark-500">
           The task location cannot be shown on the map because precise coordinates were not provided.
