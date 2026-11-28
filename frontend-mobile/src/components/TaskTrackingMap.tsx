@@ -91,7 +91,7 @@ const map=L.map('map').setView(${center},14);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
 const taskIcon=L.divIcon({className:'',html:'<div class="marker task-marker">T</div>',iconSize:[36,36],iconAnchor:[18,18]});
 const providerIcon=L.divIcon({className:'',html:'<div class="marker provider-marker">P</div>',iconSize:[36,36],iconAnchor:[18,18]});
-let taskMarker=null,providerMarker=null,routeLine=null;
+let taskMarker=null,providerMarker=null,routeLine=null,hasSetInitialView=false;
 window.updateTaskTracking=function(data){
 const task=data.taskLocation&&[data.taskLocation.latitude,data.taskLocation.longitude];
 const provider=data.providerLocation&&[data.providerLocation.latitude,data.providerLocation.longitude];
@@ -101,7 +101,8 @@ if(routeLine){map.removeLayer(routeLine);routeLine=null;}
 const route=Array.isArray(data.routeCoordinates)?data.routeCoordinates.map(point=>[point.latitude,point.longitude]):[];
 if(route.length>1)routeLine=L.polyline(route,{color:'#2563eb',weight:5,opacity:0.85}).addTo(map);
 const points=route.length>1?route:[task,provider].filter(Boolean);
-if(points.length>1)map.fitBounds(L.latLngBounds(points),{padding:[32,32],maxZoom:15});else if(points.length===1)map.setView(points[0],15);
+if(!hasSetInitialView&&points.length>1){map.fitBounds(L.latLngBounds(points),{padding:[32,32],maxZoom:15});hasSetInitialView=true;}
+else if(!hasSetInitialView&&points.length===1){map.setView(points[0],15);hasSetInitialView=true;}
 };
 window.ReactNativeWebView.postMessage('map-ready');
 }</script></body></html>`;
