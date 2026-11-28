@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { useAuthStore } from '../../stores/auth.store';
@@ -7,7 +7,7 @@ import { Input } from '../../components/common/Input';
 import { Card } from '../../components/common/Card';
 import toast from 'react-hot-toast';
 import { EnvelopeIcon, LockClosedIcon } from '@heroicons/react/24/outline';
-import { HO_CHI_MINH_WARD_GROUPS } from '../../constants/hoChiMinhWards';
+import { CityWardPicker, type CityWardValue } from '../../components/location/CityWardPicker';
 
 interface SignupFormData {
   fullName: string;
@@ -16,7 +16,6 @@ interface SignupFormData {
   confirmPassword: string;
   role: 'CLIENT' | 'PROVIDER';
   phone?: string;
-  location: string;
 }
 
 export const RegisterPage: React.FC = () => {
@@ -26,11 +25,12 @@ export const RegisterPage: React.FC = () => {
     useForm<SignupFormData>({
       defaultValues: {
         role: 'CLIENT',
-        location: '',
       },
     });
 
   const password = watch('password');
+  const [place, setPlace] = useState<CityWardValue>({ cityId: null, wardId: null });
+  const [placeError, setPlaceError] = useState('');
 
   const getSignupErrorMessage = (error: any) => {
     const backendMessage =
@@ -56,6 +56,10 @@ export const RegisterPage: React.FC = () => {
       toast.error('Passwords do not match');
       return;
     }
+    if (!place.wardId) {
+      setPlaceError('Choose your city, then pick your ward from the suggestions.');
+      return;
+    }
 
     try {
       await registerUser({
@@ -64,7 +68,7 @@ export const RegisterPage: React.FC = () => {
         password: data.password,
         role: data.role,
         phone: data.phone,
-        location: data.location,
+        wardId: place.wardId,
       });
       toast.success('Registration successful!');
       navigate('/');
@@ -119,26 +123,12 @@ export const RegisterPage: React.FC = () => {
               label="Phone Number (optional)"
             />
 
-            <div>
-              <label htmlFor="location" className="block text-sm font-medium text-dark-700 mb-2">
-                District *
-              </label>
-              <select
-                id="location"
-                {...register('location', { required: 'Please select your district' })}
-                className="w-full h-12 rounded-xl border border-dark-200 bg-white px-4 text-dark-900 focus:outline-none focus:ring-2 focus:ring-primary-500"
-              >
-                <option value="" disabled>Select district</option>
-                {HO_CHI_MINH_WARD_GROUPS.map((group) => (
-                  <optgroup key={group.oldDistrict} label={group.oldDistrict}>
-                    {group.wards.map((ward) => (
-                      <option key={`${group.oldDistrict}-${ward}`} value={ward}>{ward}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-              {errors.location && <p className="text-sm text-danger-600 mt-2">{errors.location.message}</p>}
-            </div>
+            <CityWardPicker
+              value={place}
+              required
+              error={placeError}
+              onChange={(next) => { setPlace(next); setPlaceError(''); }}
+            />
 
             <div>
               <label className="block text-sm font-medium text-dark-700 mb-3">

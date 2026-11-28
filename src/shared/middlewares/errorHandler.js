@@ -21,6 +21,11 @@ function errorHandler(err, req, res, next) {
   return res.status(status).json({
     error: err.name || 'Error',
     message,
+    ...(err.code && typeof err.code === 'string' && status < 500 ? { code: err.code } : {}),
+    // Account lock details for the lock page (warnings) and the brute-force lock.
+    ...(status < 500 && err.lockedUntil ? { lockedUntil: err.lockedUntil } : {}),
+    ...(status < 500 && Number.isFinite(err.warningCount) ? { warningCount: err.warningCount } : {}),
+    ...(status < 500 && Array.isArray(err.reasons) ? { reasons: err.reasons } : {}),
   });
 }
 

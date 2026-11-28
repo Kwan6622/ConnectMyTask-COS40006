@@ -2,6 +2,10 @@ import axios from 'axios';
 import type { AxiosError, AxiosInstance } from 'axios';
 import { API_BASE_URL, API_TIMEOUT } from '../constants';
 import { storage } from '../utils';
+import { saveAccountLock } from '../utils/accountLock';
+
+// Bump when the city/ward list changes shape or names.
+export const LOCATIONS_DATA_VERSION = 'en-1';
 
 function getAccessToken(): string | null {
   const rawToken = localStorage.getItem('accessToken');
@@ -41,6 +45,17 @@ class ApiService {
         const requestUrl = error.config?.url || '';
         const isAuthRequest = requestUrl.includes('/auth/login') || requestUrl.includes('/auth/signup');
 
+        // 3 warnings: the account is locked. Keep the unlock time for the lock page.
+        const body = error.response?.data as { code?: string; lockedUntil?: string; warningCount?: number; reasons?: string[] } | undefined;
+        if (error.response?.status === 403 && body?.code === 'ACCOUNT_LOCKED') {
+          saveAccountLock({ lockedUntil: body.lockedUntil || null, warningCount: body.warningCount ?? null, reasons: body.reasons || [] });
+          storage.remove('auth_token');
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('auth-storage');
+          if (!window.location.pathname.startsWith('/account-locked')) window.location.href = '/account-locked';
+          return Promise.reject(error);
+        }
+
         if (error.response?.status === 401 && !isAuthRequest) {
           // Handle unauthorized
           storage.remove('auth_token');
@@ -65,7 +80,7 @@ class ApiService {
 
   // Task APIs
   tasks = {
-    verifyAddress: (data: { district: string; streetName: string }) => this.api.post('/tasks/verify-address', data),
+    verifyAddress: (data: { wardId: number; streetName: string }) => this.api.post('/tasks/verify-address', data),
     getAll: (filters?: any) => this.api.get('/tasks', { params: filters }),
     getById: (id: string) => this.api.get(`/tasks/${id}`),
     create: (data: any) => this.api.post('/tasks', data),
@@ -73,6 +88,10 @@ class ApiService {
     delete: (id: string) => this.api.delete(`/tasks/${id}`),
     getByUser: (userId: string) => this.api.get(`/users/${userId}/tasks`),
     getRequesterMe: () => this.api.get('/tasks/requester/me'),
+    // Expired tasks (requester only)
+    getRepostSuggestions: (id: string | number) => this.api.get(`/tasks/${id}/repost-suggestions`),
+    repost: (id: string | number, data: Record<string, unknown>) => this.api.patch(`/tasks/${id}/repost`, data),
+    deletePermanently: (id: string | number) => this.api.delete(`/tasks/${id}/permanent`),
     getProviderAssignedMe: () => this.api.get('/tasks/provider/assigned/me'),
     getSuggestedMe: () => this.api.get('/tasks/suggested/me'),
     updateStatus: (id: string, status: string) => this.api.patch(`/tasks/${id}/status`, { status }),
@@ -85,7 +104,6 @@ class ApiService {
         note: string;
         attachments?: string[];
         milestoneStatus?: string;
-        estimatedCompletionDate?: string;
         markAsCompleted?: boolean;
       }
     ) => this.api.post(`/tasks/${id}/progress`, data),
@@ -118,11 +136,19 @@ class ApiService {
     getProviderMe: () => this.api.get('/bids/provider/me'),
   };
 
+  // Cities and wards (public; ids are official codes)
+  locations = {
+    // `v` changes the URL whenever the list format changes, so a copy cached by an
+    // older build (Vietnamese names) is never reused.
+    cities: () => this.api.get('/locations/cities', { params: { v: LOCATIONS_DATA_VERSION } }),
+    wards: (cityId: number) => this.api.get(`/locations/cities/${cityId}/wards`, { params: { v: LOCATIONS_DATA_VERSION } }),
+  };
+
   // User APIs
   users = {
     getProfile: (id: string) => this.api.get(`/users/${id}`),
     getMe: () => this.api.get('/users/me'),
-    updateProfile: (data: { name?: string; phone?: string | null; location?: string; bio?: string | null; profilePhotoUrl?: string }) =>
+    updateProfile: (data: { name?: string; phone?: string | null; wardId?: number; streetAddress?: string | null; bio?: string | null; profilePhotoUrl?: string }) =>
       this.api.patch('/users/me', data),
     getRating: (id: string) => this.api.get(`/users/${id}/rating`),
     getReviews: (id: string) => this.api.get(`/users/${id}/reviews`),
@@ -130,7 +156,6 @@ class ApiService {
       this.api.patch('/users/me', { profilePhotoUrl }),
     updateProviderProfile: (data: {
       address?: string;
-      district?: string;
       city?: string;
       specialties?: string[];
       safetyComplianceAgreed?: boolean;
@@ -221,9 +246,14 @@ class ApiService {
     getUsers: () => this.api.get('/admin/users'),
     updateUserStatus: (userId: string | number, status: 'ACTIVE' | 'SUSPENDED') =>
       this.api.patch(`/admin/users/${userId}/status`, { status }),
+    getUserWarnings: (userId: string | number) => this.api.get(`/admin/users/${userId}/warnings`),
+    /** change: +1 adds a warning, -1 removes one; 3 warnings lock the account for 3 days */
+    changeUserWarnings: (userId: string | number, change: 1 | -1, reason: string) =>
+      this.api.post(`/admin/users/${userId}/warnings`, { change, reason }),
     getTasks: () => this.api.get('/admin/tasks'),
     getSuspiciousTasks: () => this.api.get('/admin/tasks/suspicious'),
-    deleteTask: (taskId: string | number) => this.api.delete(`/admin/tasks/${taskId}`),
+    /** Soft delete: hides and cancels the task, closes bids; the reason is sent to the requester and bidders. */
+    deleteTask: (taskId: string | number, reason: string) => this.api.delete(`/admin/tasks/${taskId}`, { data: { reason } }),
     reviewTask: (taskId: string | number) => this.api.patch(`/admin/tasks/${taskId}/reviewed`),
     updateTaskStatus: (taskId: string | number, data: { status: string; reason: string }) =>
       this.api.patch(`/admin/tasks/${taskId}/status`, data),

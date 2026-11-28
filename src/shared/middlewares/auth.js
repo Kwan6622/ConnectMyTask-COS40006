@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { env } = require('../../config/env');
 const { prisma } = require('../../database/prisma');
+const warnings = require('../../modules/users/warnings');
 
 async function authenticate(req, res, next) {
   const authHeader = req.headers.authorization || '';
@@ -12,12 +13,23 @@ async function authenticate(req, res, next) {
 
   try {
     const payload = jwt.verify(token, env.JWT_SECRET);
-    const user = await prisma.user.findUnique({
+    let user = await prisma.user.findUnique({
       where: { id: Number(payload.id) },
-      select: { id: true, email: true, role: true, status: true, tokenVersion: true },
+      select: { id: true, email: true, role: true, status: true, tokenVersion: true, warningCount: true, lockedUntil: true },
     });
     if (!user || user.status === 'SUSPENDED' || Number(payload.tokenVersion || 0) !== Number(user.tokenVersion || 0)) {
       return res.status(401).json({ error: 'Unauthorized', message: 'Session is no longer active' });
+    }
+    if (user.status === 'LOCKED') {
+      // Lazy auto-reactivation: an expired lock is lifted on the next request.
+      user = await warnings.releaseLockIfExpired(user);
+      if (warnings.isLockActive(user)) {
+        const locked = await warnings.lockedError(user);
+        return res.status(403).json({
+          error: 'Forbidden', code: locked.code, message: locked.message,
+          lockedUntil: user.lockedUntil, warningCount: user.warningCount, reasons: locked.reasons,
+        });
+      }
     }
     req.user = user;
     return next();

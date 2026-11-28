@@ -19,14 +19,19 @@ function mockGeocoder(handler) {
   return { calls, restore: () => { global.fetch = original; } };
 }
 
-const isHinted = (address, ward) => address.includes(`, ${ward}, Ho Chi Minh`);
+const { WARDS, toSearchText } = require('../../shared/administrativeUnits');
+
+/** Official HCMC ward id by its ASCII name, e.g. W('Sai Gon'). */
+const W = (name) => WARDS.find((w) => w.cityId === 79 && toSearchText(w.name) === toSearchText(name)).id;
+// Hinted queries carry the Vietnamese ward name ("Sài Gòn, Ho Chi Minh, Vietnam").
+const isHinted = (address, ward) => toSearchText(address).includes(toSearchText(`${ward}, Ho Chi Minh`));
 
 test.beforeEach(() => { process.env.GEOCODING_API_KEY = 'test-key'; });
 
 test('house number is required before calling the provider', async () => {
   const geo = mockGeocoder(() => []);
   try {
-    await assert.rejects(verifyAddress({ district: 'Sai Gon', streetName: 'Nguyen Hue' }), /house number/);
+    await assert.rejects(verifyAddress({ wardId: W('Sai Gon'), streetName: 'Nguyen Hue' }), /house number/);
     assert.equal(geo.calls.length, 0);
   } finally { geo.restore(); }
 });
@@ -34,7 +39,7 @@ test('house number is required before calling the provider', async () => {
 test('accepts the address when the unhinted lookup lands in the chosen ward', async () => {
   const geo = mockGeocoder(() => [result('10 Nguyễn Huệ, Sài Gòn, Hồ Chí Minh 70000, Vietnam', 10.7729, 106.7052)]);
   try {
-    const verified = await verifyAddress({ district: 'Sai Gon', streetName: '10 Nguyen Hue' });
+    const verified = await verifyAddress({ wardId: W('Sai Gon'), streetName: '10 Nguyen Hue' });
     assert.equal(verified.latitude, 10.7729);
     assert.equal(geo.calls.length, 1);
     assert.ok(!geo.calls[0].includes('Sai Gon,'), 'first lookup must not carry the ward');
@@ -47,7 +52,7 @@ test('rejects a wrong ward even though the provider echoes it back kilometres aw
     : [result('50 Điện Biên Phủ, Gia Định, Hồ Chí Minh, Vietnam', 10.8010, 106.7090)]));
   try {
     await assert.rejects(
-      verifyAddress({ district: 'Vuon Lai', streetName: '50 Dien Bien Phu' }),
+      verifyAddress({ wardId: W('Vuon Lai'), streetName: '50 Dien Bien Phu' }),
       /belongs to Gia Dinh, not Vuon Lai/
     );
   } finally { geo.restore(); }
@@ -58,17 +63,17 @@ test('accepts a ward-border address when both lookups are the same place', async
     ? [result('300 Nguyễn Thị Minh Khai, Bàn Cờ, Hồ Chí Minh, Vietnam', 10.77501, 106.68901)]
     : [result('300 Nguyễn Thị Minh Khai, Xuân Hòa, Hồ Chí Minh, Vietnam', 10.77510, 106.68920)]));
   try {
-    const verified = await verifyAddress({ district: 'Ban Co', streetName: '300 Nguyen Thi Minh Khai' });
-    assert.match(verified.address, /Bàn Cờ/);
+    const verified = await verifyAddress({ wardId: W('Ban Co'), streetName: '300 Nguyen Thi Minh Khai' });
+    assert.equal(verified.address, '300 Nguyen Thi Minh Khai, Ban Co, Ho Chi Minh, Vietnam', 'stored without accents');
   } finally { geo.restore(); }
 });
 
 test('uses the ward-hinted lookup when the unhinted one is a same-named street elsewhere', async () => {
   const geo = mockGeocoder((address) => (isHinted(address, 'An Dong')
     ? [result('500 Nguyễn Trãi, An Đông, Hồ Chí Minh, Vietnam', 10.7550, 106.6700)]
-    : [result('500 Nguyễn Trãi, Lái Thiêu, Hồ Chí Minh, Vietnam', 10.9050, 106.7000)]));
+    : [result('500 Nguyễn Trãi, Trấn Biên, Đồng Nai, Vietnam', 10.9050, 106.7000)]));
   try {
-    const verified = await verifyAddress({ district: 'An Dong', streetName: '500 Nguyen Trai' });
+    const verified = await verifyAddress({ wardId: W('An Dong'), streetName: '500 Nguyen Trai' });
     assert.equal(verified.latitude, 10.7550);
   } finally { geo.restore(); }
 });
@@ -76,8 +81,8 @@ test('uses the ward-hinted lookup when the unhinted one is a same-named street e
 test('ward names that contain each other are not confused', async () => {
   const geo = mockGeocoder(() => [result('10 Đ. Hoàng Văn Thụ, Tân Sơn Hòa, Hồ Chí Minh, Vietnam', 10.7994, 106.6605)]);
   try {
-    await assert.rejects(verifyAddress({ district: 'Tan Son', streetName: '10 Hoang Van Thu' }), /belongs to Tan Son Hoa/);
-    const ok = await verifyAddress({ district: 'Tan Son Hoa', streetName: '10 Hoang Van Thu' });
+    await assert.rejects(verifyAddress({ wardId: W('Tan Son'), streetName: '10 Hoang Van Thu' }), /belongs to Tan Son Hoa/);
+    const ok = await verifyAddress({ wardId: W('Tan Son Hoa'), streetName: '10 Hoang Van Thu' });
     assert.equal(ok.latitude, 10.7994);
   } finally { geo.restore(); }
 });
@@ -121,11 +126,11 @@ test('alley numbers are verified through the "<n> Hem <alley> <street>" lookup',
     ])];
   });
   try {
-    const verified = await verifyAddress({ district: 'Binh Thanh', streetName: '47/24 Bui Dinh Tuy' });
-    assert.equal(verified.address, '47/24 Hẻm 47 Bùi Đình Túy, Bình Thạnh, Hồ Chí Minh, Vietnam');
+    const verified = await verifyAddress({ wardId: W('Binh Thanh'), streetName: '47/24 Bui Dinh Tuy' });
+    assert.equal(verified.address, '47/24 Hem 47 Bui Dinh Tuy, Binh Thanh, Ho Chi Minh, Vietnam');
     assert.equal(verified.latitude, 10.80704);
     assert.deepEqual(geo.calls, ['47/24 Bui Dinh Tuy, Ho Chi Minh, Vietnam', '24 Hem 47 Bui Dinh Tuy, Ho Chi Minh, Vietnam']);
-    await assert.rejects(verifyAddress({ district: 'Gia Dinh', streetName: '47/24 Bui Dinh Tuy' }), /belongs to Binh Thanh/);
+    await assert.rejects(verifyAddress({ wardId: W('Gia Dinh'), streetName: '47/24 Bui Dinh Tuy' }), /belongs to Binh Thanh/);
   } finally { geo.restore(); }
 });
 
@@ -138,4 +143,35 @@ test('alley form only applies to alley numbers and matches the alley route to th
   assert.equal(isStreetMatch(alley, 'Bui Dinh Tuy', '48/24'), false, 'a different alley must not match');
   assert.equal(isHouseNumberMatch(alley, '47/24'), true);
   assert.equal(isHouseNumberMatch(result('47/24/30C Bùi Đình Tuý, Bình Thạnh, Hồ Chí Minh, Vietnam', 0, 0), '47/24'), false);
+});
+
+test('Ha Noi wards are verified against Ha Noi, not Ho Chi Minh City', async () => {
+  const hoanKiem = WARDS.find((w) => w.cityId === 1 && toSearchText(w.name) === 'hoan kiem').id;
+  const geo = mockGeocoder((address) => (/Ha Noi, Vietnam$/.test(address)
+    ? [result('12 Hàng Bài, Hoàn Kiếm, Hà Nội, Vietnam', 21.0245, 105.8522)]
+    : []));
+  try {
+    const verified = await verifyAddress({ wardId: hoanKiem, streetName: '12 Hang Bai' });
+    assert.equal(verified.wardId, hoanKiem);
+    assert.equal(verified.latitude, 21.0245);
+    assert.ok(geo.calls.every((query) => /Ha Noi, Vietnam$/.test(query)), 'no query names Ho Chi Minh');
+  } finally { geo.restore(); }
+});
+
+test('a ward id that is not on the official list is rejected before any lookup', async () => {
+  const geo = mockGeocoder(() => []);
+  try {
+    await assert.rejects(verifyAddress({ wardId: 123, streetName: '10 Nguyen Hue' }), /pick your ward/);
+    assert.equal(geo.calls.length, 0);
+  } finally { geo.restore(); }
+});
+
+test('a disambiguated ward name is sent to the geocoder without its label', async () => {
+  const canGio = WARDS.find((w) => w.name === 'Thanh An (Can Gio)').id;
+  const geo = mockGeocoder(() => [result('5 Thiềng Liềng, Thạnh An, Hồ Chí Minh, Vietnam', 10.42, 106.97)]);
+  try {
+    const verified = await verifyAddress({ wardId: canGio, streetName: '5 Thieng Lieng' });
+    assert.equal(verified.wardId, canGio);
+    assert.ok(geo.calls.every((query) => !query.includes('(')));
+  } finally { geo.restore(); }
 });

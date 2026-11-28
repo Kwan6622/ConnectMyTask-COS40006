@@ -1,6 +1,8 @@
 const bcrypt = require('bcryptjs');
 const authRepository = require('./repository');
 const { signToken } = require('../../shared/middlewares/auth');
+const { resolveWard, getWard } = require('../../shared/administrativeUnits');
+const warnings = require('../users/warnings');
 
 function mapRole(role) {
   if (role === 'CLIENT') return 'REQUESTER';
@@ -11,7 +13,7 @@ function mapRole(role) {
 function toSafeUser(user) {
   if (!user) return user;
   const { passwordHash: _passwordHash, failedLoginAttempts: _failedLoginAttempts, lockoutUntil: _lockoutUntil, tokenVersion: _tokenVersion, ...safe } = user;
-  return safe;
+  return { ...safe, cityId: getWard(safe.locationId)?.cityId ?? null };
 }
 
 async function signup(payload) {
@@ -22,6 +24,7 @@ async function signup(payload) {
     throw err;
   }
 
+  const ward = resolveWard(payload.wardId);
   const passwordHash = await bcrypt.hash(payload.password, 10);
 
   const user = await authRepository.createUser({
@@ -30,7 +33,8 @@ async function signup(payload) {
     passwordHash,
     role: mapRole(payload.role),
     phone: payload.phone || null,
-    location: payload.location,
+    locationId: ward.id,
+    location: ward.location,
   });
 
   const accessToken = signToken(user);
@@ -77,6 +81,13 @@ async function login(email, password) {
     const err = new Error('Account is suspended');
     err.statusCode = 403;
     throw err;
+  }
+
+  // 3 warnings: locked until lockedUntil. The app shows the lock page with that time.
+  if (user.status === 'LOCKED') {
+    const current = await warnings.releaseLockIfExpired(user);
+    if (warnings.isLockActive(current)) throw await warnings.lockedError(current);
+    Object.assign(user, current);
   }
 
   if (user.failedLoginAttempts || user.lockoutUntil) {

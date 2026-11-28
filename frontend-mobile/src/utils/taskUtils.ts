@@ -1,3 +1,4 @@
+import { colors } from "@/theme/tokens";
 import { Task, TaskStatus, User } from "@/types";
 
 export const formatDate = (dateString: string): string => {
@@ -28,12 +29,12 @@ export const formatCurrency = (amount: number): string => {
 
 export const isTaskActive = (status: TaskStatus | string): boolean => {
   const normalized = normalizeTaskStatus(status);
-  return ![TaskStatus.COMPLETED, TaskStatus.PAID, TaskStatus.CANCELLED].includes(normalized);
+  return ![TaskStatus.COMPLETED, TaskStatus.PAID, TaskStatus.CANCELLED, TaskStatus.EXPIRED].includes(normalized);
 };
 
 export const isTaskBrowsable = (task: Pick<Task, "status" | "isOverdue" | "assignedProviderId">): boolean => {
   const normalized = normalizeTaskStatus(task.status);
-  if ([TaskStatus.ASSIGNED, TaskStatus.COMPLETED, TaskStatus.PAID, TaskStatus.CANCELLED].includes(normalized)) {
+  if ([TaskStatus.ASSIGNED, TaskStatus.COMPLETED, TaskStatus.PAID, TaskStatus.CANCELLED, TaskStatus.EXPIRED].includes(normalized)) {
     return false;
   }
   if (Boolean(task.isOverdue) && !task.assignedProviderId) {
@@ -55,6 +56,7 @@ export const normalizeTaskStatus = (status: string | null | undefined): TaskStat
   if (value === "PAID") return TaskStatus.PAID;
   if (value === "DISPUTED") return TaskStatus.DISPUTED;
   if (value === "CANCELLED") return TaskStatus.CANCELLED;
+  if (value === "EXPIRED") return TaskStatus.EXPIRED;
   return TaskStatus.OPEN;
 };
 
@@ -79,6 +81,8 @@ export const formatTaskStatusLabel = (status: TaskStatus | string): string => {
       return "Disputed";
     case "CANCELLED":
       return "Cancelled";
+    case "EXPIRED":
+      return "Expired";
     case "OPEN":
     default:
       return "Open";
@@ -106,17 +110,49 @@ export function getCategoryIcon(category: string): string {
   return icons[String(category).toUpperCase()] || "\u2605";
 }
 
-export function getStatusVariant(
-  status: TaskStatus | string
-): "primary" | "warning" | "success" | "danger" | "neutral" {
+export type StatusVariant = "primary" | "warning" | "success" | "danger" | "neutral";
+
+/**
+ * Task status colour, same scheme as web (frontend-web/src/utils/statusColors.ts):
+ * red = cancelled/disputed, yellow = pending/awaiting, green = done/paid, blue = open/bidding.
+ */
+export function getStatusVariant(status: TaskStatus | string): StatusVariant {
+  const raw = String(status || "").toUpperCase();
+  if (raw === "PENDING") return "warning";
   const normalized = normalizeTaskStatus(status);
-  if (normalized === "OPEN") return "primary";
-  if (normalized === "BIDDING" || normalized === "PENDING_CONFIRMATION" || normalized === "AWAITING_PAYMENT") {
+  if (normalized === "OPEN" || normalized === "BIDDING") return "primary";
+  if (normalized === "PENDING_CONFIRMATION" || normalized === "AWAITING_PAYMENT") {
     return "warning";
   }
   if (normalized === "COMPLETED" || normalized === "PAID") return "success";
   if (normalized === "DISPUTED" || normalized === "CANCELLED") return "danger";
   return "neutral";
+}
+
+/** Escrow / payment status colour (yellow while money is pending, green when held or paid). */
+export function getMoneyStatusVariant(status?: string | null): StatusVariant {
+  const value = String(status || "").toUpperCase();
+  if (["PENDING", "PENDING_DEPOSIT", "ESCROW_PENDING", "AWAITING_PAYMENT", "PROCESSING"].includes(value)) return "warning";
+  if (["HELD", "ESCROW_HELD", "RELEASED", "SUCCESS", "PAID"].includes(value)) return "success";
+  if (["FAILED", "CANCELED", "CANCELLED", "FROZEN"].includes(value)) return "danger";
+  return "neutral";
+}
+
+/** Plain colours for a variant, for places that are not a <Badge>. */
+export function variantColors(variant: StatusVariant): { backgroundColor: string; borderColor: string; color: string } {
+  const palette = {
+    primary: [colors.primary[50], colors.primary[200], colors.primary[700]],
+    success: [colors.success[50], colors.success[200], colors.success[700]],
+    warning: [colors.warning[50], colors.warning[200], colors.warning[600]],
+    danger: [colors.danger[50], colors.danger[200], colors.danger[700]],
+    neutral: [colors.dark[50], colors.dark[200], colors.dark[700]],
+  }[variant];
+  return { backgroundColor: palette[0], borderColor: palette[1], color: palette[2] };
+}
+
+/** Cancelled or expired tasks can only be viewed: no progress tracking or updates. */
+export function isViewOnlyTask(status?: string | null): boolean {
+  return ["CANCELLED", "EXPIRED"].includes(String(status || "").toUpperCase());
 }
 
 export function getDisplayName(user?: User | null): string {
@@ -141,9 +177,9 @@ export function isAdmin(user?: User | null): boolean {
   return String(user?.role || "").toUpperCase() === "ADMIN";
 }
 
-export function extractDistrict(location?: string): string {
-  if (!location) return "Unknown district";
-  return location.split(",")[0]?.trim() || location;
+/** Public task location is "Ward, City"; never a street address. */
+export function extractWardLocation(location?: string): string {
+  return location?.trim() || "Unknown location";
 }
 
 export function getBidCount(task: Task): number {
@@ -179,3 +215,9 @@ export function getVisiblePages(currentPage: number, totalPages: number): Array<
 
   return [1, "...", currentPage, "...", totalPages];
 }
+
+/** Suggested-task distance from the provider (already rounded to 0.5 km by the server). */
+export const formatDistance = (km: number): string => {
+  if (km >= 100) return `About ${Math.round(km)} km away`;
+  return km <= 0.5 ? "Under 1 km away" : `About ${km} km away`;
+};

@@ -18,7 +18,6 @@ const providerSelect = {
   skills: true,
   providerProfile: {
     select: {
-      district: true,
       city: true,
       specialties: true,
       safetyComplianceAgreed: true,
@@ -54,7 +53,7 @@ async function listTasks(filters) {
     where.status = filters.status;
   } else {
     where.status = {
-      notIn: ['COMPLETED', 'PAID', 'CANCELLED'],
+      notIn: ['COMPLETED', 'PAID', 'CANCELLED', 'EXPIRED'],
     };
   }
   if (filters.category) {
@@ -79,7 +78,6 @@ async function listTasks(filters) {
           id: true,
           progressPercent: true,
           milestoneStatus: true,
-          estimatedCompletionDate: true,
           createdAt: true,
         },
       },
@@ -91,9 +89,9 @@ async function listTasks(filters) {
   });
 }
 
-async function getUserLocationById(userId) {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { location: true } });
-  return user?.location || null;
+// Private: the requester's home address (ward + street). Never put this on a task payload.
+async function getUserHomeAddress(userId) {
+  return prisma.user.findUnique({ where: { id: userId }, select: { locationId: true, streetAddress: true, homeLatitude: true, homeLongitude: true } });
 }
 
 async function getProviderProfileByUserId(userId) {
@@ -101,7 +99,6 @@ async function getProviderProfileByUserId(userId) {
     where: { userId },
     select: {
       userId: true,
-      district: true,
       city: true,
       specialties: true,
       safetyComplianceAgreed: true,
@@ -135,7 +132,6 @@ async function getTaskById(id) {
           id: true,
           progressPercent: true,
           milestoneStatus: true,
-          estimatedCompletionDate: true,
           createdAt: true,
         },
       },
@@ -250,6 +246,84 @@ async function listSavedTasksForUser(userId) {
   });
 }
 
+// --- Expired tasks ------------------------------------------------------------
+
+/** Open tasks past their deadline with nobody assigned (plus their pending bids). */
+async function listExpirableTasks(now) {
+  return prisma.task.findMany({
+    where: {
+      isDeleted: false,
+      assignedProviderId: null,
+      status: { in: ['OPEN', 'BIDDING'] },
+      dueDate: { lt: now },
+    },
+    select: {
+      id: true, title: true, status: true, createdById: true, dueDate: true, biddingEndsAt: true,
+      bids: { where: { status: 'PENDING' }, select: { id: true, providerId: true } },
+    },
+  });
+}
+
+/** Moves one task to EXPIRED and closes its pending bids. Returns false if someone else got there first. */
+async function expireTask(taskId, now) {
+  return prisma.$transaction(async (tx) => {
+    const claimed = await tx.task.updateMany({
+      where: { id: taskId, isDeleted: false, assignedProviderId: null, status: { in: ['OPEN', 'BIDDING'] } },
+      data: { status: 'EXPIRED', expiredAt: now },
+    });
+    if (!claimed.count) return false;
+    await tx.bid.updateMany({ where: { taskId, status: 'PENDING' }, data: { status: 'REJECTED' } });
+    return true;
+  });
+}
+
+/** Puts an EXPIRED task back on the market with the edited fields. */
+async function repostTask(taskId, data) {
+  const result = await prisma.task.updateMany({
+    where: { id: taskId, status: 'EXPIRED', isDeleted: false },
+    data: {
+      ...data,
+      status: 'OPEN',
+      expiredAt: null,
+      isOverdue: false,
+      overdueNotifiedAt: null,
+      biddingStartedAt: null,
+      biddingEndsAt: null,
+    },
+  });
+  return result.count > 0;
+}
+
+/**
+ * Deletes an EXPIRED task and everything that only belongs to it. Refuses when
+ * money, disputes or ratings are attached (an expired task never has them).
+ */
+async function deleteTaskPermanently(taskId) {
+  return prisma.$transaction(async (tx) => {
+    const [payments, disputes, reviews, ratings] = await Promise.all([
+      tx.paymentTransaction.count({ where: { taskId } }),
+      tx.dispute.count({ where: { taskId } }),
+      tx.review.count({ where: { taskId } }),
+      tx.rating.count({ where: { taskId } }),
+    ]);
+    if (payments || disputes || reviews || ratings) {
+      throw Object.assign(new Error('This task has payments, disputes or ratings and cannot be deleted'), { statusCode: 409 });
+    }
+    await tx.savedTask.deleteMany({ where: { taskId } });
+    await tx.bid.deleteMany({ where: { taskId } });
+    await tx.taskProgressUpdate.deleteMany({ where: { taskId } });
+    await tx.taskSubtask.deleteMany({ where: { taskId } });
+    await tx.taskActivityLog.deleteMany({ where: { taskId } });
+    await tx.trackingLog.deleteMany({ where: { taskId } });
+    await tx.aiInsight.deleteMany({ where: { taskId } });
+    await tx.notification.deleteMany({ where: { taskId } });
+    await tx.taskLocationVerification.deleteMany({ where: { taskId } });
+    await tx.supportTicket.updateMany({ where: { taskId }, data: { taskId: null } });
+    const deleted = await tx.task.deleteMany({ where: { id: taskId, status: 'EXPIRED' } });
+    return deleted.count > 0;
+  });
+}
+
 async function listTasksByRequester(userId) {
   return prisma.task.findMany({
     where: { createdById: userId, isDeleted: false },
@@ -268,7 +342,6 @@ async function listTasksByRequester(userId) {
           id: true,
           progressPercent: true,
           milestoneStatus: true,
-          estimatedCompletionDate: true,
           createdAt: true,
         },
       },
@@ -298,7 +371,6 @@ async function listAssignedTasksForProvider(providerId) {
           id: true,
           progressPercent: true,
           milestoneStatus: true,
-          estimatedCompletionDate: true,
           createdAt: true,
         },
       },
@@ -649,7 +721,11 @@ module.exports = {
   createTask,
   listTasks,
   getProviderProfileByUserId,
-  getUserLocationById,
+  getUserHomeAddress,
+  listExpirableTasks,
+  expireTask,
+  repostTask,
+  deleteTaskPermanently,
   getTaskById,
   updateTaskStatus,
   updateTask,

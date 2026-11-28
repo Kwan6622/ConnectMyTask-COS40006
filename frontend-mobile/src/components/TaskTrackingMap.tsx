@@ -104,6 +104,11 @@ window.ReactNativeWebView.postMessage('map-ready');
 export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.ReactElement {
   const [taskPoint, setTaskPoint] = useState<Point | null>(() => getTaskPoint(task));
   const [siteAddress, setSiteAddress] = useState("");
+  // Set when the task was posted at a nearby address: the requester's real home address.
+  const [requesterAddress, setRequesterAddress] = useState("");
+  // Private address details from the requester (unit / floor, or the exact address).
+  const [addressDetail, setAddressDetail] = useState("");
+  const [isNearbySite, setIsNearbySite] = useState(false);
   const [siteLocationError, setSiteLocationError] = useState("");
   const assignedProvider = Boolean(
     isProvider(user) && String(task.assignedProviderId) === String(user?.id)
@@ -158,6 +163,9 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
         const point = getTaskPoint({ ...task, ...response.data });
         setTaskPoint(point);
         setSiteAddress(typeof response.data?.siteAddress === "string" ? response.data.siteAddress : "");
+        setRequesterAddress(typeof response.data?.requesterAddress === "string" ? response.data.requesterAddress : "");
+        setAddressDetail(typeof response.data?.addressDetail === "string" ? response.data.addressDetail : "");
+        setIsNearbySite(Boolean(response.data?.isApproximateLocation));
         setSiteLocationError(point
           ? ""
           : "This task has no saved requester pin. Update the task location and confirm its map pin.");
@@ -165,6 +173,8 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
       .catch((error: any) => {
         if (!mounted) return;
         setSiteAddress("");
+        setRequesterAddress("");
+        setAddressDetail("");
         setSiteLocationError(
           error?.response?.data?.message || error?.message || "Unable to load requester task location."
         );
@@ -399,8 +409,20 @@ export function TaskTrackingMap({ task, user }: TaskTrackingMapProps): React.Rea
           ? "Share your journey with the requester. GPS updates every 5 seconds. When you arrive at the task site, verify your location to start work."
           : "Green marks the location set by the requester; blue shows the provider's latest shared location."}
       </Text>
+      {assignedProvider && addressDetail ? (
+        <View style={styles.homeBox}>
+          <Text style={styles.homeTitle}>{isNearbySite ? "Exact address (job location)" : "Address details"}: {addressDetail}</Text>
+          {isNearbySite ? <Text style={styles.homeNote}>The map pin is a nearby address within 100 m; location check uses that pin.</Text> : null}
+        </View>
+      ) : null}
+      {assignedProvider && requesterAddress ? (
+        <View style={styles.homeBox}>
+          <Text style={styles.homeTitle}>Requester's home (job location): {requesterAddress}</Text>
+          <Text style={styles.homeNote}>The map pin is a nearby address within 100 m; location check uses that pin.</Text>
+        </View>
+      ) : null}
       {assignedProvider && siteAddress ? (
-        <Text style={styles.helperText}>Requester task address: {siteAddress}</Text>
+        <Text style={styles.helperText}>{requesterAddress || isNearbySite ? "Nearby address on the map" : "Requester task address"}: {siteAddress}</Text>
       ) : null}
       <View style={styles.mapFrame}>
         <WebView<object>
@@ -517,6 +539,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
   },
+  homeBox: {
+    marginTop: 8,
+    padding: 10,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.warning[200],
+    backgroundColor: colors.warning[50],
+    gap: 4,
+  },
+  homeTitle: { color: colors.dark[900], fontSize: 13, fontWeight: "700", lineHeight: 18 },
+  homeNote: { color: colors.dark[600], fontSize: 12, lineHeight: 17 },
   helperText: {
     color: colors.dark[500],
     fontSize: 12,

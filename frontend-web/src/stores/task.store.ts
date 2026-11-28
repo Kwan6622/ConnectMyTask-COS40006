@@ -87,7 +87,6 @@ interface TaskState {
       note: string;
       attachments?: string[];
       milestoneStatus?: string;
-      estimatedCompletionDate?: string;
       markAsCompleted?: boolean;
     }
   ) => Promise<void>;

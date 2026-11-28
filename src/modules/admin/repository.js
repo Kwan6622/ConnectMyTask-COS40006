@@ -1,4 +1,15 @@
+// Money really still in escrow: a confirmed deposit whose task is still HELD.
+// Checking the task too keeps older deposit rows (released before the deposit
+// row was updated) out of the "held" totals and the release list.
+const HELD_DEPOSIT_WHERE = {
+  status: 'SUCCESS',
+  type: 'ESCROW_DEPOSIT',
+  lifecycleStatus: 'ESCROW_HELD',
+  task: { escrowStatus: 'HELD' },
+};
+
 const { prisma } = require('../../database/prisma');
+const { getWard, getCity } = require('../../shared/administrativeUnits');
 
 async function getAdminStats() {
   const [totalUsers, activeTasks, suspiciousTasks, disputes, pendingCertificates, openSupportTickets, heldAgg, releasedAgg] = await Promise.all([
@@ -32,19 +43,29 @@ async function getAdminStats() {
     prisma.supportTicket.count({ where: { status: { in: ['OPEN', 'IN_PROGRESS'] } } }),
     prisma.paymentTransaction.aggregate({
       _sum: { escrowHeldAmount: true },
-      where: { status: 'SUCCESS', lifecycleStatus: 'ESCROW_HELD' },
+      where: HELD_DEPOSIT_WHERE,
     }),
+    // Settlements only: the deposit row carries the same fee and must not count twice.
     prisma.paymentTransaction.aggregate({
       _sum: { providerPayoutAmount: true, platformFeeAmount: true },
-      where: { status: 'SUCCESS', lifecycleStatus: 'RELEASED' },
+      where: { status: 'SUCCESS', type: 'ESCROW_RELEASE', lifecycleStatus: 'RELEASED' },
     }),
   ]);
 
-  const escrowHeldPayments = await prisma.paymentTransaction.count({
-    where: {
-      lifecycleStatus: 'ESCROW_HELD',
-    },
-  });
+  const escrowHeldPayments = await prisma.paymentTransaction.count({ where: HELD_DEPOSIT_WHERE });
+
+  // Items an admin still has to act on, shown as a small badge on each tab.
+  const [lockedUsers, unreviewedSuspicious, escrowNeedsAction] = await Promise.all([
+    prisma.user.count({ where: { status: 'LOCKED', lockedUntil: { gt: new Date() } } }),
+    prisma.task.count({ where: { isDeleted: false, isSuspicious: true, reviewedByAdminAt: null } }),
+    // Frozen by a dispute, or confirmed complete but not yet paid out.
+    prisma.task.count({
+      where: {
+        isDeleted: false,
+        OR: [{ escrowStatus: 'FROZEN' }, { escrowStatus: 'HELD', status: 'COMPLETED' }],
+      },
+    }),
+  ]);
 
   return {
     totalUsers,
@@ -57,22 +78,62 @@ async function getAdminStats() {
     totalEscrowHeldAmount: Number(heldAgg?._sum?.escrowHeldAmount || 0),
     totalReleasedPayments: Number(releasedAgg?._sum?.providerPayoutAmount || 0),
     totalPlatformRevenue: Number(releasedAgg?._sum?.platformFeeAmount || 0),
+    attention: {
+      users: lockedUsers,
+      tasks: unreviewedSuspicious,
+      certificates: pendingCertificates,
+      payments: escrowNeedsAction,
+      disputes,
+      support: openSupportTickets,
+    },
   };
 }
 
 async function listUsers() {
-  return prisma.user.findMany({
+  const users = await prisma.user.findMany({
     select: {
       id: true, name: true, email: true, role: true, status: true, createdAt: true,
+      warningCount: true, lockedUntil: true, locationId: true, location: true,
       _count: { select: { tasksCreated: true, tasksAssigned: true, disputesOpened: true, supportTickets: true } },
+      // Documents an admin has already verified, so they can be opened from the user list.
+      providerProfile: {
+        select: {
+          certificates: {
+            where: { verificationStatus: 'VERIFIED' },
+            select: { id: true, title: true, certificateType: true, fileUrl: true, verifiedAt: true },
+            orderBy: [{ verifiedAt: 'desc' }, { id: 'desc' }],
+          },
+        },
+      },
     },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+  });
+
+  // Average rating each user has received, and how many ratings.
+  const ratings = await prisma.rating.groupBy({
+    by: ['toUserId'],
+    _avg: { rating: true },
+    _count: { rating: true },
+  });
+  const ratingByUser = new Map(ratings.map((row) => [row.toUserId, row]));
+
+  return users.map(({ providerProfile, ...user }) => {
+    const ward = getWard(user.locationId);
+    const rating = ratingByUser.get(user.id);
+    return {
+      ...user,
+      cityId: ward?.cityId ?? null,
+      cityName: getCity(ward?.cityId)?.name ?? null,
+      averageRating: rating ? Math.round(Number(rating._avg.rating || 0) * 10) / 10 : null,
+      ratingCount: rating ? Number(rating._count.rating || 0) : 0,
+      verifiedDocuments: providerProfile?.certificates || [],
+    };
   });
 }
 
 const getUserForAdmin = id => prisma.user.findUnique({
   where: { id },
-  select: { id: true, name: true, email: true, role: true, status: true, createdAt: true },
+  select: { id: true, name: true, email: true, role: true, status: true, createdAt: true, warningCount: true, lockedUntil: true },
 });
 
 const updateUserStatus = (id, status) => prisma.user.update({
@@ -196,16 +257,37 @@ async function updatePlatformFeeSettings(nextConfig, adminId, reason) {
   });
 }
 
-async function softDeleteTask(taskId, adminId) {
-  return prisma.task.update({
-    where: { id: taskId },
-    data: {
-      isDeleted: true,
-      deletedAt: new Date(),
-      reviewedByAdminAt: new Date(),
-      reviewedByAdminId: adminId,
-      status: 'CANCELLED',
-    },
+/**
+ * Hides a task (kept in the database), cancels it with the admin's reason and
+ * closes its pending bids. Returns the task and the providers whose bids closed.
+ */
+async function softDeleteTask(taskId, adminId, reason) {
+  return prisma.$transaction(async (tx) => {
+    const pendingBids = await tx.bid.findMany({ where: { taskId, status: 'PENDING' }, select: { providerId: true } });
+    await tx.bid.updateMany({ where: { taskId, status: 'PENDING' }, data: { status: 'REJECTED' } });
+    const now = new Date();
+    const task = await tx.task.update({
+      where: { id: taskId },
+      data: {
+        isDeleted: true,
+        deletedAt: now,
+        reviewedByAdminAt: now,
+        reviewedByAdminId: adminId,
+        status: 'CANCELLED',
+        canceledAt: now,
+        cancellationReason: reason,
+      },
+    });
+    await tx.taskActivityLog.create({
+      data: {
+        taskId,
+        actorId: adminId,
+        action: 'TASK_REMOVED_BY_ADMIN',
+        message: `An admin removed this task: ${reason}`,
+        metadata: { reason, closedBids: pendingBids.length },
+      },
+    });
+    return { task, bidderIds: [...new Set(pendingBids.map((bid) => bid.providerId))] };
   });
 }
 
@@ -250,6 +332,7 @@ async function listPayments(filters = {}) {
   if (filters.lifecycleStatus) {
     where.lifecycleStatus = filters.lifecycleStatus;
   }
+  if (filters.heldOnly) Object.assign(where, HELD_DEPOSIT_WHERE);
 
   return prisma.paymentTransaction.findMany({
     where,

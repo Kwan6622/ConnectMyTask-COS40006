@@ -34,6 +34,22 @@ async function updateUserStatus(req, res, next) {
   }
 }
 
+async function getUserWarnings(req, res, next) {
+  try {
+    res.json(await adminService.getUserWarnings(req.params.id, req.user));
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function changeUserWarnings(req, res, next) {
+  try {
+    res.json(await adminService.changeUserWarnings(req.params.id, req.body, req.user));
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function getSuspiciousTasks(req, res, next) {
   try {
     const result = await adminService.getSuspiciousTasks(req.user);
@@ -45,7 +61,7 @@ async function getSuspiciousTasks(req, res, next) {
 
 async function deleteTask(req, res, next) {
   try {
-    const result = await adminService.deleteTask(req.params.id, req.user);
+    const result = await adminService.deleteTask(req.params.id, req.user, req.body?.reason);
     res.json(result);
   } catch (error) {
     next(error);
@@ -143,6 +159,8 @@ module.exports = {
   getStats,
   getUsers,
   updateUserStatus,
+  getUserWarnings,
+  changeUserWarnings,
   getTasks,
   getSuspiciousTasks,
   deleteTask,

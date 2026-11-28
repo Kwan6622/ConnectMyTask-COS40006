@@ -18,6 +18,8 @@ import {
   formatDate,
   formatTaskStatusLabel,
   getDisplayName,
+  getStatusVariant,
+  isViewOnlyTask,
   getTaskDueDate,
   isAdmin,
   isProvider,
@@ -277,14 +279,46 @@ export default function TaskDetailScreen(): React.ReactElement {
               ) : null}
             </View>
           </View>
+          {String(currentTask.status) === "EXPIRED" && String(currentTask.createdById) === String(user?.id) ? (
+            <View style={styles.expiredBox}>
+              <Text style={styles.expiredText}>
+                This task expired before a provider was assigned. Only you can see it. Edit and repost it with a new
+                deadline, or delete it.
+              </Text>
+              <Button
+                title="Edit & repost"
+                size="sm"
+                onPress={() => router.push({ pathname: "/repost-task", params: { taskId: String(currentTask.id) } })}
+              />
+            </View>
+          ) : null}
           <View style={styles.badgeRow}>
-            <Badge label={formatTaskStatusLabel(currentTask.status)} variant="primary" />
+            <Badge label={formatTaskStatusLabel(currentTask.status)} variant={getStatusVariant(currentTask.status)} />
             <Badge label={formatCategoryLabel(String(currentTask.category))} variant="neutral" />
             {currentTask.isSuspicious && canSeeSuspiciousRisk ? <Badge label="Risk flagged" variant="warning" /> : null}
           </View>
+          {currentTask.isSuspicious && canSeeSuspiciousRisk ? (
+            <View
+              accessibilityRole="alert"
+              style={[styles.riskBox, currentTask.riskLevel === "HIGH" ? styles.riskBoxHigh : null]}
+            >
+              <View style={styles.badgeRow}>
+                <Text style={[styles.riskTitle, currentTask.riskLevel === "HIGH" ? styles.riskTextHigh : null]}>Proceed with caution</Text>
+                <Badge label={currentTask.riskLevel === "HIGH" ? "HIGH RISK" : "MEDIUM RISK"} variant={currentTask.riskLevel === "HIGH" ? "danger" : "warning"} />
+              </View>
+              <Text style={[styles.riskBody, currentTask.riskLevel === "HIGH" ? styles.riskTextHigh : null]}>
+                This task may be a scam: the offered budget is unusually low for this type of work. Check the details and
+                talk to the requester before you bid, and never pay anything up front.
+              </Text>
+              <Text style={[styles.riskBody, styles.riskReason, currentTask.riskLevel === "HIGH" ? styles.riskTextHigh : null]}>
+                Reason: {currentTask.suspiciousReason || "Budget is unusually low for this type of job"}
+              </Text>
+            </View>
+          ) : null}
           <Text style={styles.body}>{currentTask.description}</Text>
           <View style={styles.infoBox}>
             <InfoRow label="Location" value={currentTask.location} />
+            {currentTask.isApproximateLocation ? <InfoRow label="Address" value="Nearby address (within 100 m)" /> : null}
             <InfoRow label="Posted by" value={postedBy} />
             <InfoRow label="Due date" value={dueDate ? formatDate(dueDate) : "Flexible"} />
             <InfoRow label="Created" value={formatDate(currentTask.createdAt)} />
@@ -298,18 +332,14 @@ export default function TaskDetailScreen(): React.ReactElement {
 
       <Card title="Actions">
         <View style={styles.actionRow}>
-          <Button
-            title="Task Progress"
-            variant="outline"
-            onPress={() => router.push({ pathname: "/task-progress", params: { taskId: String(currentTask.id) } })}
-            style={styles.actionButton}
-          />
-          <Button
-            title="Task Progress & Tracking"
-            variant="outline"
-            onPress={() => router.push({ pathname: "/task-progress", params: { taskId: String(currentTask.id) } })}
-            style={styles.actionButton}
-          />
+          {!isViewOnlyTask(currentTask.status) ? (
+            <Button
+              title="Task Progress & Tracking"
+              variant="outline"
+              onPress={() => router.push({ pathname: "/task-progress", params: { taskId: String(currentTask.id) } })}
+              style={styles.actionButton}
+            />
+          ) : null}
           <Button title="Contact Client" variant="outline" onPress={() => Alert.alert("Coming soon")} style={styles.actionButton} />
         </View>
       </Card>
@@ -447,6 +477,21 @@ function InfoRow({ label, value }: { label: string; value: string }): React.Reac
 }
 
 const styles = StyleSheet.create({
+  riskBox: { gap: 6, padding: 12, borderRadius: radius.md, borderWidth: 1, borderColor: colors.warning[200], backgroundColor: colors.warning[50] },
+  riskBoxHigh: { borderColor: colors.danger[200], backgroundColor: colors.danger[50] },
+  riskTitle: { fontSize: 15, fontWeight: "800", color: colors.warning[600] },
+  riskBody: { fontSize: 13, lineHeight: 19, color: colors.dark[700] },
+  riskReason: { fontWeight: "700" },
+  riskTextHigh: { color: colors.danger[700] },
+  expiredBox: {
+    gap: 8,
+    padding: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.dark[200],
+    backgroundColor: colors.dark[50],
+  },
+  expiredText: { color: colors.dark[700], fontSize: 13, lineHeight: 19 },
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",

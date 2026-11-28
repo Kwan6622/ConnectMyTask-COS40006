@@ -316,12 +316,13 @@ test('closing unfunded dispute cannot invent held funds', async () => {
   await assert.rejects(tasks.updateTaskStatus(1, 'IN_PROGRESS', provider));
 });
 
-test('public task response exposes district but not trusted site coordinates', async () => {
+test('public task response exposes the ward but not trusted site coordinates', async () => {
   reset();
-  state.task.district = 'District 1';
-  state.task.location = 'District 1';
+  state.task.locationId = 26743; // Ben Thanh ward
+  state.task.location = '12 Le Loi, Ben Thanh'; // legacy free text must never be shown
   const publicTask = await tasks.getPublicTaskById(1);
-  assert.equal(publicTask.location, 'District 1');
+  assert.equal(publicTask.location, 'Ben Thanh, Ho Chi Minh City');
+  assert.equal(publicTask.cityId, 79);
   assert.equal(publicTask.siteAddress, undefined);
   assert.equal(publicTask.siteLatitude, undefined);
   assert.equal(publicTask.siteLongitude, undefined);

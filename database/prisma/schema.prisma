@@ -17,6 +17,11 @@ model User {
   phone               String?
   location            String?
   locationId          Int?
+  /// Private home address; shown only to the provider assigned to an approximate-location task.
+  streetAddress       String?
+  /// Map point of streetAddress (private); suggestions fall back to the ward centre.
+  homeLatitude        Float?
+  homeLongitude       Float?
   skills              String?
   bio                 String?
   availability        String?
@@ -24,7 +29,10 @@ model User {
   failedLoginAttempts Int       @default(0)
   lockoutUntil        DateTime?
   profilePhotoUrl     String?
+  /// ACTIVE, SUSPENDED (admin, indefinite) or LOCKED (3 warnings, until lockedUntil)
   status              String    @default("ACTIVE")
+  warningCount        Int       @default(0)
+  lockedUntil         DateTime?
   tokenVersion        Int       @default(0)
   createdAt           DateTime  @default(now())
 
@@ -53,6 +61,8 @@ model User {
   supportActivities     SupportActivity[]
   platformFeeUpdates    PlatformFeeConfig[]        @relation("PlatformFeeUpdatedBy")
   platformFeeAudits     PlatformFeeAudit[]         @relation("PlatformFeeChangedBy")
+  warnings              UserWarning[]              @relation("WarningUser")
+  warningsIssued        UserWarning[]              @relation("WarningIssuer")
 
   locationRef Location? @relation("UserLocation", fields: [locationId], references: [id], onDelete: SetNull)
 
@@ -64,8 +74,6 @@ model ProviderProfile {
   id                     Int      @id @default(autoincrement())
   userId                 Int      @unique
   address                String?
-  district               String?
-  serviceDistrictId      Int?
   city                   String?
   specialties            String[] @default([])
   safetyComplianceAgreed Boolean  @default(false)
@@ -76,10 +84,6 @@ model ProviderProfile {
   user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   certificates ProviderCertificate[] @relation("ProfileCertificates")
 
-  serviceDistrict District? @relation("ProviderServiceDistrict", fields: [serviceDistrictId], references: [id], onDelete: SetNull)
-
-  @@index([district])
-  @@index([serviceDistrictId])
   @@map("PROVIDER_PROFILES")
 }
 
@@ -106,46 +110,51 @@ model ProviderCertificate {
 }
 
 model Task {
-  id                 Int               @id @default(autoincrement())
-  title              String
-  description        String
-  category           String
-  budget             Float
-  maxBids            Int               @default(30)
-  isSuspicious       Boolean           @default(false)
-  suspiciousReason   String?
-  riskLevel          String?
-  urgency            TaskUrgency       @default(NORMAL)
-  riskAssessment     Json?
-  location           String
-  district           String?
-  locationId         Int?
-  siteAddress        String?
-  siteLatitude       Float?
-  siteLongitude      Float?
-  siteVersion        Int               @default(1)
-  status             TaskStatus        @default(PENDING)
-  dueDate            DateTime?
-  biddingStartedAt   DateTime?
-  biddingEndsAt      DateTime?
-  isOverdue          Boolean           @default(false)
-  overdueNotifiedAt  DateTime?
-  escrowStatus       EscrowStatus      @default(NONE)
-  paymentStatus      TaskPaymentStatus @default(UNPAID)
-  escrowAmount       Float?
-  escrowHeldAt       DateTime?
-  escrowReleasedAt   DateTime?
-  canceledAt         DateTime?
-  cancellationReason String?
-  isOnSite           Boolean           @default(false)
-  onSiteVerifiedAt   DateTime?
-  isDeleted          Boolean           @default(false)
-  deletedAt          DateTime?
-  reviewedByAdminAt  DateTime?
-  reviewedByAdminId  Int?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
-  imageUrls          String[]          @default([])
+  id                    Int               @id @default(autoincrement())
+  title                 String
+  description           String
+  category              String
+  budget                Float
+  maxBids               Int               @default(30)
+  isSuspicious          Boolean           @default(false)
+  suspiciousReason      String?
+  riskLevel             String?
+  urgency               TaskUrgency       @default(NORMAL)
+  riskAssessment        Json?
+  location              String
+  locationId            Int?
+  siteAddress           String?
+  siteLatitude          Float?
+  siteLongitude         Float?
+  siteVersion           Int               @default(1)
+  /// The site address is a nearby findable address; the real one is the requester's profile address.
+  isApproximateLocation Boolean           @default(false)
+  /// Private (max 100 chars): unit / floor / block, or the exact address when the site is a nearby spot.
+  addressDetail         String?           @db.VarChar(100)
+  status                TaskStatus        @default(PENDING)
+  dueDate               DateTime?
+  biddingStartedAt      DateTime?
+  biddingEndsAt         DateTime?
+  isOverdue             Boolean           @default(false)
+  overdueNotifiedAt     DateTime?
+  /// When the task became EXPIRED (deadline passed with nobody assigned)
+  expiredAt             DateTime?
+  escrowStatus          EscrowStatus      @default(NONE)
+  paymentStatus         TaskPaymentStatus @default(UNPAID)
+  escrowAmount          Float?
+  escrowHeldAt          DateTime?
+  escrowReleasedAt      DateTime?
+  canceledAt            DateTime?
+  cancellationReason    String?
+  isOnSite              Boolean           @default(false)
+  onSiteVerifiedAt      DateTime?
+  isDeleted             Boolean           @default(false)
+  deletedAt             DateTime?
+  reviewedByAdminAt     DateTime?
+  reviewedByAdminId     Int?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  imageUrls             String[]          @default([])
 
   createdById Int
   createdBy   User @relation("TasksCreated", fields: [createdById], references: [id], onDelete: Cascade)
@@ -159,6 +168,7 @@ model Task {
   trackingLogs          TrackingLog[]
   locationVerifications TaskLocationVerification[]
   aiInsights            AiInsight[]
+  warnings              UserWarning[]
   notifications         Notification[]
   savedByUsers          SavedTask[]
   payments              PaymentTransaction[]
@@ -281,14 +291,13 @@ model Bid {
 }
 
 model TaskProgressUpdate {
-  id                      Int       @id @default(autoincrement())
-  progressPercent         Int
-  note                    String
-  attachments             String[]  @default([])
-  milestoneStatus         String?
-  estimatedCompletionDate DateTime?
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
+  id              Int      @id @default(autoincrement())
+  progressPercent Int
+  note            String
+  attachments     String[] @default([])
+  milestoneStatus String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   taskId Int
   task   Task @relation(fields: [taskId], references: [id])
@@ -535,6 +544,7 @@ enum TaskStatus {
   PAID
   DISPUTED
   CANCELLED
+  EXPIRED
 }
 
 enum TaskUrgency {
@@ -616,44 +626,50 @@ enum CertificateVerificationStatus {
   REJECTED
 }
 
-/// Former HCMC district (quan cu), e.g. "District 1". Groups wards for filters.
-model District {
-  id        Int      @id @default(autoincrement())
+/// City (province-level unit). id = official province code (79 = Ho Chi Minh City, 1 = Hanoi).
+model City {
+  id        Int      @id
   name      String   @unique
-  city      String   @default("Ho Chi Minh City")
   createdAt DateTime @default(now())
 
-  wards            Location[]
-  neighbors        DistrictNeighbor[] @relation("DistrictNeighborFrom")
-  neighborOf       DistrictNeighbor[] @relation("DistrictNeighborTo")
-  providerProfiles ProviderProfile[]  @relation("ProviderServiceDistrict")
+  wards Location[]
 
-  @@map("DISTRICTS")
+  @@map("CITIES")
 }
 
-/// New HCMC ward (phuong) after the 2025 merger, e.g. "Ben Thanh".
+/// Ward, commune or special zone (two-level system since 1 July 2025, no districts).
+/// `name` is English: no accents and no unit word, e.g. "Ben Thanh"; the unit is in `type`.
+/// id = official ward code. Full list: src/shared/administrativeUnits.json.
 model Location {
-  id         Int      @id @default(autoincrement())
-  ward       String   @unique
-  districtId Int
-  createdAt  DateTime @default(now())
+  id        Int      @id
+  cityId    Int
+  name      String
+  type      String
+  createdAt DateTime @default(now())
 
-  district District @relation(fields: [districtId], references: [id], onDelete: Restrict)
-  users    User[]   @relation("UserLocation")
-  tasks    Task[]   @relation("TaskLocation")
+  city  City   @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  users User[] @relation("UserLocation")
+  tasks Task[] @relation("TaskLocation")
 
-  @@index([districtId])
+  @@index([cityId])
   @@map("LOCATIONS")
 }
 
-/// Adjacent former districts, used for "nearby" task suggestions.
-model DistrictNeighbor {
-  districtId Int
-  neighborId Int
+/// One change to a user's warning count (+1 / -1), by the system or an admin.
+model UserWarning {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  change      Int
+  countAfter  Int
+  reason      String
+  taskId      Int?
+  createdById Int?
+  createdAt   DateTime @default(now())
 
-  district District @relation("DistrictNeighborFrom", fields: [districtId], references: [id], onDelete: Cascade)
-  neighbor District @relation("DistrictNeighborTo", fields: [neighborId], references: [id], onDelete: Cascade)
+  user      User  @relation("WarningUser", fields: [userId], references: [id], onDelete: Cascade)
+  task      Task? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  createdBy User? @relation("WarningIssuer", fields: [createdById], references: [id], onDelete: SetNull)
 
-  @@id([districtId, neighborId])
-  @@map("DISTRICT_NEIGHBORS")
+  @@index([userId, createdAt])
+  @@map("USER_WARNINGS")
 }

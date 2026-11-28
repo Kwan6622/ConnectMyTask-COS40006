@@ -431,6 +431,14 @@ async function releaseEscrowForTask(taskId, currentUser, options = {}) {
     },
   });
 
+  // The deposit row no longer holds money: mark it released so admin "held"
+  // totals and the Release button never show a settled escrow again.
+  await paymentsRepository.updatePaymentStatus(deposit.id, {
+    escrowStatus: 'RELEASED',
+    lifecycleStatus: 'RELEASED',
+    releasedAt: transaction.releasedAt || new Date(),
+  });
+
   const updatedTask = await paymentsRepository.updateTaskState(task.id, {
     status: 'PAID',
     escrowStatus: 'RELEASED',
@@ -520,6 +528,12 @@ async function refundEscrowForTask(taskId, currentUser, options = {}) {
       refundedBy: currentUser.id,
       stripeRefundId,
     },
+  });
+
+  // Same for a refund: the deposit row is no longer held.
+  await paymentsRepository.updatePaymentStatus(latestDeposit.id, {
+    escrowStatus: 'REFUNDED',
+    lifecycleStatus: 'REFUNDED',
   });
 
   const updatedTask = await paymentsRepository.updateTaskState(task.id, {

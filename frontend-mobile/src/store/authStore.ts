@@ -34,6 +34,9 @@ function mapApiUser(raw: any): User {
     phone: raw?.phone || undefined,
     phoneNumber: raw?.phone || undefined,
     location: raw?.location || undefined,
+    locationId: raw?.locationId ?? null,
+    cityId: raw?.cityId ?? null,
+    streetAddress: raw?.streetAddress ?? null,
     bio: raw?.bio || undefined,
     rating: raw?.rating != null ? Number(raw.rating) : 0,
     completedTasks: raw?.completedTasks != null ? Number(raw.completedTasks) : 0,
@@ -123,7 +126,7 @@ export const useAuthStore = create<AuthStore>()(
     }
   },
 
-  signUp: async ({ fullName, email, phoneNumber, location, accountType, password }: SignUpInput) => {
+  signUp: async ({ fullName, email, phoneNumber, wardId, accountType, password }: SignUpInput) => {
     const role = accountType === "service_provider" ? "PROVIDER" : "CLIENT";
     set({ isLoading: true, error: null });
     try {
@@ -133,7 +136,7 @@ export const useAuthStore = create<AuthStore>()(
         password,
         role,
         phone: phoneNumber,
-        location,
+        wardId,
       });
       const token = data?.accessToken || null;
       const user = mapApiUser(data?.user);
@@ -181,7 +184,8 @@ export const useAuthStore = create<AuthStore>()(
       const response = await api.users.updateProfile({
         name: data.fullName || data.name,
         phone: data.phoneNumber || data.phone,
-        ...(data.location ? { location: data.location } : {}),
+        ...(data.locationId ? { wardId: Number(data.locationId) } : {}),
+        ...(data.streetAddress !== undefined ? { streetAddress: data.streetAddress } : {}),
         bio: data.bio,
       });
       set((state) => ({

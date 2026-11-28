@@ -20,14 +20,14 @@ describe('P1 Account, profile and identity verification', () => {
     assert.equal(me.body.user.role, 'PROVIDER');
   });
 
-  test('P1.2 FR-B7 provider profile stores specialties, district and safety agreement', async () => {
+  test('P1.2 FR-B7 provider profile stores specialties and safety agreement', async () => {
     const provider = await p.signup('PROVIDER');
     const res = await p.api('PATCH', '/api/users/me/provider-profile', {
-      token: provider.token, body: { specialties: ['Home Repair'], district: 'District 1', safetyComplianceAgreed: true, shortBio: '5 years plumbing' },
+      token: provider.token, body: { specialties: ['Home Repair'], safetyComplianceAgreed: true, shortBio: '5 years plumbing' },
     });
     assert.equal(res.status, 200);
     const requester = await p.signup('CLIENT');
-    const forbidden = await p.api('PATCH', '/api/users/me/provider-profile', { token: requester.token, body: { district: 'District 1' } });
+    const forbidden = await p.api('PATCH', '/api/users/me/provider-profile', { token: requester.token, body: { specialties: ['Home Repair'] } });
     assert.equal(forbidden.status, 403, 'requesters cannot create provider profiles');
   });
 
@@ -52,13 +52,13 @@ describe('P1 Account, profile and identity verification', () => {
 });
 
 describe('P2 Discover tasks (FR-B3, FR-B8)', () => {
-  test('P2.1 browsing shows open tasks with district only, never the precise address', async () => {
+  test('P2.1 browsing shows open tasks with ward and city only, never the precise address', async () => {
     const { requester, provider } = await pair();
     const task = (await p.api('POST', '/api/tasks', { token: requester.token, body: p.taskPayload() })).body;
     const list = await p.api('GET', '/api/tasks', { token: provider.token });
     const found = list.body.find((t) => t.id === task.id);
     assert.ok(found, 'open task is browseable');
-    assert.equal(found.district, 'Ben Thanh');
+    assert.equal(found.location, 'Ben Thanh, Ho Chi Minh City');
     assert.equal(found.siteAddress, undefined);
     assert.equal(found.siteLatitude, undefined);
     const detail = await p.api('GET', `/api/tasks/${task.id}`, { token: provider.token });
@@ -73,12 +73,12 @@ describe('P2 Discover tasks (FR-B3, FR-B8)', () => {
     assert.ok(detail.body.riskLevel);
   });
 
-  test('P2.3 FR-B8 suggested tasks rank same-district + matching specialty first', async () => {
+  test('P2.3 FR-B8 suggested tasks rank same-ward + matching specialty first', async () => {
     const requester = await p.signup('CLIENT');
-    const provider = await p.signup('PROVIDER', { location: 'Ben Thanh' });
-    await p.api('PATCH', '/api/users/me/provider-profile', { token: provider.token, body: { specialties: ['Home Repair'], district: 'District 1' } });
-    const far = (await p.api('POST', '/api/tasks', { token: requester.token, body: p.taskPayload({ district: 'Cat Lai', location: 'Cat Lai', category: 'DELIVERY', title: 'Deliver parcel' }) })).body;
-    const near = (await p.api('POST', '/api/tasks', { token: requester.token, body: p.taskPayload({ district: 'Ben Thanh', location: 'Ben Thanh' }) })).body;
+    const provider = await p.signup('PROVIDER', { wardId: p.BEN_THANH });
+    await p.api('PATCH', '/api/users/me/provider-profile', { token: provider.token, body: { specialties: ['Home Repair'] } });
+    const far = (await p.api('POST', '/api/tasks', { token: requester.token, body: p.taskPayload({ wardId: p.ward('Cat Lai'), category: 'DELIVERY', title: 'Deliver parcel' }) })).body;
+    const near = (await p.api('POST', '/api/tasks', { token: requester.token, body: p.taskPayload({ wardId: p.BEN_THANH }) })).body;
     const res = await p.api('GET', '/api/tasks/suggested/me', { token: provider.token });
     assert.equal(res.status, 200);
     const ids = res.body.map((t) => t.id);
@@ -87,12 +87,47 @@ describe('P2 Discover tasks (FR-B3, FR-B8)', () => {
     assert.equal((await p.api('GET', '/api/tasks/suggested/me', { token: requester.token })).status, 403);
   });
 
-  test('P2.4 FR-B8 suggestions fall back to the signup ward when the profile has no district', async () => {
+  test('P2.4 FR-B8 suggestions rank same-category tasks by distance to the provider', async () => {
     const requester = await p.signup('CLIENT');
-    const provider = await p.signup('PROVIDER', { location: 'Cat Lai' });
-    const local = (await p.api('POST', '/api/tasks', { token: requester.token, body: p.taskPayload({ district: 'Cat Lai', location: 'Cat Lai' }) })).body;
+    const provider = await p.signup('PROVIDER', { wardId: p.BEN_THANH });
+    const post = async (ward, cityId) => (await p.api('POST', '/api/tasks', {
+      token: requester.token,
+      body: p.taskPayload({ wardId: p.ward(ward, cityId), category: 'CLEANING', title: `Clean flat in ${ward}` }),
+    })).body;
+    const tasks = [await post('Thu Dau Mot'), await post('Ben Thanh'), await post('Hoan Kiem', 1), await post('Sai Gon')];
     const res = await p.api('GET', '/api/tasks/suggested/me', { token: provider.token });
-    assert.ok(res.body.find((t) => t.id === local.id).suggestionScore >= 50, 'same-ward task gets the district score');
+    assert.equal(res.status, 200);
+    const mine = res.body.filter((t) => tasks.some((task) => task.id === t.id));
+    assert.deepEqual(mine.map((t) => t.title), [
+      'Clean flat in Ben Thanh', 'Clean flat in Sai Gon', 'Clean flat in Thu Dau Mot', 'Clean flat in Hoan Kiem',
+    ], 'closest first');
+    assert.equal(mine[0].distanceKm, 0.5, 'same ward shows the 0.5 km minimum');
+    assert.ok(mine[1].distanceKm <= 3);
+    assert.ok(mine[3].distanceKm > 1000, 'another city is far away');
+    assert.ok(mine.every((t) => t.siteLatitude === undefined && t.siteAddress === undefined), 'no exact site before hiring');
+  });
+
+  test('P2.5 FR-B8 the provider home address is used when the map can find it, otherwise the ward centre', async () => {
+    const requester = await p.signup('CLIENT');
+    const provider = await p.signup('PROVIDER', { wardId: p.BEN_THANH });
+    const catLaiTask = (await p.api('POST', '/api/tasks', { token: requester.token, body: p.taskPayload({ wardId: p.ward('Cat Lai'), title: 'Fix gate in Cat Lai' }) })).body;
+    const distanceTo = async () => (await p.api('GET', '/api/tasks/suggested/me', { token: provider.token })).body
+      .find((t) => t.id === catLaiTask.id).distanceKm;
+
+    const fromBenThanh = await distanceTo();
+    const moved = await p.api('PATCH', '/api/users/me', { token: provider.token, body: { wardId: p.ward('Cat Lai'), streetAddress: '12 Nguyen Thi Dinh' } });
+    assert.equal(moved.status, 200);
+    assert.ok(Number.isFinite(moved.body.user.homeLatitude), 'home point stored on the account');
+    assert.equal(await distanceTo(), 0.5, 'now ranked from the new home');
+    assert.ok(fromBenThanh > 5);
+
+    const unfindable = await p.api('PATCH', '/api/users/me', { token: provider.token, body: { streetAddress: '99 Unfindable Alley' } });
+    assert.equal(unfindable.status, 200, 'a house the map cannot find still saves');
+    assert.equal(unfindable.body.user.homeLatitude, null);
+    assert.equal(await distanceTo(), 0.5, 'falls back to the Cat Lai ward centre');
+
+    const pub = await p.api('GET', `/api/users/${provider.id}`, { token: requester.token });
+    assert.doesNotMatch(JSON.stringify(pub.body), /homeLatitude|streetAddress|Unfindable/, 'home point and address stay private');
   });
 });
 
@@ -246,6 +281,47 @@ describe('P6 Do the work and request confirmation', () => {
     assert.equal(p.dbTask(task.id).status, 'IN_PROGRESS');
   });
 
+  test('P6.2a a progress update completes and logs every subtask at or below that percent', async () => {
+    const { requester, provider } = await pair();
+    const { task } = await p.advanceTask('VERIFIED', { requester, provider });
+    const subtasks = () => p.store.subtasks.filter((s) => s.taskId === task.id);
+    assert.deepEqual(subtasks().map((s) => s.progressPercent), [25, 50, 75, 100]);
+
+    const res = await progress(task, provider, { progressPercent: 60, note: 'More than half done' });
+    assert.equal(res.status, 201);
+    assert.deepEqual(subtasks().map((s) => s.status), ['DONE', 'DONE', 'PENDING', 'PENDING']);
+    assert.deepEqual(res.body.autoCompletedSubtasks.map((s) => s.progressPercent), [25, 50]);
+    const autoLogs = p.store.activities.filter((a) => a.taskId === task.id && a.action === 'SUBTASK_STATUS_UPDATED');
+    assert.equal(autoLogs.length, 2);
+    assert.ok(autoLogs.every((a) => a.metadata.automatic === true && a.metadata.status === 'DONE'));
+    assert.match(autoLogs[0].description || autoLogs[0].message || '', /completed automatically by the 60% progress update/);
+
+    const view = await p.api('GET', `/api/tasks/${task.id}/progress`, { token: requester.token });
+    assert.equal(view.body.summary.completedSubtasks, 2);
+    assert.equal(view.body.summary.progressPercent, 50);
+
+    // A lower update afterwards changes nothing and does not log the same subtasks again.
+    await progress(task, provider, { progressPercent: 40, note: 'Correction' });
+    assert.equal(p.store.activities.filter((a) => a.taskId === task.id && a.action === 'SUBTASK_STATUS_UPDATED').length, 2);
+
+    await progress(task, provider, { progressPercent: 100, note: 'All done', markAsCompleted: true });
+    assert.ok(subtasks().every((s) => s.status === 'DONE'));
+  });
+
+  test('P6.2b a completed subtask cannot be reopened', async () => {
+    const { requester, provider } = await pair();
+    const { task } = await p.advanceTask('VERIFIED', { requester, provider });
+    const [first] = p.store.subtasks.filter((s) => s.taskId === task.id);
+    const patch = (status) => p.api('PATCH', `/api/tasks/${task.id}/subtasks/${first.id}`, { token: provider.token, body: { status } });
+    assert.equal((await patch('DONE')).status, 200);
+    const reopen = await patch('IN_PROGRESS');
+    assert.equal(reopen.status, 409);
+    assert.match(reopen.body.message, /already completed/);
+    assert.equal((await patch('PENDING')).status, 409);
+    assert.equal((await patch('DONE')).status, 200, 'repeating DONE is harmless');
+    assert.equal(p.store.subtasks.find((s) => s.id === first.id).status, 'DONE');
+  });
+
   test('P6.3 marking complete requires 100% and moves the task to PENDING_CONFIRMATION', async () => {
     const { requester, provider } = await pair();
     const { task } = await p.advanceTask('VERIFIED', { requester, provider });
@@ -253,6 +329,30 @@ describe('P6 Do the work and request confirmation', () => {
     const done = await progress(task, provider, { progressPercent: 100, note: 'All fixed', markAsCompleted: true });
     assert.equal(done.status, 201);
     assert.equal(done.body.task.status, 'PENDING_CONFIRMATION');
+  });
+
+  test('P6.3b once published as completed, progress and subtasks are locked', async () => {
+    const { requester, provider } = await pair();
+    const { task } = await p.advanceTask('VERIFIED', { requester, provider });
+    const [first] = p.store.subtasks.filter((s) => s.taskId === task.id);
+    p.store.subtasks.filter((s) => s.taskId === task.id).forEach((s) => { s.status = 'PENDING'; });
+    assert.equal((await progress(task, provider, { progressPercent: 100, note: 'All fixed', markAsCompleted: true })).status, 201);
+    first.status = 'PENDING';
+
+    const again = await progress(task, provider, { progressPercent: 100, note: 'One more' });
+    assert.equal(again.status, 409);
+    assert.match(again.body.message, /already been published as completed/);
+    const sub = await p.api('PATCH', `/api/tasks/${task.id}/subtasks/${first.id}`, { token: provider.token, body: { status: 'DONE' } });
+    assert.equal(sub.status, 409);
+  });
+
+  test('P6.3c progress updates no longer store an estimated completion date', async () => {
+    const { requester, provider } = await pair();
+    const { task } = await p.advanceTask('VERIFIED', { requester, provider });
+    const res = await progress(task, provider, { progressPercent: 30, note: 'Started', estimatedCompletionDate: '2026-12-01' });
+    assert.equal(res.status, 201, 'old clients sending the field are not rejected');
+    const view = await p.api('GET', `/api/tasks/${task.id}/progress`, { token: requester.token });
+    assert.equal('estimatedCompletionDate' in view.body.summary, false);
   });
 
   test('P6.4 provider cannot skip states or set requester-only statuses', async () => {
@@ -350,5 +450,26 @@ describe('P7 Get paid, disputes and ratings', () => {
     const { task } = await p.advanceTask('PAID', { requester, provider });
     const res = await p.api('POST', '/api/ratings', { token: provider.token, body: { taskId: task.id, rating: 4, comment: 'Clear instructions' } });
     assert.equal(res.status, 201);
+  });
+});
+
+describe('P8 Browsing shows only tasks open for bids', () => {
+  test('P8.1 assigned or in-progress tasks never appear in browse, even when asked for by status', async () => {
+    const requester = await p.signup('CLIENT');
+    const provider = await p.signup('PROVIDER');
+    const open = (await p.api('POST', '/api/tasks', { token: requester.token, body: p.taskPayload({ title: 'Still open task' }) })).body;
+    const { task: working } = await p.advanceTask('VERIFIED', { requester, provider });
+    await p.api('POST', `/api/tasks/${working.id}/progress`, { token: provider.token, body: { progressPercent: 30, note: 'Started' } });
+    assert.equal(p.dbTask(working.id).status, 'IN_PROGRESS');
+
+    const browse = await p.api('GET', '/api/tasks', { token: provider.token });
+    const ids = browse.body.map((t) => t.id);
+    assert.ok(ids.includes(open.id));
+    assert.ok(!ids.includes(working.id), 'in-progress task is not browsable');
+    assert.ok(browse.body.every((t) => ['OPEN', 'BIDDING'].includes(t.status)));
+    for (const status of ['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION', 'COMPLETED', 'AWAITING_PAYMENT', 'PAID', 'DISPUTED']) {
+      const res = await p.api('GET', `/api/tasks?status=${status}`, { token: provider.token });
+      assert.deepEqual(res.body, [], `${status} cannot be browsed`);
+    }
   });
 });

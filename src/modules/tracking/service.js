@@ -2,6 +2,7 @@ const trackingRepository = require('./repository');
 const notificationRepository = require('../notifications/repository');
 const taskRepository = require('../tasks/repository');
 const { withTaskLock } = require('../../database/taskTransaction');
+const { getWard, formatWardLocation } = require('../../shared/administrativeUnits');
 
 // Provider must be within this distance of the verified task address to start work.
 const VERIFICATION_RADIUS_METERS = 100;
@@ -262,11 +263,25 @@ async function getTaskSiteLocation(taskId, user) {
     && Number.isFinite(task.siteLongitude)
     && task.siteLatitude >= -90 && task.siteLatitude <= 90
     && task.siteLongitude >= -180 && task.siteLongitude <= 180;
+  // Once the task is assigned and funded, participants get the private address
+  // details (unit / floor, or the exact address when the site is a nearby spot).
+  // Older nearby-address tasks without details fall back to the profile home address.
+  let requesterAddress = null;
+  if (task.isApproximateLocation && !task.addressDetail) {
+    const home = await trackingRepository.getRequesterHomeAddress(task.id);
+    const wardText = formatWardLocation(getWard(home?.locationId));
+    requesterAddress = home?.streetAddress
+      ? [home.streetAddress, wardText].filter(Boolean).join(', ')
+      : null;
+  }
   return {
     siteAddress: task.siteAddress || null,
     siteLatitude: hasCoordinates ? task.siteLatitude : null,
     siteLongitude: hasCoordinates ? task.siteLongitude : null,
     available: hasCoordinates,
+    isApproximateLocation: Boolean(task.isApproximateLocation),
+    addressDetail: task.addressDetail || null,
+    requesterAddress,
   };
 }
 

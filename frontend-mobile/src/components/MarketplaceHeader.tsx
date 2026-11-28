@@ -108,7 +108,8 @@ export function MarketplaceHeader({
       { key: "notifications" as const, label: "Notifications", route: "/notifications", visible: isRequester(user) || isProvider(user) },
       { key: "support" as const, label: "Support", route: "/support", visible: isAuthenticated },
       { key: "transactions" as const, label: "Transactions", route: "/transaction-history", visible: isRequester(user) },
-      { key: "progress" as const, label: "Task Progress", route: "/task-progress", visible: isRequester(user) || isProvider(user) },
+      // Providers reach this screen as "My Assigned Tasks" above; only requesters need it here.
+      { key: "progress" as const, label: "Task Progress", route: "/task-progress", visible: isRequester(user) },
       { key: "admin" as const, label: "Admin Dashboard", route: "/admin-dashboard", visible: isAdmin(user) },
     ],
     [user]

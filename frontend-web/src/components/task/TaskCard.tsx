@@ -1,10 +1,11 @@
 import React from 'react';
+import { taskStatusTone } from '../../utils/statusColors';
 import { Link } from 'react-router-dom';
 import type { Task } from '../../types';
 import { TaskStatus, TaskCategory } from '../../types';
 import { Button } from '../common/Button';
 import { useAuthStore } from '../../stores/auth.store';
-import { formatVnd } from '../../utils';
+import { formatDistance, formatVnd } from '../../utils';
 import {
   TruckIcon,
   WrenchIcon,
@@ -31,19 +32,6 @@ const categoryIcons: Record<TaskCategory, React.ReactNode> = {
   [TaskCategory.OTHER]: <QuestionMarkCircleIcon className="w-5 h-5" />,
 };
 
-const statusColors: Record<TaskStatus, { bg: string; text: string; border: string }> = {
-  [TaskStatus.OPEN]: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
-  [TaskStatus.POSTED]: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
-  [TaskStatus.BIDDING]: { bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200' },
-  [TaskStatus.ASSIGNED]: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200' },
-  [TaskStatus.IN_PROGRESS]: { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
-  [TaskStatus.PENDING_CONFIRMATION]: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
-  [TaskStatus.COMPLETED]: { bg: 'bg-dark-50', text: 'text-dark-700', border: 'border-dark-200' },
-  [TaskStatus.AWAITING_PAYMENT]: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' },
-  [TaskStatus.PAID]: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
-  [TaskStatus.DISPUTED]: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' },
-  [TaskStatus.CANCELLED]: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' },
-};
 
 interface TaskCardProps {
   task: Task;
@@ -53,10 +41,7 @@ interface TaskCardProps {
 
 export const TaskCard: React.FC<TaskCardProps> = ({ task, showActions = true, onClick }) => {
   const { user } = useAuthStore();
-  const statusStyle =
-    statusColors[task.status as TaskStatus] ||
-    statusColors[TaskStatus.OPEN] ||
-    statusColors[TaskStatus.POSTED];
+  const statusStyle = taskStatusTone(task.status);
   const displayBudget = task.aiSuggestedPrice ?? task.budget;
   const statusLabel = task.status === TaskStatus.POSTED || task.status === TaskStatus.OPEN
     ? 'OPEN'
@@ -92,10 +77,10 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, showActions = true, on
   return (
     <div
       onClick={handleClick}
-      className="group cursor-pointer overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md"
+      className="group flex h-full cursor-pointer flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md"
     >
       {/* Header */}
-      <div className="p-6 pb-4">
+      <div className="flex-1 p-6 pb-4">
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center space-x-3">
             <div className={`p-3 rounded-xl ${isOpenTask ? 'bg-primary-50' : 'bg-dark-50'}`}>
@@ -114,9 +99,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, showActions = true, on
                   {statusLabel}
                 </span>
                 {task.isSuspicious && canSeeSuspiciousRisk && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border bg-amber-50 text-amber-700 border-amber-200">
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border ${task.riskLevel === 'HIGH' ? 'bg-red-50 text-red-700 border-red-300' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
                     <ExclamationTriangleIcon className="w-3.5 h-3.5" />
-                    Potential scam risk
+                    {task.riskLevel === 'HIGH' ? 'HIGH RISK' : 'Potential scam risk'}
                   </span>
                 )}
                 {isOverdue && (
@@ -172,6 +157,21 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, showActions = true, on
             <MapPinIcon className="w-4 h-4 mr-2 text-dark-400" />
             <span className="truncate">{task.location}</span>
           </div>
+          {task.distanceKm != null && (
+            <div className="flex items-center text-sm font-medium text-primary-700">
+              <span className="truncate">{formatDistance(task.distanceKm)}</span>
+            </div>
+          )}
+          {task.isApproximateLocation && (
+            <div className="col-span-2">
+              <span
+                title="The posted address is a findable spot within 100 m. The provider you hire sees the exact home address."
+                className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800"
+              >
+                Nearby address (within 100 m)
+              </span>
+            </div>
+          )}
 
           {dueDate && (
             <div className="flex items-center text-dark-600 text-sm">

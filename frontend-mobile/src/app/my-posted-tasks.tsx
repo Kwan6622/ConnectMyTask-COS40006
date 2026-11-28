@@ -9,7 +9,8 @@ import { api } from "@/services/api";
 import { useAuthStore } from "@/store/authStore";
 import { useTaskStore } from "@/store/taskStore";
 import { colors, radius } from "@/theme/tokens";
-import { formatCurrency, formatDate, formatTaskStatusLabel, getBidCount, isRequester } from "@/utils/taskUtils";
+import { formatCurrency, formatDate, formatTaskStatusLabel, getBidCount, getStatusVariant, isRequester, isViewOnlyTask } from "@/utils/taskUtils";
+import { Badge } from "@/components/Badge";
 
 export default function MyPostedTasksPage(): React.ReactElement {
   const router = useRouter();
@@ -44,6 +45,10 @@ export default function MyPostedTasksPage(): React.ReactElement {
       totalBudget,
     };
   }, [requesterTasks]);
+
+  // Deadline passed with nobody assigned: listed apart, with edit/repost or delete.
+  const expiredTasks = requesterTasks.filter((task) => String(task.status) === "EXPIRED");
+  const activeTasks = requesterTasks.filter((task) => String(task.status) !== "EXPIRED");
 
   if (!isAuthenticated || !isRequester(user)) {
     return (
@@ -125,7 +130,33 @@ export default function MyPostedTasksPage(): React.ReactElement {
         </View>
       </View>
 
-      {requesterTasks.length === 0 ? (
+      {expiredTasks.length > 0 ? (
+        <Card title={`Expired tasks (${expiredTasks.length})`}>
+          <View style={styles.expiredList}>
+            <Text style={styles.expiredIntro}>
+              These passed their deadline before a provider was assigned, so they were removed from browsing. Only you
+              can see them. Edit and repost them with a new deadline (raising the budget or adding photos helps), or
+              delete them permanently.
+            </Text>
+            {expiredTasks.map((task) => (
+              <View key={String(task.id)} style={styles.expiredItem}>
+                <Text style={styles.taskTitle}>{task.title}</Text>
+                <Text style={styles.taskMeta}>
+                  {task.location} · {formatCurrency(Number(task.budget || 0))} ·{" "}
+                  {getBidCount(task) > 0 ? `${getBidCount(task)} bid(s), nobody assigned` : "no bids"}
+                </Text>
+                <Button
+                  title="Edit & repost"
+                  size="sm"
+                  onPress={() => router.push({ pathname: "/repost-task", params: { taskId: String(task.id) } })}
+                />
+              </View>
+            ))}
+          </View>
+        </Card>
+      ) : null}
+
+      {activeTasks.length === 0 && expiredTasks.length === 0 ? (
         <Card>
           <View style={styles.emptyBox}>
             <Text style={styles.emptyTitle}>No posted tasks yet</Text>
@@ -134,7 +165,7 @@ export default function MyPostedTasksPage(): React.ReactElement {
           </View>
         </Card>
       ) : (
-        requesterTasks.map((task) => (
+        activeTasks.map((task) => (
           <Card key={String(task.id)}>
             <View style={styles.taskRow}>
               <View style={styles.taskCopy}>
@@ -145,7 +176,7 @@ export default function MyPostedTasksPage(): React.ReactElement {
                 <View style={styles.taskMetaGrid}>
                   <Text style={styles.taskMeta}>Bids: {getBidCount(task)}</Text>
                   <Text style={styles.taskMeta}>Budget: {formatCurrency(Number(task.budget || 0))}</Text>
-                  <Text style={styles.taskMeta}>Assigned: {formatTaskStatusLabel(task.status)}</Text>
+                  <Badge label={formatTaskStatusLabel(task.status)} variant={getStatusVariant(task.status)} />
                   <Text style={styles.taskMeta}>Created: {formatDate(task.createdAt)}</Text>
                 </View>
               </View>
@@ -159,13 +190,15 @@ export default function MyPostedTasksPage(): React.ReactElement {
                     router.push({ pathname: "/task-detail", params: { taskId: String(task.id) } })
                   }
                 />
-                <Button
-                  title="Track Progress"
-                  size="sm"
-                  onPress={() =>
-                    router.push({ pathname: "/task-progress", params: { taskId: String(task.id) } })
-                  }
-                />
+                {!isViewOnlyTask(task.status) ? (
+                  <Button
+                    title="Track Progress"
+                    size="sm"
+                    onPress={() =>
+                      router.push({ pathname: "/task-progress", params: { taskId: String(task.id) } })
+                    }
+                  />
+                ) : null}
                 {["COMPLETED", "AWAITING_PAYMENT", "PAID"].includes(String(task.status || "")) &&
                 task.assignedProviderId ? (
                   <Button title="Rate Provider" size="sm" variant="outline" onPress={() => void openRating(task.id)} />
@@ -219,6 +252,16 @@ function MetricCard({
 }
 
 const styles = StyleSheet.create({
+  expiredList: { gap: 12 },
+  expiredIntro: { color: colors.dark[600], fontSize: 13, lineHeight: 19 },
+  expiredItem: {
+    gap: 8,
+    padding: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.dark[200],
+    backgroundColor: colors.dark[50],
+  },
   dashboardCard: {
     borderRadius: radius.xl,
     backgroundColor: colors.white,

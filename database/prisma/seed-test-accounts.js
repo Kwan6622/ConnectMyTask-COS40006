@@ -2,6 +2,9 @@ const path = require('path');
 const bcrypt = require('bcryptjs');
 const dotenv = require('dotenv');
 const { PrismaClient } = require('@prisma/client');
+const { WARDS, toSearchText, formatWardLocation } = require('../../src/shared/administrativeUnits');
+
+const hcmWard = (name) => WARDS.find((w) => w.cityId === 79 && toSearchText(w.name) === toSearchText(name));
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env'), quiet: true });
 
@@ -12,11 +15,11 @@ const EXPECTED_BRANCH_ID = 'br-dry-truth-b30rzu08';
 const EXPECTED_BRANCH_NAME = 'e2e-test-20261122';
 
 const groups = [
-  { number: 1, label: 'Payment / Escrow', requester: 1, provider: 1, category: 'HOME_REPAIR', district: 'District 1', budget: 650000 },
-  { number: 2, label: 'GPS Verification', requester: 3, provider: 3, category: 'DELIVERY', district: 'District 3', budget: 180000 },
-  { number: 3, label: 'Customer Support', requester: 5, provider: 5, category: 'IT_SUPPORT', district: 'District 5', budget: 450000 },
-  { number: 4, label: 'Task Completion / Disputes', requester: 7, provider: 7, category: 'CLEANING', district: 'District 7', budget: 500000 },
-  { number: 5, label: 'Profile / Privacy / Admin', requester: 9, provider: 9, category: 'MOVING', district: 'District 9', budget: 900000 },
+  { number: 1, label: 'Payment / Escrow', requester: 1, provider: 1, category: 'HOME_REPAIR', ward: hcmWard('Ben Thanh'), budget: 650000 },
+  { number: 2, label: 'GPS Verification', requester: 3, provider: 3, category: 'DELIVERY', ward: hcmWard('Ban Co'), budget: 180000 },
+  { number: 3, label: 'Customer Support', requester: 5, provider: 5, category: 'IT_SUPPORT', ward: hcmWard('Cho Lon'), budget: 450000 },
+  { number: 4, label: 'Task Completion / Disputes', requester: 7, provider: 7, category: 'CLEANING', ward: hcmWard('Tan My'), budget: 500000 },
+  { number: 5, label: 'Profile / Privacy / Admin', requester: 9, provider: 9, category: 'MOVING', ward: hcmWard('Phuoc Long'), budget: 900000 },
 ];
 
 function assertTestDatabase() {
@@ -89,7 +92,6 @@ async function ensureProviderProfile(provider, index) {
     data: {
       userId: provider.id,
       address: `${100 + index} Demo Street`,
-      district: `District ${(index % 10) + 1}`,
       city: 'Ho Chi Minh City',
       specialties: [groups[index % groups.length].category],
       safetyComplianceAgreed: true,
@@ -114,9 +116,9 @@ async function ensureScenario(group, requester, provider) {
         category: group.category,
         budget: group.budget,
         maxBids: 10,
-        location: group.district,
-        district: group.district,
-        siteAddress: `${group.number} Test Site Street, ${group.district}, Ho Chi Minh City`,
+        location: formatWardLocation(group.ward),
+        locationId: group.ward.id,
+        siteAddress: `${group.number} Test Site Street, ${formatWardLocation(group.ward)}`,
         siteLatitude: 10.7769 + group.number * 0.001,
         siteLongitude: 106.7009 + group.number * 0.001,
         urgency: 'NORMAL',

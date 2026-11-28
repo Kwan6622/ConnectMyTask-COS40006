@@ -1,4 +1,6 @@
 const adminRepository = require('./repository');
+const warnings = require('../users/warnings');
+const notificationRepository = require('../notifications/repository');
 const paymentService = require('../payments/service');
 const { LEGACY_PLATFORM_FEE_CONFIG, normalizePlatformFeeConfig } = require('../payments/platformFee');
 
@@ -34,7 +36,26 @@ async function getStats(currentUser) {
 
 async function getUsers(currentUser) {
   assertAdmin(currentUser);
+  // Expired locks are lifted first so the list never shows a lock that is over.
+  await warnings.releaseExpiredLocks();
   return adminRepository.listUsers();
+}
+
+async function getUserWarnings(userIdRaw, currentUser) {
+  assertAdmin(currentUser);
+  const userId = parseId(userIdRaw, 'user id');
+  const user = await adminRepository.getUserForAdmin(userId);
+  if (!user) throw Object.assign(new Error('User not found'), { statusCode: 404 });
+  return { user, limit: warnings.WARNING_LIMIT, lockDays: warnings.LOCK_DAYS, warnings: await warnings.listWarnings(userId) };
+}
+
+/** +1 or -1 warning with a reason; 3 warnings lock the account for 3 days. */
+async function changeUserWarnings(userIdRaw, body, currentUser) {
+  assertAdmin(currentUser);
+  const userId = parseId(userIdRaw, 'user id');
+  const change = Number(body?.change);
+  const result = await warnings.changeWarnings(userId, { change, reason: body?.reason, createdById: currentUser.id });
+  return result.user;
 }
 
 async function updateUserStatus(userIdRaw, statusRaw, currentUser) {
@@ -49,6 +70,10 @@ async function updateUserStatus(userIdRaw, statusRaw, currentUser) {
   if (user.id === currentUser.id || String(user.role).toUpperCase() === 'ADMIN') {
     throw Object.assign(new Error('Admin accounts cannot be suspended from this dashboard'), { statusCode: 409 });
   }
+  if (user.status === 'LOCKED' && status === 'ACTIVE') {
+    // Reactivating a warning lock also resets the warnings.
+    return warnings.reactivate(user, currentUser.id);
+  }
   if (user.status === status) return user;
   return adminRepository.updateUserStatus(userId, status);
 }
@@ -62,7 +87,7 @@ function withGpsStatus(task, now = new Date()) {
     && latest.providerId === task.assignedProviderId
     && task.escrowStatus === 'HELD'
     && ['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION'].includes(task.status));
-  const { locationVerifications: _locationVerifications, siteAddress: _siteAddress, siteLatitude: _siteLatitude, siteLongitude: _siteLongitude, ...safeTask } = task;
+  const { locationVerifications: _locationVerifications, addressDetail: _addressDetail, siteAddress: _siteAddress, siteLatitude: _siteLatitude, siteLongitude: _siteLongitude, ...safeTask } = task;
   return {
     ...safeTask,
     gpsVerificationStatus: !task.assignedProviderId ? 'NOT_REQUIRED' : isValid ? 'VERIFIED' : latest?.revokedAt ? 'REVOKED' : latest ? 'EXPIRED_OR_INVALID' : 'NOT_VERIFIED',
@@ -80,15 +105,40 @@ async function getSuspiciousTasks(currentUser) {
   return (await adminRepository.listAdminTasks({ suspiciousOnly: true })).map((task) => withGpsStatus(task));
 }
 
-async function deleteTask(taskIdRaw, currentUser) {
+/**
+ * Soft delete: the task is hidden everywhere and cancelled, pending bids close,
+ * and the requester and every bidder are told why. Needs a reason (5-500 chars).
+ */
+async function deleteTask(taskIdRaw, currentUser, reasonRaw) {
   assertAdmin(currentUser);
   const taskId = parseId(taskIdRaw, 'task id');
+  const reason = String(reasonRaw || '').trim();
+  if (reason.length < 5 || reason.length > 500) {
+    throw Object.assign(new Error('Give a reason between 5 and 500 characters; it is sent to the requester and bidders'), { statusCode: 400 });
+  }
   const task = await adminRepository.getTaskForAdmin(taskId);
-  if (!task) throw Object.assign(new Error('Task not found'), { statusCode: 404 });
+  if (!task || task.isDeleted) throw Object.assign(new Error('Task not found'), { statusCode: 404 });
   if (['HELD', 'FROZEN'].includes(task.escrowStatus) || task.status === 'DISPUTED') {
     throw Object.assign(new Error('Resolve active escrow or dispute before deleting this task'), { statusCode: 409 });
   }
-  return adminRepository.softDeleteTask(taskId, currentUser.id);
+  const { task: removed, bidderIds } = await adminRepository.softDeleteTask(taskId, currentUser.id, reason);
+
+  const notify = async (recipientId, message) => {
+    try {
+      await notificationRepository.createNotification({ recipientId, senderId: currentUser.id, taskId, message });
+    } catch {
+      // A failed notification must not undo the removal.
+    }
+  };
+  await notify(removed.createdById, `An admin removed your task "${removed.title}". Reason: ${reason}`);
+  for (const providerId of bidderIds) {
+    if (providerId === removed.assignedProviderId) continue;
+    await notify(providerId, `Task "${removed.title}" was removed by an admin, so your bid was closed. Reason: ${reason}`);
+  }
+  if (removed.assignedProviderId) {
+    await notify(removed.assignedProviderId, `Task "${removed.title}" you were assigned to was removed by an admin. Reason: ${reason}`);
+  }
+  return { ...removed, closedBids: bidderIds.length };
 }
 
 async function reviewTask(taskIdRaw, currentUser) {
@@ -203,7 +253,7 @@ async function getPayments(currentUser) {
 
 async function getEscrowPayments(currentUser) {
   assertAdmin(currentUser);
-  return adminRepository.listPayments({ lifecycleStatus: 'ESCROW_HELD' });
+  return adminRepository.listPayments({ heldOnly: true });
 }
 
 async function releasePayment(paymentIdRaw, currentUser) {
@@ -231,6 +281,8 @@ module.exports = {
   getStats,
   getUsers,
   updateUserStatus,
+  getUserWarnings,
+  changeUserWarnings,
   getTasks,
   getSuspiciousTasks,
   deleteTask,

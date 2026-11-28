@@ -234,14 +234,6 @@ export const Header: React.FC = () => {
                 My Posted Tasks
               </Link>
             )}
-            {isRequester && (
-              <Link
-                to="/requester-dashboard#progress"
-                className="px-4 py-2 rounded-lg font-medium transition-all duration-200 text-gray-600 hover:text-blue-600 hover:bg-gray-50"
-              >
-                Task Progress
-              </Link>
-            )}
             {isProvider && (
               <Link
                 to="/provider-dashboard"
@@ -604,15 +596,6 @@ export const Header: React.FC = () => {
                   onClick={() => setShowMobileMenu(false)}
                 >
                   My Posted Tasks
-                </Link>
-              )}
-              {isRequester && (
-                <Link
-                  to="/requester-dashboard#progress"
-                  className="px-4 py-2 rounded-lg font-medium transition-all duration-200 text-gray-600 hover:text-blue-600 hover:bg-gray-50"
-                  onClick={() => setShowMobileMenu(false)}
-                >
-                  Task Progress
                 </Link>
               )}
               {isProvider && (

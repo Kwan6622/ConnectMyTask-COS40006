@@ -8,7 +8,8 @@ import { Input } from "@/components/Input";
 import { api } from "@/services/api";
 import { useAuthStore } from "@/store/authStore";
 import { colors, radius } from "@/theme/tokens";
-import { formatCurrency, isAdmin } from "@/utils/taskUtils";
+import { formatCurrency, getMoneyStatusVariant, getStatusVariant, isAdmin } from "@/utils/taskUtils";
+import { Badge } from "@/components/Badge";
 
 type AdminTab = "overview" | "users" | "tasks" | "certificates" | "payments" | "disputes" | "support";
 
@@ -19,6 +20,15 @@ export default function AdminDashboardScreen(): React.ReactElement {
 
   const [tab, setTab] = useState<AdminTab>("overview");
   const [stats, setStats] = useState<any | null>(null);
+  // Users tab filters (same as web): name/email search, role and city.
+  const [userSearch, setUserSearch] = useState("");
+  const [userRole, setUserRole] = useState("ALL");
+  const [userCity, setUserCity] = useState("ALL");
+  // Items still needing action per tab (same badges as web): locked users, unreviewed flags, ...
+  const attentionFor = (tabId: string): number => {
+    const attention = (stats?.attention || {}) as Record<string, number>;
+    return Number(attention[tabId] || 0);
+  };
   const [tasks, setTasks] = useState<any[]>([]);
   const [suspiciousTasks, setSuspiciousTasks] = useState<any[]>([]);
   const [certificates, setCertificates] = useState<any[]>([]);
@@ -75,6 +85,17 @@ export default function AdminDashboardScreen(): React.ReactElement {
     void loadAdminData();
   }, [isAuthenticated, loadAdminData, user]);
 
+  const filteredUsers = useMemo(() => {
+    const query = userSearch.trim().toLowerCase();
+    return users.filter((item) => {
+      if (userRole !== "ALL" && String(item.role).toUpperCase() !== userRole) return false;
+      if (userCity === "NONE" && item.cityName) return false;
+      if (userCity !== "ALL" && userCity !== "NONE" && item.cityName !== userCity) return false;
+      if (query && !`${item.name} ${item.email}`.toLowerCase().includes(query)) return false;
+      return true;
+    });
+  }, [users, userSearch, userRole, userCity]);
+
   const overviewCards = useMemo(
     () => [
       { label: "Total Users", value: String(stats?.totalUsers ?? 0) },
@@ -112,10 +133,18 @@ export default function AdminDashboardScreen(): React.ReactElement {
     );
   }
 
+  // Removing a task needs a reason (typed inline; Android has no prompt).
+  const [removeDraft, setRemoveDraft] = useState<{ taskId: string; reason: string } | null>(null);
   const handleDeleteTask = async (taskId: string | number): Promise<void> => {
+    const reason = removeDraft?.taskId === String(taskId) ? removeDraft.reason.trim() : "";
+    if (reason.length < 5) {
+      Alert.alert("Reason required", "Give a reason of at least 5 characters. It is sent to the requester and bidders.");
+      return;
+    }
     try {
-      await api.admin.deleteTask(taskId);
-      Alert.alert("Updated", "Task soft-deleted.");
+      const { data } = await api.admin.deleteTask(taskId, reason);
+      setRemoveDraft(null);
+      Alert.alert("Task removed", `The requester${data?.closedBids ? ` and ${data.closedBids} bidder(s)` : ""} were notified.`);
       await loadAdminData();
     } catch (error: any) {
       Alert.alert("Delete failed", error?.response?.data?.message || "Cannot delete task.");
@@ -159,9 +188,44 @@ export default function AdminDashboardScreen(): React.ReactElement {
     }
   };
 
+  // Warnings: 3 lock the account for 3 days. The reason is typed inline (Android has no prompt).
+  const [warningDraft, setWarningDraft] = useState<{ userId: string; change: 1 | -1; reason: string } | null>(null);
+  const [warningHistory, setWarningHistory] = useState<Record<string, any[]>>({});
+  const submitWarning = async (target: any): Promise<void> => {
+    if (!warningDraft) return;
+    if (warningDraft.reason.trim().length < 3) {
+      Alert.alert("Reason required", "Give a reason of at least 3 characters.");
+      return;
+    }
+    try {
+      const { data } = await api.admin.changeUserWarnings(target.id, warningDraft.change, warningDraft.reason.trim());
+      setWarningDraft(null);
+      setWarningHistory((current) => { const next = { ...current }; delete next[String(target.id)]; return next; });
+      Alert.alert("Warnings updated", data.status === "LOCKED"
+        ? `${target.email} is locked until ${new Date(data.lockedUntil).toLocaleString()}.`
+        : `${target.email} now has ${data.warningCount}/3 warnings.`);
+      await loadAdminData();
+    } catch (error: any) {
+      Alert.alert("Update failed", error?.response?.data?.message || "Cannot change warnings.");
+    }
+  };
+  const toggleWarningHistory = async (target: any): Promise<void> => {
+    const key = String(target.id);
+    if (warningHistory[key]) {
+      setWarningHistory((current) => { const next = { ...current }; delete next[key]; return next; });
+      return;
+    }
+    try {
+      const { data } = await api.admin.getUserWarnings(target.id);
+      setWarningHistory((current) => ({ ...current, [key]: Array.isArray(data.warnings) ? data.warnings : [] }));
+    } catch (error: any) {
+      Alert.alert("Load failed", error?.response?.data?.message || "Cannot load warnings.");
+    }
+  };
+
   const handleUserStatus = (target: any): void => {
-    const nextStatus: "ACTIVE" | "SUSPENDED" = target.status === "SUSPENDED" ? "ACTIVE" : "SUSPENDED";
-    Alert.alert(`${nextStatus === "SUSPENDED" ? "Suspend" : "Reactivate"} user`, target.email, [
+    const nextStatus: "ACTIVE" | "SUSPENDED" = ["SUSPENDED", "LOCKED"].includes(target.status) ? "ACTIVE" : "SUSPENDED";
+    Alert.alert(`${nextStatus === "SUSPENDED" ? "Suspend" : "Reactivate"} user`, target.status === "LOCKED" ? `${target.email}: the lock ends and the warnings reset to 0.` : target.email, [
       { text: "Cancel", style: "cancel" },
       { text: "Confirm", style: nextStatus === "SUSPENDED" ? "destructive" : "default", onPress: () => void (async () => {
         try {
@@ -233,6 +297,11 @@ export default function AdminDashboardScreen(): React.ReactElement {
             style={[styles.tabChip, tab === item.id ? styles.tabChipActive : null]}
           >
             <Text style={[styles.tabChipText, tab === item.id ? styles.tabChipTextActive : null]}>{item.label}</Text>
+            {attentionFor(item.id) > 0 ? (
+              <View style={styles.attentionBadge} accessibilityLabel={`${attentionFor(item.id)} need attention`}>
+                <Text style={styles.attentionText}>{attentionFor(item.id) > 99 ? "99+" : attentionFor(item.id)}</Text>
+              </View>
+            ) : null}
           </Pressable>
         ))}
       </ScrollView>
@@ -251,14 +320,83 @@ export default function AdminDashboardScreen(): React.ReactElement {
       ) : null}
 
       {tab === "users" ? (
-        <Card title="Users">
+        <Card title={`Users (${filteredUsers.length}${filteredUsers.length !== users.length ? ` of ${users.length}` : ""})`}>
           <View style={styles.listWrap}>
-            {users.length === 0 ? <Text style={styles.emptyText}>No users found.</Text> : null}
-            {users.map((item) => <View key={String(item.id)} style={styles.listItem}>
+            <Input label="Search" value={userSearch} onChangeText={setUserSearch} placeholder="Name or email" autoCapitalize="none" />
+            <View style={styles.filterRow}>
+              {[["ALL", "All roles"], ["REQUESTER", "Requester"], ["PROVIDER", "Provider"], ["ADMIN", "Admin"]].map(([value, label]) => (
+                <Pressable key={value} onPress={() => setUserRole(value)} style={[styles.filterChip, userRole === value ? styles.filterChipActive : null]}>
+                  <Text style={[styles.filterChipText, userRole === value ? styles.filterChipTextActive : null]}>{label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <View style={styles.filterRow}>
+              {[["ALL", "All cities"], ["Ho Chi Minh City", "Ho Chi Minh City"], ["Hanoi", "Hanoi"], ["NONE", "No city set"]].map(([value, label]) => (
+                <Pressable key={value} onPress={() => setUserCity(value)} style={[styles.filterChip, userCity === value ? styles.filterChipActive : null]}>
+                  <Text style={[styles.filterChipText, userCity === value ? styles.filterChipTextActive : null]}>{label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            {filteredUsers.length === 0 ? <Text style={styles.emptyText}>No users match these filters.</Text> : null}
+            {filteredUsers.map((item) => <View key={String(item.id)} style={styles.listItem}>
               <Text style={styles.itemTitle}>{item.name} · {item.role}</Text>
               <Text style={styles.itemMeta}>{item.email}</Text>
               <Text style={styles.itemMeta}>Status: {item.status} · Tasks: {item._count?.tasksCreated || 0} · Disputes: {item._count?.disputesOpened || 0}</Text>
-              {item.role !== "ADMIN" ? <Button title={item.status === "SUSPENDED" ? "Reactivate" : "Suspend"} size="sm" variant="outline" onPress={() => handleUserStatus(item)} /> : null}
+              <Text style={styles.itemMeta}>
+                {item.location || "No city set"} · {item.ratingCount > 0 ? `★ ${Number(item.averageRating).toFixed(1)} (${item.ratingCount} rating${item.ratingCount === 1 ? "" : "s"})` : "No ratings yet"}
+              </Text>
+              {String(item.role).toUpperCase() === "PROVIDER" ? (
+                item.verifiedDocuments?.length > 0 ? (
+                  <View style={styles.badgeLine}>
+                    <Text style={styles.itemMeta}>Verified documents:</Text>
+                    {item.verifiedDocuments.map((doc: any) => (
+                      <Pressable key={String(doc.id)} onPress={() => void Linking.openURL(String(doc.fileUrl || ""))}>
+                        <Text style={styles.docLink}>✓ {doc.title}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={styles.itemMeta}>No verified documents yet</Text>
+                )
+              ) : null}
+              {item.role !== "ADMIN" ? (
+                <Text style={[styles.itemMeta, item.warningCount >= 3 ? styles.warnHigh : item.warningCount > 0 ? styles.warnMid : null]}>
+                  Warnings: {item.warningCount || 0}/3
+                  {item.status === "LOCKED" && item.lockedUntil ? ` · Locked until ${new Date(item.lockedUntil).toLocaleString()}` : ""}
+                </Text>
+              ) : null}
+              {item.role !== "ADMIN" ? (
+                <View style={styles.warnActions}>
+                  <Button title="− Warning" size="sm" variant="outline" disabled={!item.warningCount} onPress={() => setWarningDraft({ userId: String(item.id), change: -1, reason: "" })} />
+                  <Button title="+ Warning" size="sm" variant="outline" onPress={() => setWarningDraft({ userId: String(item.id), change: 1, reason: "" })} />
+                  <Button title={warningHistory[String(item.id)] ? "Hide history" : "History"} size="sm" variant="outline" onPress={() => void toggleWarningHistory(item)} />
+                  <Button title={["SUSPENDED", "LOCKED"].includes(item.status) ? "Reactivate" : "Suspend"} size="sm" variant="outline" onPress={() => handleUserStatus(item)} />
+                </View>
+              ) : null}
+              {warningDraft?.userId === String(item.id) ? (
+                <View style={styles.warnDraft}>
+                  <Input
+                    label={warningDraft.change > 0 ? "Reason for the warning (shown to the user)" : "Reason for removing a warning"}
+                    value={warningDraft.reason}
+                    onChangeText={(reason) => setWarningDraft((current) => (current ? { ...current, reason } : current))}
+                    placeholder="e.g. Did not assign a provider before the deadline"
+                  />
+                  <View style={styles.warnActions}>
+                    <Button title="Confirm" size="sm" onPress={() => void submitWarning(item)} />
+                    <Button title="Cancel" size="sm" variant="outline" onPress={() => setWarningDraft(null)} />
+                  </View>
+                </View>
+              ) : null}
+              {warningHistory[String(item.id)] ? (
+                <View style={styles.warnDraft}>
+                  {warningHistory[String(item.id)].length === 0 ? <Text style={styles.itemMeta}>No warnings yet.</Text> : null}
+                  {warningHistory[String(item.id)].map((entry: any) => (
+                    <Text key={String(entry.id)} style={styles.itemMeta}>
+                      {entry.change > 0 ? `+${entry.change}` : entry.change} · {entry.reason} ({entry.countAfter}/3, {new Date(entry.createdAt).toLocaleString()}, {entry.createdBy?.name || "System"})
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
             </View>)}
           </View>
         </Card>
@@ -273,10 +411,18 @@ export default function AdminDashboardScreen(): React.ReactElement {
               {tasks.map((task) => (
                 <View key={String(task.id)} style={styles.listItem}>
                   <Text style={styles.itemTitle}>{task.title}</Text>
-                  <Text style={styles.itemMeta}>{task.category} · {task.status}</Text>
+                  <View style={styles.badgeLine}>
+                    <Text style={styles.itemMeta}>{task.category}</Text>
+                    <Badge label={String(task.status)} variant={getStatusVariant(task.status)} />
+                  </View>
                   <Text style={styles.itemMeta}>Requester: {task.createdBy?.name || "-"}</Text>
                   <Text style={styles.itemMeta}>Provider: {task.assignedProvider?.name || "Unassigned"}</Text>
-                  <Text style={styles.itemMeta}>Escrow: {task.escrowStatus || "NONE"} · Payment: {task.paymentStatus || "UNPAID"}</Text>
+                  <View style={styles.badgeLine}>
+                    <Text style={styles.itemMeta}>Escrow</Text>
+                    <Badge label={task.escrowStatus || "NONE"} variant={getMoneyStatusVariant(task.escrowStatus || "NONE")} />
+                    <Text style={styles.itemMeta}>Payment</Text>
+                    <Badge label={task.paymentStatus || "UNPAID"} variant={getMoneyStatusVariant(task.paymentStatus || "UNPAID")} />
+                  </View>
                   <Text style={styles.itemMeta}>GPS: {task.gpsVerificationStatus || "NOT_REQUIRED"} · Disputes: {task._count?.disputes || 0}</Text>
                   {(taskTransitions[task.status] || []).length > 0 ? (
                     <View style={styles.actionRow}>
@@ -296,12 +442,34 @@ export default function AdminDashboardScreen(): React.ReactElement {
               {suspiciousTasks.map((task) => (
                 <View key={String(task.id)} style={styles.listItem}>
                   <Text style={styles.itemTitle}>{task.title}</Text>
-                  <Text style={styles.riskMeta}>{task.suspiciousReason || "Flagged as suspicious"}</Text>
-                  <Text style={styles.itemMeta}>Posted by: {task.createdBy?.name || "Unknown"}</Text>
-                  <View style={styles.actionRow}>
-                    <Button title="Mark Reviewed" size="sm" variant="outline" onPress={() => void handleReviewTask(task.id)} />
-                    <Button title="Soft Delete" size="sm" variant="outline" onPress={() => void handleDeleteTask(task.id)} />
+                  <View style={styles.badgeLine}>
+                    <Badge label={task.riskLevel === "HIGH" ? "HIGH RISK" : "MEDIUM RISK"} variant={task.riskLevel === "HIGH" ? "danger" : "warning"} />
+                    {task.reviewedByAdminAt ? <Badge label="Reviewed" variant="success" /> : null}
                   </View>
+                  <Text style={styles.riskMeta}>{task.suspiciousReason || "Flagged as suspicious"}</Text>
+                  <Text style={styles.itemMeta}>Posted by: {task.createdBy?.name || "Unknown"} · Budget: {formatCurrency(Number(task.budget || 0))}</Text>
+                  <View style={styles.actionRow}>
+                    {!task.reviewedByAdminAt ? <Button title="Mark Reviewed" size="sm" variant="outline" onPress={() => void handleReviewTask(task.id)} /> : null}
+                    <Button title="Remove task" size="sm" variant="outline" onPress={() => setRemoveDraft({ taskId: String(task.id), reason: "" })} />
+                  </View>
+                  {removeDraft?.taskId === String(task.id) ? (
+                    <View style={styles.warnDraft}>
+                      <Text style={styles.itemMeta}>
+                        The task is hidden everywhere and cancelled, and open bids are closed. The reason is sent to the
+                        requester and every provider who bid.
+                      </Text>
+                      <Input
+                        label="Reason"
+                        value={removeDraft.reason}
+                        onChangeText={(reason) => setRemoveDraft((current) => (current ? { ...current, reason } : current))}
+                        placeholder="e.g. Budget far below market price, likely a scam"
+                      />
+                      <View style={styles.warnActions}>
+                        <Button title="Remove" size="sm" onPress={() => void handleDeleteTask(task.id)} />
+                        <Button title="Cancel" size="sm" variant="outline" onPress={() => setRemoveDraft(null)} />
+                      </View>
+                    </View>
+                  ) : null}
                 </View>
               ))}
             </View>
@@ -310,24 +478,30 @@ export default function AdminDashboardScreen(): React.ReactElement {
       ) : null}
 
       {tab === "certificates" ? (
-        <Card title="Provider Certificates">
+        <Card title={`Provider Certificates · ${certificates.filter((cert) => cert.verificationStatus === "PENDING").length} waiting`}>
           <View style={styles.listWrap}>
             {certificates.length === 0 ? <Text style={styles.emptyText}>No certificates.</Text> : null}
-            {certificates.map((cert) => (
+            {/* Waiting for review first; reviewed ones have no Verify / Reject buttons. */}
+            {[...certificates].sort((a, b) => Number(b.verificationStatus === "PENDING") - Number(a.verificationStatus === "PENDING")).map((cert) => (
               <View key={String(cert.id)} style={styles.listItem}>
                 <Text style={styles.itemTitle}>{cert.title}</Text>
                 <Text style={styles.itemMeta}>{cert.certificateType}</Text>
                 <Text style={styles.itemMeta}>
                   Provider: {cert.provider?.name || "-"} ({cert.provider?.email || "-"})
                 </Text>
-                <Text style={styles.itemMeta}>Status: {cert.verificationStatus}</Text>
+                <Badge
+                  label={cert.verificationStatus === "PENDING" ? "Waiting for review" : String(cert.verificationStatus)}
+                  variant={cert.verificationStatus === "VERIFIED" ? "success" : cert.verificationStatus === "REJECTED" ? "danger" : "warning"}
+                />
                 <Pressable onPress={() => void Linking.openURL(String(cert.fileUrl || ""))}>
                   <Text style={styles.linkText}>Open document</Text>
                 </Pressable>
-                <View style={styles.actionRow}>
-                  <Button title="Verify" size="sm" variant="outline" onPress={() => void handleCertificateAction(cert.id, "verify")} />
-                  <Button title="Reject" size="sm" variant="outline" onPress={() => void handleCertificateAction(cert.id, "reject")} />
-                </View>
+                {cert.verificationStatus === "PENDING" ? (
+                  <View style={styles.actionRow}>
+                    <Button title="Verify" size="sm" variant="outline" onPress={() => void handleCertificateAction(cert.id, "verify")} />
+                    <Button title="Reject" size="sm" variant="outline" onPress={() => void handleCertificateAction(cert.id, "reject")} />
+                  </View>
+                ) : null}
               </View>
             ))}
           </View>
@@ -390,6 +564,31 @@ export default function AdminDashboardScreen(): React.ReactElement {
 }
 
 const styles = StyleSheet.create({
+  filterRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  filterChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.dark[200], backgroundColor: colors.white },
+  filterChipActive: { borderColor: colors.primary[600], backgroundColor: colors.primary[50] },
+  filterChipText: { fontSize: 12, color: colors.dark[700] },
+  filterChipTextActive: { color: colors.primary[700], fontWeight: "700" },
+  docLink: { fontSize: 12, fontWeight: "700", color: colors.success[700], textDecorationLine: "underline" },
+  attentionBadge: {
+    position: "absolute",
+    top: -7,
+    right: -7,
+    minWidth: 20,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 10,
+    backgroundColor: colors.danger[600],
+    borderWidth: 2,
+    borderColor: colors.white,
+    alignItems: "center",
+  },
+  attentionText: { color: colors.white, fontSize: 10, fontWeight: "800", lineHeight: 12 },
+  badgeLine: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 },
+  warnActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  warnDraft: { gap: 8, padding: 10, borderRadius: radius.md, backgroundColor: colors.dark[50] },
+  warnMid: { color: colors.warning[600], fontWeight: "700" },
+  warnHigh: { color: colors.danger[600], fontWeight: "700" },
   promptBox: {
     alignItems: "center",
     gap: 8,
@@ -430,6 +629,8 @@ const styles = StyleSheet.create({
   tabRow: {
     gap: 8,
     paddingRight: 8,
+    // Room for the attention badges that sit on the tab corners.
+    paddingTop: 8,
   },
   tabChip: {
     borderRadius: radius.pill,

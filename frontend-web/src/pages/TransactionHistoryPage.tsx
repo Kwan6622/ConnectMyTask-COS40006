@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { moneyStatusClasses } from '../utils/statusColors';
 import { Link } from 'react-router-dom';
 import { BanknotesIcon, CheckCircleIcon, ClockIcon, DocumentTextIcon, ExclamationCircleIcon } from '@heroicons/react/24/outline';
 import { Button } from '../components/common/Button';
@@ -55,11 +56,7 @@ function amountLabel(transaction: PaymentTransaction): string {
 }
 
 function statusTone(status?: string): string {
-  if (status === 'SUCCESS' || status === 'RELEASED' || status === 'HELD') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
-  if (status === 'PENDING' || status === 'PENDING_DEPOSIT' || status === 'FROZEN') return 'border-amber-200 bg-amber-50 text-amber-700';
-  if (status === 'FAILED' || status === 'CANCELED') return 'border-rose-200 bg-rose-50 text-rose-700';
-  if (status === 'REFUNDED') return 'border-violet-200 bg-violet-50 text-violet-700';
-  return 'border-slate-200 bg-slate-50 text-slate-700';
+  return moneyStatusClasses(status);
 }
 
 export function TransactionHistoryPage() {

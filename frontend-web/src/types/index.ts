@@ -5,11 +5,20 @@ export interface User {
   fullName?: string;
   name?: string;
   role: 'CLIENT' | 'PROVIDER' | 'ADMIN' | 'REQUESTER';
-  status?: 'ACTIVE' | 'SUSPENDED';
+  /** LOCKED = 3 warnings, until lockedUntil */
+  status?: 'ACTIVE' | 'SUSPENDED' | 'LOCKED';
   avatar?: string;
   profilePhotoUrl?: string;
   phone?: string;
   location?: string;
+  locationId?: number | null;
+  cityId?: number | null;
+  /** Private home address; only shown to the provider of an approximate-location task. */
+  streetAddress?: string | null;
+  warningCount?: number;
+  warningLimit?: number;
+  lockedUntil?: string | null;
+  warnings?: UserWarning[];
   rating?: number;
   ratingCount?: number;
   completedTasks?: number;
@@ -41,7 +50,6 @@ export interface ProviderProfile {
   id: string | number;
   userId: string | number;
   address?: string | null;
-  district?: string | null;
   city?: string | null;
   specialties: string[];
   safetyComplianceAgreed: boolean;
@@ -59,6 +67,22 @@ export interface ProviderRatingSummary {
   latestComments?: RatingItem[];
 }
 
+export interface UserWarning {
+  id: number;
+  change: number;
+  countAfter: number;
+  reason: string;
+  taskId?: number | null;
+  createdAt: string;
+  createdBy?: { id: number; name: string } | null;
+}
+
+export interface RepostSuggestion {
+  field: 'budget' | 'dueDate' | 'description' | 'title' | 'imageUrls' | 'maxBids' | 'assign';
+  message: string;
+  suggestedValue?: number | string;
+}
+
 // Task Types
 export interface Task {
   id: string | number;
@@ -67,6 +91,12 @@ export interface Task {
   category: TaskCategory;
   status: TaskStatus;
   location: string;
+  locationId?: number | null;
+  cityId?: number | null;
+  /** The site address is a findable spot within 100 m of the requester's real address. */
+  isApproximateLocation?: boolean;
+  /** Suggestions only: distance from the provider, rounded to 0.5 km. */
+  distanceKm?: number | null;
   siteAddress?: string;
   siteLatitude?: number;
   siteLongitude?: number;
@@ -134,6 +164,8 @@ export const TaskStatus = {
   PAID: 'PAID',
   DISPUTED: 'DISPUTED',
   CANCELLED: 'CANCELLED',
+  /** Deadline passed with nobody assigned; only the requester sees it */
+  EXPIRED: 'EXPIRED',
 } as const;
 
 export type TaskStatus = (typeof TaskStatus)[keyof typeof TaskStatus];
@@ -242,7 +274,6 @@ export interface TaskProgressUpdate {
   note: string;
   attachments?: string[];
   milestoneStatus?: string | null;
-  estimatedCompletionDate?: string | null;
   provider?: User;
   createdAt: string;
   updatedAt: string;
@@ -253,7 +284,6 @@ export interface TaskProgressSummary {
   completedSubtasks?: number;
   totalSubtasks?: number;
   latestNote?: string | null;
-  estimatedCompletionDate?: string | null;
   milestoneStatus?: string | null;
   attachmentsCount: number;
 }

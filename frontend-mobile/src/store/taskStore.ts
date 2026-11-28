@@ -50,8 +50,10 @@ interface TaskStore {
     budget: number;
     maxBids?: number;
     aiSuggestedPrice?: number;
-    location: string;
-    district: string;
+    wardId: number;
+    isApproximateLocation?: boolean;
+    /** Private: unit / floor / block, or the exact address (max 100 chars) */
+    addressDetail?: string;
     streetName?: string;
     siteAddress: string;
     siteLatitude: number;
@@ -80,7 +82,6 @@ interface TaskStore {
       note: string;
       attachments?: string[];
       milestoneStatus?: string;
-      estimatedCompletionDate?: string;
       markAsCompleted?: boolean;
     }
   ) => Promise<void>;
@@ -139,6 +140,8 @@ function normalizeUser(raw: any): User | undefined {
     phone: raw.phone || undefined,
     phoneNumber: raw.phone || undefined,
     location: raw.location || undefined,
+    locationId: raw.locationId ?? null,
+    cityId: raw.cityId ?? null,
     rating: raw.rating != null ? toNumber(raw.rating, 0) : 0,
     completedTasks: raw.completedTasks != null ? toNumber(raw.completedTasks, 0) : 0,
     profilePhotoUrl: raw.profilePhotoUrl || undefined,
@@ -163,7 +166,10 @@ function normalizeTask(raw: any): Task {
     category: String(raw?.category || "OTHER"),
     status: normalizeTaskStatus(raw?.status),
     location: raw?.location || "Unknown location",
-    district: raw?.district || raw?.location || undefined,
+    locationId: raw?.locationId ?? null,
+    cityId: raw?.cityId ?? null,
+    isApproximateLocation: Boolean(raw?.isApproximateLocation),
+    distanceKm: raw?.distanceKm != null ? toNumber(raw.distanceKm) : null,
     siteAddress: raw?.siteAddress || undefined,
     siteLatitude: raw?.siteLatitude != null ? toNumber(raw.siteLatitude) : undefined,
     siteLongitude: raw?.siteLongitude != null ? toNumber(raw.siteLongitude) : undefined,

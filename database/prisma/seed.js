@@ -2,6 +2,10 @@ const dotenv = require('dotenv');
 const bcrypt = require('bcryptjs');
 const { PrismaClient } = require('@prisma/client');
 const { evaluateTaskRisk } = require('../../src/modules/tasks/riskEvaluator');
+const { WARDS, toSearchText, formatWardLocation } = require('../../src/shared/administrativeUnits');
+
+/** HCMC ward by ASCII name, e.g. hcmWard('Ben Thanh'). */
+const hcmWard = (name) => WARDS.find((w) => w.cityId === 79 && toSearchText(w.name) === toSearchText(name));
 
 dotenv.config({ path: 'database/.env' });
 dotenv.config();
@@ -22,25 +26,25 @@ const providerSeeds = [
   {
     name: 'Le Thanh Dat', email: 'provider1@gmail.com', phone: '0902000001', role: 'PROVIDER', skills: 'HOME_REPAIR',
     bio: '2+ years of home repair and appliance installation experience.', availability: 'Mon-Sat 8:00 - 18:00',
-    specialties: ['Electrician', 'Home Repair'], address: '85 Nguyen Thi Minh Khai', district: 'District 3', city: 'Ho Chi Minh City', safetyComplianceAgreed: true,
+    specialties: ['Electrician', 'Home Repair'], address: '85 Nguyen Thi Minh Khai', city: 'Ho Chi Minh City', safetyComplianceAgreed: true,
     certificates: [{ title: 'Electrical vocational certificate', certificateType: 'Electrician Certificate', fileUrl: 'https://example.com/certificates/provider1-electrician.pdf', verificationStatus: 'VERIFIED' }],
   },
   {
     name: 'Pham Gia Han', email: 'provider2@gmail.com', phone: '0902000002', role: 'PROVIDER', skills: 'CLEANING',
     bio: 'Detail-focused cleaner for apartments and small offices.', availability: 'Daily 7:00 - 20:00',
-    specialties: ['Cleaning'], address: '212 Dien Bien Phu', district: 'Binh Thanh', city: 'Ho Chi Minh City', safetyComplianceAgreed: true,
+    specialties: ['Cleaning'], address: '212 Dien Bien Phu', city: 'Ho Chi Minh City', safetyComplianceAgreed: true,
     certificates: [{ title: 'Housekeeping training certificate', certificateType: 'Service Qualification', fileUrl: 'https://example.com/certificates/provider2-cleaning.pdf', verificationStatus: 'PENDING' }],
   },
   {
     name: 'Vo Hoang Nam', email: 'provider3@gmail.com', phone: '0902000003', role: 'PROVIDER', skills: 'DELIVERY',
     bio: 'Fast city delivery provider for urgent same-day tasks.', availability: 'Daily 8:00 - 22:00',
-    specialties: ['Delivery'], address: '44 Vo Van Kiet', district: 'District 1', city: 'Ho Chi Minh City', safetyComplianceAgreed: true,
+    specialties: ['Delivery'], address: '44 Vo Van Kiet', city: 'Ho Chi Minh City', safetyComplianceAgreed: true,
     certificates: [{ title: 'Urban delivery operations', certificateType: 'Service Qualification', fileUrl: 'https://example.com/certificates/provider3-delivery.pdf', verificationStatus: 'VERIFIED' }],
   },
   {
     name: 'Bui Kim Ngan', email: 'provider4@gmail.com', phone: '0902000004', role: 'PROVIDER', skills: 'IT_SUPPORT',
     bio: 'Laptop troubleshooting and software setup specialist.', availability: 'Mon-Fri 9:00 - 19:00',
-    specialties: ['Tech Support', 'Home Repair'], address: '18 Le Van Sy', district: 'Phu Nhuan', city: 'Ho Chi Minh City', safetyComplianceAgreed: true,
+    specialties: ['Tech Support', 'Home Repair'], address: '18 Le Van Sy', city: 'Ho Chi Minh City', safetyComplianceAgreed: true,
     certificates: [
       { title: 'Computer hardware technician', certificateType: 'Vocational Certificate', fileUrl: 'https://example.com/certificates/provider4-tech.pdf', verificationStatus: 'VERIFIED' },
       { title: 'Electrical safety refresher', certificateType: 'Workplace Safety', fileUrl: 'https://example.com/certificates/provider4-safety.pdf', verificationStatus: 'PENDING' },
@@ -49,12 +53,12 @@ const providerSeeds = [
   {
     name: 'Dang Quoc Viet', email: 'provider5@gmail.com', phone: '0902000005', role: 'PROVIDER', skills: 'MOVING',
     bio: 'Furniture moving and heavy-item transport support.', availability: 'Mon-Sun 6:00 - 20:00',
-    specialties: ['Moving', 'Delivery'], address: '319 Nguyen Huu Tho', district: 'District 7', city: 'Ho Chi Minh City', safetyComplianceAgreed: true,
+    specialties: ['Moving', 'Delivery'], address: '319 Nguyen Huu Tho', city: 'Ho Chi Minh City', safetyComplianceAgreed: true,
     certificates: [{ title: 'Material handling certificate', certificateType: 'Service Qualification', fileUrl: 'https://example.com/certificates/provider5-moving.pdf', verificationStatus: 'REJECTED' }],
   },
 ];
 
-const districts = ['District 1', 'District 2', 'District 3', 'District 4', 'District 5', 'District 7', 'District 10', 'District 11', 'Binh Thanh', 'Phu Nhuan', 'Go Vap', 'Thu Duc', 'Tan Binh'];
+const wards = ['Ben Thanh', 'An Khanh', 'Ban Co', 'Khanh Hoi', 'Cho Lon', 'Tan My', 'Dien Hong', 'Minh Phung', 'Binh Thanh', 'Phu Nhuan', 'Go Vap', 'Thu Duc', 'Tan Binh'].map(hcmWard);
 
 const taskLibrary = {
   DELIVERY: [
@@ -196,7 +200,6 @@ async function seedProviderProfilesAndCertificates(providers, admin) {
       where: { userId: provider.id },
       update: {
         address: providerSeed.address || null,
-        district: providerSeed.district || null,
         city: providerSeed.city || null,
         specialties: providerSeed.specialties || [],
         safetyComplianceAgreed: Boolean(providerSeed.safetyComplianceAgreed),
@@ -205,7 +208,6 @@ async function seedProviderProfilesAndCertificates(providers, admin) {
       create: {
         userId: provider.id,
         address: providerSeed.address || null,
-        district: providerSeed.district || null,
         city: providerSeed.city || null,
         specialties: providerSeed.specialties || [],
         safetyComplianceAgreed: Boolean(providerSeed.safetyComplianceAgreed),
@@ -242,7 +244,7 @@ function buildFiftyTaskDrafts() {
     const category = categories[i % categories.length];
     const templateSet = taskLibrary[category];
     const template = templateSet[i % templateSet.length];
-    const district = districts[i % districts.length];
+    const ward = wards[i % wards.length];
     const due = new Date(baseDueDate);
     due.setDate(due.getDate() + dueOffsets[i % dueOffsets.length]);
     const createdAt = new Date(due);
@@ -250,9 +252,10 @@ function buildFiftyTaskDrafts() {
 
     drafts.push({
       title: template.title,
-      description: `${template.desc} Khu vực ưu tiên: ${district}, TP.HCM.`,
+      description: `${template.desc} Khu vực ưu tiên: ${ward.name}, TP.HCM.`,
       category,
-      location: `${district}, Ho Chi Minh City`,
+      location: formatWardLocation(ward),
+      locationId: ward.id,
       dueDate: due,
       createdAt,
       budget: randomInRange(template.min, template.max, i + 1),
@@ -311,6 +314,7 @@ async function main() {
         budget: draft.budget,
         maxBids: draft.maxBids,
         location: draft.location,
+        locationId: draft.locationId,
         createdAt: draft.createdAt,
         dueDate: draft.dueDate,
         createdById: requester.id,

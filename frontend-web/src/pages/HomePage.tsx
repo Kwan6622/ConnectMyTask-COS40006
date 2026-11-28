@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/auth.store';
 import { useTaskStore } from '../stores/task.store';
 import { TaskCard } from '../components/task/TaskCard';
@@ -221,16 +221,10 @@ export const HomePage: React.FC = () => {
               }}
               className="select-default md:col-span-3"
             >
-              <option value="">All Status</option>
+              {/* Only tasks providers can still bid on are browsable. */}
+              <option value="">All open tasks</option>
               <option value="OPEN">Open</option>
               <option value="BIDDING">Bidding</option>
-              <option value="ASSIGNED">Assigned</option>
-              <option value="IN_PROGRESS">In Progress</option>
-              <option value="PENDING_CONFIRMATION">Pending Confirmation</option>
-              <option value="COMPLETED">Completed</option>
-              <option value="AWAITING_PAYMENT">Awaiting Payment</option>
-              <option value="PAID">Paid</option>
-              <option value="DISPUTED">Disputed</option>
             </select>
             <div className="md:col-span-3">
               <Input
@@ -306,6 +300,10 @@ export const HomePage: React.FC = () => {
               <div className="mb-2 flex items-center justify-between">
                 <p className="text-dark-600 text-lg">
                   Showing <span className="font-semibold text-dark-900">{filteredTasks.length}</span> tasks
+                  <span className="mx-2 text-slate-300">·</span>
+                  <Link to="/browse-tasks" className="text-base font-semibold text-blue-600 hover:text-blue-700 hover:underline">
+                    Browse more &rarr;
+                  </Link>
                 </p>
                 <p className="text-sm text-slate-500">
                   Page {safePage} of {totalPages}
@@ -323,6 +321,7 @@ export const HomePage: React.FC = () => {
                   <Button
                     variant="outline"
                     size="sm"
+                    className="w-28 justify-center"
                     disabled={safePage <= 1}
                     onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
                   >
@@ -350,6 +349,7 @@ export const HomePage: React.FC = () => {
                   <Button
                     variant="outline"
                     size="sm"
+                    className="w-28 justify-center"
                     disabled={safePage >= totalPages}
                     onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
                   >

@@ -21,6 +21,7 @@ const adminRoutes = require('./modules/admin/routes');
 const platformRoutes = require('./modules/platform/routes');
 const supportRoutes = require('./modules/support/routes');
 const geocodingRoutes = require('./modules/geocoding/routes');
+const locationRoutes = require('./modules/locations/routes');
 
 const app = express();
 
@@ -40,6 +41,7 @@ app.use(requestLogger);
 // Mount routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/locations', locationRoutes);
 app.use('/api/tasks', geocodingRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/notifications', notificationRoutes);

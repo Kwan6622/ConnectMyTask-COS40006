@@ -1,3 +1,4 @@
+import { taskStatusTone } from './statusColors';
 // Format currency
 export const formatCurrency = (amount: number, currency: string = 'USD'): string => {
   return new Intl.NumberFormat('en-US', {
@@ -7,6 +8,13 @@ export const formatCurrency = (amount: number, currency: string = 'USD'): string
 };
 
 // Amounts use comma thousand separators everywhere (1,000 đ), matching the budget/bid inputs.
+
+/** Suggested-task distance from the provider (already rounded to 0.5 km by the server). */
+export const formatDistance = (km: number): string => {
+  if (km >= 100) return `About ${Math.round(km)} km away`;
+  return km <= 0.5 ? 'Under 1 km away' : `About ${km} km away`;
+};
+
 export const formatVnd = (amount: number): string => {
   return `${new Intl.NumberFormat('en-US').format(amount)} đ`;
 };
@@ -66,20 +74,9 @@ export const calculateDistance = (
 
 // Get status color
 export const getStatusColor = (status: string): string => {
-  const colors: Record<string, string> = {
-    OPEN: 'bg-blue-100 text-blue-800',
-    POSTED: 'bg-blue-100 text-blue-800',
-    BIDDING: 'bg-yellow-100 text-yellow-800',
-    ASSIGNED: 'bg-green-100 text-green-800',
-    IN_PROGRESS: 'bg-purple-100 text-purple-800',
-    PENDING_CONFIRMATION: 'bg-amber-100 text-amber-800',
-    COMPLETED: 'bg-gray-100 text-gray-800',
-    AWAITING_PAYMENT: 'bg-orange-100 text-orange-800',
-    PAID: 'bg-emerald-100 text-emerald-800',
-    DISPUTED: 'bg-red-100 text-red-800',
-    CANCELLED: 'bg-red-100 text-red-800',
-  };
-  return colors[status] || 'bg-gray-100 text-gray-800';
+  // Same scheme as utils/statusColors.ts (red = cancelled, yellow = pending/awaiting).
+  const tone = taskStatusTone(status);
+  return `${tone.bg} ${tone.text}`;
 };
 
 // Truncate text

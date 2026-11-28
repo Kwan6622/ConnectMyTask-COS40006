@@ -1,4 +1,18 @@
 const userRepository = require('./repository');
+const { resolveWard, getWard } = require('../../shared/administrativeUnits');
+const { verifyAddress } = require('../geocoding/service');
+const warnings = require('./warnings');
+
+// The ward id is the source of truth; `location` keeps the readable "Ward, City" text.
+function wardFields(wardId) {
+  const ward = resolveWard(wardId);
+  return { locationId: ward.id, location: ward.location };
+}
+
+// The pickers need the city of the saved ward.
+function withCity(user) {
+  return user ? { ...user, cityId: getWard(user.locationId)?.cityId ?? null } : user;
+}
 
 function normalizeRole(role) {
   return String(role || '').toUpperCase();
@@ -55,7 +69,12 @@ async function getMyProfile(currentUser) {
   assertAuthenticated(currentUser);
   const user = await userRepository.getUserById(currentUser.id);
   if (!user) throw Object.assign(new Error('User not found'), { statusCode: 404 });
-  return userRepository.toSafePrivateUser(user);
+  return {
+    ...withCity(userRepository.toSafePrivateUser(user)),
+    // Shown on the profile: how many warnings the account has and why.
+    warningLimit: warnings.WARNING_LIMIT,
+    warnings: await warnings.listWarnings(user.id),
+  };
 }
 
 async function updateProviderProfile(currentUser, payload) {
@@ -63,7 +82,6 @@ async function updateProviderProfile(currentUser, payload) {
   assertProvider(currentUser);
   const nextPayload = {
     ...(Object.prototype.hasOwnProperty.call(payload, 'address') ? { address: payload.address || null } : {}),
-    ...(Object.prototype.hasOwnProperty.call(payload, 'district') ? { district: payload.district || null } : {}),
     ...(Object.prototype.hasOwnProperty.call(payload, 'city') ? { city: payload.city || null } : {}),
     ...(Object.prototype.hasOwnProperty.call(payload, 'specialties') ? { specialties: payload.specialties || [] } : {}),
     ...(Object.prototype.hasOwnProperty.call(payload, 'safetyComplianceAgreed')
@@ -136,11 +154,34 @@ async function updateProfile(userId, payload) {
   const data = {
     ...(Object.prototype.hasOwnProperty.call(payload, 'name') ? { name: payload.name } : {}),
     ...(Object.prototype.hasOwnProperty.call(payload, 'phone') ? { phone: payload.phone || null } : {}),
-    ...(Object.prototype.hasOwnProperty.call(payload, 'location') ? { location: payload.location } : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, 'wardId') ? wardFields(payload.wardId) : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, 'streetAddress') ? { streetAddress: payload.streetAddress || null } : {}),
     ...(Object.prototype.hasOwnProperty.call(payload, 'bio') ? { bio: payload.bio || null } : {}),
     ...(Object.prototype.hasOwnProperty.call(payload, 'profilePhotoUrl') ? { profilePhotoUrl: payload.profilePhotoUrl } : {}),
   };
-  return userRepository.updateProfile(userId, data);
+  const wardChanged = 'locationId' in data && data.locationId !== user.locationId;
+  const streetChanged = 'streetAddress' in data && data.streetAddress !== user.streetAddress;
+  if (wardChanged || streetChanged) {
+    Object.assign(data, await locateHome(
+      'locationId' in data ? data.locationId : user.locationId,
+      'streetAddress' in data ? data.streetAddress : user.streetAddress
+    ));
+  }
+  return withCity(await userRepository.updateProfile(userId, data));
+}
+
+/**
+ * Map point of the home address, used to rank nearby tasks. A house the map
+ * cannot find still saves: the point is cleared and the ward centre is used.
+ */
+async function locateHome(wardId, streetAddress) {
+  if (!wardId || !streetAddress) return { homeLatitude: null, homeLongitude: null };
+  try {
+    const found = await verifyAddress({ wardId, streetName: streetAddress });
+    return { homeLatitude: found.latitude, homeLongitude: found.longitude };
+  } catch {
+    return { homeLatitude: null, homeLongitude: null };
+  }
 }
 
 module.exports = {

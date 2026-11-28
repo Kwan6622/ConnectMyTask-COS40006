@@ -5,6 +5,7 @@ const readline = require('node:readline/promises');
 const BASE_URL = (process.env.E2E_BASE_URL || 'http://localhost:4000').replace(/\/$/, '');
 const PASSWORD = process.env.E2E_PASSWORD || 'E2eTestPassword123!';
 const E2E_LOCATION = 'Sai Gon';
+const E2E_WARD_ID = 26740; // official code of Sai Gon ward (see src/shared/administrativeUnits.json)
 const E2E_STREET = '10 Nguyen Hue';
 
 async function request(path, options = {}) {
@@ -47,7 +48,7 @@ async function createAccount(role, suffix) {
       email,
       password: PASSWORD,
       role,
-      location: E2E_LOCATION,
+      wardId: E2E_WARD_ID,
     }),
   });
 
@@ -99,9 +100,8 @@ test('requester and provider complete the task lifecycle', async () => {
       description: 'Authorization check',
       category: 'OTHER',
       budget: 100,
-      location: 'District 1',
-      district: 'District 1',
-      siteAddress: '1 Test Street, District 1',
+      wardId: E2E_WARD_ID,
+      siteAddress: '1 Test Street, Sai Gon',
       siteLatitude: 10.7769,
       siteLongitude: 106.7009,
     }),
@@ -116,8 +116,7 @@ test('requester and provider complete the task lifecycle', async () => {
       category: 'HOME_REPAIR',
       budget: 650000,
       maxBids: 5,
-      location: E2E_LOCATION,
-      district: E2E_LOCATION,
+      wardId: E2E_WARD_ID,
       streetName: E2E_STREET,
       siteAddress: `${E2E_STREET}, ${E2E_LOCATION}, Ho Chi Minh City`,
       dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),

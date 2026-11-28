@@ -6,6 +6,16 @@
 // and the Gemini subtask generator are replaced with in-memory fakes, so the
 // tests never touch Neon, Stripe or Google APIs and can run offline.
 const path = require('node:path');
+const { resolveWard } = require('../../src/shared/administrativeUnits');
+
+const BEN_THANH = 26743; // official code of Ben Thanh ward, Ho Chi Minh City
+const { WARDS, toSearchText } = require('../../src/shared/administrativeUnits');
+/** Official ward id by ASCII name and city (79 = HCMC, 1 = Ha Noi), e.g. ward('Cat Lai'). */
+function ward(name, cityId = 79) {
+  const found = WARDS.find((w) => w.cityId === cityId && toSearchText(w.name) === toSearchText(name));
+  if (!found) throw new Error(`Unknown ward ${name}`);
+  return found.id;
+}
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const SRC = path.join(ROOT, 'src');
@@ -21,8 +31,11 @@ const now = () => new Date();
 
 function createStore() {
   return {
+    BEN_THANH,
+    ward,
     seq: 0,
     users: [],
+    warnings: [],
     providerProfiles: [],
     certificates: [],
     tasks: [],
@@ -173,13 +186,18 @@ function installMocks() {
   const stripeId = require.resolve('stripe', { paths: [ROOT] });
   require.cache[stripeId] = { id: stripeId, filename: stripeId, loaded: true, exports: FakeStripe };
 
-  // Geocoding: the real service calls Google. Any HCMC ward + street resolves
-  // to a fixed trusted point near Nguyen Hue, Ben Thanh.
+  // Geocoding: the real service calls the provider. Any real ward id + street resolves
+  // to the centre of that ward. A street containing
+  // "unfindable" fails like an address the provider cannot locate.
   mockModule('modules/geocoding/service.js', {
     normalizeText: (v) => String(v || '').toLowerCase().trim(),
-    verifyAddress: async ({ district, streetName }) => {
-      if (!district || !streetName) throw Object.assign(new Error('Address could not be verified'), { statusCode: 400 });
-      return { address: `${streetName}, ${district}, Ho Chi Minh City`, latitude: 10.7739, longitude: 106.7036 };
+    verifyAddress: async ({ wardId, streetName }) => {
+      const ward = resolveWard(wardId);
+      if (!streetName || /unfindable/i.test(streetName)) {
+        throw Object.assign(new Error('Address could not be found'), { statusCode: 400, code: 'ADDRESS_NOT_FOUND' });
+      }
+      // The point is the ward centre, so distances between wards are realistic.
+      return { address: `${streetName}, ${ward.location}`, latitude: ward.lat, longitude: ward.lng, wardId: ward.id };
     },
   });
   mockModule('modules/tasks/subtaskTemplates.js', {
@@ -201,6 +219,30 @@ function installMocks() {
   });
 
   const profileFor = (userId) => store.providerProfiles.find((p) => p.userId === userId) || null;
+  // Account warnings (3 = locked for 3 days).
+  const account = (u) => u && copy({ id: u.id, name: u.name, role: u.role, status: u.status || 'ACTIVE', warningCount: u.warningCount || 0, lockedUntil: u.lockedUntil || null });
+  mockModule('modules/users/warningRepository.js', {
+    getAccount: async (userId) => account(findUser(userId)),
+    applyWarningChange: async (userId, data, record) => {
+      const user = findUser(userId);
+      Object.assign(user, data);
+      store.warnings.push({ id: nextId(), userId, createdAt: now(), ...record });
+      return account(user);
+    },
+    listWarnings: async (userId) => copy(store.warnings.filter((w) => w.userId === userId).reverse()),
+    listExpiredLocks: async (at) => store.users.filter((u) => u.status === 'LOCKED' && u.lockedUntil && new Date(u.lockedUntil) <= at).map(account),
+  });
+
+  mockModule('modules/admin/repository.js', {
+    ...require(path.join(SRC, 'modules/admin/repository.js')),
+    listUsers: async () => copy(store.users.map((u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, status: u.status || 'ACTIVE', warningCount: u.warningCount || 0, lockedUntil: u.lockedUntil || null }))),
+    getUserForAdmin: async (id) => {
+      const u = findUser(id);
+      return u ? copy({ id: u.id, name: u.name, email: u.email, role: u.role, status: u.status || 'ACTIVE', warningCount: u.warningCount || 0, lockedUntil: u.lockedUntil || null }) : null;
+    },
+    updateUserStatus: async (id, status) => { const u = findUser(id); u.status = status; return copy(u); },
+  });
+
   mockModule('modules/users/repository.js', {
     createUser: async (data) => { const row = { id: nextId(), ...data }; store.users.push(row); return copy(row); },
     getUserById: async (id) => {
@@ -236,6 +278,30 @@ function installMocks() {
     && (!filters.category || t.category === filters.category));
 
   const taskRepository = {
+    // Expired tasks
+    listExpirableTasks: async (at) => copy(store.tasks
+      .filter((t) => !t.isDeleted && !t.assignedProviderId && ['OPEN', 'BIDDING'].includes(t.status) && t.dueDate && new Date(t.dueDate) < at)
+      .map((t) => ({ ...t, bids: store.bids.filter((b) => b.taskId === t.id && b.status === 'PENDING').map((b) => ({ id: b.id, providerId: b.providerId })) }))),
+    expireTask: async (taskId, at) => {
+      const task = findTask(taskId);
+      if (!task || task.assignedProviderId || !['OPEN', 'BIDDING'].includes(task.status)) return false;
+      Object.assign(task, { status: 'EXPIRED', expiredAt: at });
+      store.bids.filter((b) => b.taskId === taskId && b.status === 'PENDING').forEach((b) => { b.status = 'REJECTED'; });
+      return true;
+    },
+    repostTask: async (taskId, data) => {
+      const task = findTask(taskId);
+      if (!task || task.status !== 'EXPIRED') return false;
+      Object.assign(task, data, { status: 'OPEN', expiredAt: null, isOverdue: false, overdueNotifiedAt: null, biddingStartedAt: null, biddingEndsAt: null });
+      return true;
+    },
+    deleteTaskPermanently: async (taskId) => {
+      const index = store.tasks.findIndex((t) => t.id === taskId && t.status === 'EXPIRED');
+      if (index < 0) return false;
+      store.tasks.splice(index, 1);
+      for (const key of ['bids', 'subtasks', 'activities', 'progress']) store[key] = store[key].filter((row) => row.taskId !== taskId);
+      return true;
+    },
     getTaskById: async (id) => taskWithCounts(findTask(id)),
     createTask: async (data) => {
       const row = {
@@ -276,7 +342,10 @@ function installMocks() {
       store.bids.filter((b) => b.taskId === taskId && b.id !== bidId).forEach((b) => { b.status = 'REJECTED'; });
       return copy(bid);
     },
-    getUserLocationById: async (id) => findUser(id)?.location || null,
+    getUserHomeAddress: async (id) => {
+      const user = findUser(id);
+      return user ? { locationId: user.locationId ?? null, streetAddress: user.streetAddress ?? null, homeLatitude: user.homeLatitude ?? null, homeLongitude: user.homeLongitude ?? null } : null;
+    },
     getProviderProfileByUserId: async (userId) => copy(profileFor(userId)),
     listProgressUpdatesForTask: async (taskId) => copy(store.progress.filter((p) => p.taskId === taskId).reverse()),
     listSubtasksForTask: async (taskId) => copy(store.subtasks.filter((s) => s.taskId === taskId)),
@@ -354,6 +423,10 @@ function installMocks() {
 
   mockModule('modules/tracking/repository.js', {
     getTaskById: async (taskId) => copy(findTask(taskId)),
+    getRequesterHomeAddress: async (taskId) => {
+      const user = findUser(findTask(taskId)?.createdById);
+      return user ? { streetAddress: user.streetAddress ?? null, locationId: user.locationId ?? null } : null;
+    },
     getVerificationByRequestId: async (requestId) => copy(store.verifications.find((v) => v.requestId === requestId) || null),
     getLatestVerification: async (taskId, providerId) => copy([...store.verifications].reverse().find((v) => v.taskId === taskId && v.providerId === providerId) || null),
     createVerification: async (data) => { const row = { id: nextId(), ...data }; store.verifications.push(row); return copy(row); },
@@ -435,7 +508,7 @@ async function startPlatform() {
         email: `wf-${role.toLowerCase()}-${accountSeq}@example.test`,
         password: 'WorkflowPass123!',
         role,
-        location: 'Ben Thanh',
+        wardId: BEN_THANH,
         ...overrides,
       },
     });
@@ -464,8 +537,7 @@ async function startPlatform() {
     category: 'HOME_REPAIR',
     budget: 650000,
     maxBids: 5,
-    location: 'Ben Thanh',
-    district: 'Ben Thanh',
+    wardId: BEN_THANH,
     streetName: '12 Nguyen Hue',
     siteAddress: '12 Nguyen Hue, Ben Thanh, Ho Chi Minh City',
     dueDate: futureIso(),
@@ -514,6 +586,8 @@ async function startPlatform() {
   }
 
   return {
+    BEN_THANH,
+    ward,
     api,
     signup,
     createAdmin,

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { taskStatusTone } from '../utils/statusColors';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/auth.store';
 import { useTaskStore } from '../stores/task.store';
@@ -65,21 +66,7 @@ export const MyTasksPage: React.FC = () => {
       String(user?.id || '')
   );
 
-  const getStatusBadge = (status: string) => {
-    const styles: Record<string, { bg: string; text: string; border: string }> = {
-      OPEN: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
-      POSTED: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
-      BIDDING: { bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200' },
-      ASSIGNED: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200' },
-      IN_PROGRESS: { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
-      PENDING_CONFIRMATION: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
-      COMPLETED: { bg: 'bg-dark-50', text: 'text-dark-700', border: 'border-dark-200' },
-      AWAITING_PAYMENT: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' },
-      DISPUTED: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' },
-      PAID: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
-    };
-    return styles[status] || styles.OPEN;
-  };
+  const getStatusBadge = (status: string) => taskStatusTone(status);
 
   return (
     <div className="min-h-screen bg-dark-50 py-8">

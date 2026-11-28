@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { moneyStatusClasses, taskStatusClasses, taskStatusTone } from '../utils/statusColors';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
   ArrowLeftIcon,
   BanknotesIcon,
-  CalendarDaysIcon,
   CheckBadgeIcon,
   CheckCircleIcon,
   CloudArrowUpIcon,
@@ -41,8 +41,8 @@ const statusStyle: Record<string, { dot: string; chip: string; label: string }> 
     label: 'In Progress',
   },
   PENDING_CONFIRMATION: {
-    dot: 'bg-amber-500',
-    chip: 'bg-amber-50 text-amber-700 border-amber-200',
+    dot: 'bg-yellow-500',
+    chip: 'bg-yellow-50 text-yellow-800 border-yellow-300',
     label: 'Pending Confirmation',
   },
   COMPLETED: {
@@ -51,8 +51,8 @@ const statusStyle: Record<string, { dot: string; chip: string; label: string }> 
     label: 'Completed',
   },
   AWAITING_PAYMENT: {
-    dot: 'bg-orange-500',
-    chip: 'bg-orange-50 text-orange-700 border-orange-200',
+    dot: 'bg-yellow-500',
+    chip: 'bg-yellow-50 text-yellow-800 border-yellow-300',
     label: 'Awaiting Payment',
   },
   PAID: {
@@ -104,7 +104,6 @@ export const TaskProgressPage: React.FC = () => {
   const [progressPercent, setProgressPercent] = useState('');
   const [note, setNote] = useState('');
   const [milestoneStatus, setMilestoneStatus] = useState('');
-  const [estimatedCompletionDate, setEstimatedCompletionDate] = useState('');
   const [proofFiles, setProofFiles] = useState<File[]>([]);
   const [markAsCompleted, setMarkAsCompleted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -147,16 +146,17 @@ export const TaskProgressPage: React.FC = () => {
     });
   }, [fetchTaskProgress, id, navigate, user]);
 
+  // The progress summary is refetched often. Prefill the optional fields once per
+  // task only, so a refetch never overwrites what the provider is typing. The
+  // progress field stays empty and shows the current value as a placeholder hint.
+  const prefilledTaskIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!taskProgressSummary) return;
-    setProgressPercent(String(taskProgressSummary.progressPercent || 0));
+    if (!taskProgressSummary || !id) return;
+    if (prefilledTaskIdRef.current === String(id)) return;
+    prefilledTaskIdRef.current = String(id);
+    setProgressPercent('');
     setMilestoneStatus(taskProgressSummary.milestoneStatus || '');
-    setEstimatedCompletionDate(
-      taskProgressSummary.estimatedCompletionDate
-        ? new Date(taskProgressSummary.estimatedCompletionDate).toISOString().slice(0, 10)
-        : ''
-    );
-  }, [taskProgressSummary]);
+  }, [id, taskProgressSummary]);
 
   useEffect(() => {
     const escrowState = searchParams.get('escrow');
@@ -193,10 +193,17 @@ export const TaskProgressPage: React.FC = () => {
       isAssignedProvider &&
       currentTask &&
       currentTask.escrowStatus === 'HELD' &&
-      ['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION'].includes(currentTask.status)
+      ['ASSIGNED', 'IN_PROGRESS'].includes(currentTask.status)
   );
   const canManageProgress = canManageProgressBase && isLocationVerified;
-  const providerBlockMessage = isProvider && isAssignedProvider && providerTaskIsActive
+  // Once the provider publishes the task as completed, the update panel is read-only.
+  const isProgressLocked = Boolean(
+    isProvider &&
+      isAssignedProvider &&
+      currentTask &&
+      ['PENDING_CONFIRMATION', 'COMPLETED', 'AWAITING_PAYMENT'].includes(currentTask.status)
+  );
+  const providerBlockMessage = isProvider && isAssignedProvider && providerTaskIsActive && !isProgressLocked
     ? currentTask?.escrowStatus !== 'HELD'
       ? AWAITING_DEPOSIT_MESSAGE
       : !isLocationVerified
@@ -242,9 +249,10 @@ export const TaskProgressPage: React.FC = () => {
   const summaryProgress = Math.max(0, Math.min(100, taskProgressSummary?.progressPercent ?? 0));
   const doneSubtasks = taskProgressSummary?.completedSubtasks ?? taskSubtasks.filter((item) => item.status === 'DONE').length;
   const totalSubtasks = taskProgressSummary?.totalSubtasks ?? taskSubtasks.length;
-  const statusMeta = statusStyle[currentTask?.status || ''] || {
-    dot: 'bg-slate-400',
-    chip: 'bg-slate-50 text-slate-700 border-slate-200',
+  const statusTone = taskStatusTone(currentTask?.status);
+  const statusMeta = {
+    dot: statusTone.dot,
+    chip: taskStatusClasses(currentTask?.status),
     label: normalizeStatusLabel(currentTask?.status),
   };
 
@@ -272,6 +280,10 @@ export const TaskProgressPage: React.FC = () => {
       return;
     }
 
+    if (!progressPercent.trim()) {
+      toast.error('Enter the new progress percent (0-100)');
+      return;
+    }
     const parsedProgress = Number(progressPercent);
     if (!Number.isInteger(parsedProgress) || parsedProgress < 0 || parsedProgress > 100) {
       toast.error('Progress percent must be an integer from 0 to 100');
@@ -300,11 +312,11 @@ export const TaskProgressPage: React.FC = () => {
         note: note.trim(),
         attachments: attachmentUrls,
         milestoneStatus: milestoneStatus.trim() || undefined,
-        estimatedCompletionDate: estimatedCompletionDate || undefined,
         markAsCompleted,
       });
 
       setNote('');
+      setProgressPercent('');
       setProofFiles([]);
       setMarkAsCompleted(false);
       toast.success(
@@ -529,13 +541,11 @@ export const TaskProgressPage: React.FC = () => {
               </div>
 
               <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-                <p className="text-xs uppercase tracking-wide text-slate-500">Estimated Completion</p>
+                <p className="text-xs uppercase tracking-wide text-slate-500">Proof of Work</p>
                 <p className="text-base font-semibold text-slate-900 mt-2">
-                  {taskProgressSummary?.estimatedCompletionDate
-                    ? formatDate(taskProgressSummary.estimatedCompletionDate)
-                    : 'Not set yet'}
+                  {taskProgressSummary?.attachmentsCount || 0} attachment(s)
                 </p>
-                <p className="text-sm text-slate-500 mt-2">Attachments: {taskProgressSummary?.attachmentsCount || 0}</p>
+                <p className="text-sm text-slate-500 mt-2">{taskProgressUpdates.length} progress update(s)</p>
               </div>
             </div>
           </div>
@@ -582,19 +592,11 @@ export const TaskProgressPage: React.FC = () => {
 
                         <p className="text-slate-700 mt-3 whitespace-pre-line">{update.note}</p>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4 text-sm">
+                        <div className="grid grid-cols-1 gap-3 mt-4 text-sm">
                           <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
                             <p className="text-slate-500">Milestone</p>
                             <p className="font-medium text-slate-900 mt-1">
                               {update.milestoneStatus || 'No milestone set'}
-                            </p>
-                          </div>
-                          <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-                            <p className="text-slate-500">Estimated completion</p>
-                            <p className="font-medium text-slate-900 mt-1">
-                              {update.estimatedCompletionDate
-                                ? formatDate(update.estimatedCompletionDate)
-                                : 'Not specified'}
                             </p>
                           </div>
                         </div>
@@ -756,19 +758,22 @@ export const TaskProgressPage: React.FC = () => {
               ) : (
                 <div className="space-y-2">
                   {taskSubtasks.map((subtask) => (
-                    <div key={subtask.id} className="rounded-lg bg-slate-50 border border-slate-200 p-2.5">
+                    <div
+                      key={subtask.id}
+                      className={`rounded-lg border p-2.5 ${subtask.status === 'DONE' ? 'bg-slate-100 border-slate-200 opacity-60' : 'bg-slate-50 border-slate-200'}`}
+                    >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <CheckCircleIcon className={`w-4 h-4 ${subtask.status === 'DONE' ? 'text-emerald-600' : 'text-slate-400'}`} />
-                          <span className="text-sm font-medium text-slate-700">
+                          <span className={`text-sm font-medium ${subtask.status === 'DONE' ? 'text-slate-500 line-through' : 'text-slate-700'}`}>
                             {subtask.progressPercent || subtask.order * 25}% · {subtask.title}
                           </span>
                         </div>
                         <span className="text-xs font-semibold px-2 py-1 rounded-full bg-white border border-slate-200 text-slate-700">
-                          {subtask.status.replace('_', ' ')}
+                          {subtask.status === 'DONE' ? 'Completed' : subtask.status.replace('_', ' ')}
                         </span>
                       </div>
-                      {canManageProgress && (
+                      {canManageProgress && subtask.status !== 'DONE' && (
                         <div className="flex gap-2 mt-2">
                           <Button
                             size="sm"
@@ -799,11 +804,11 @@ export const TaskProgressPage: React.FC = () => {
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Escrow status</span>
-                  <span className="font-semibold text-slate-900">{taskPaymentSummary?.escrowStatus || currentTask.escrowStatus || 'NONE'}</span>
+                  <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${moneyStatusClasses(taskPaymentSummary?.escrowStatus || currentTask.escrowStatus || 'NONE')}`}>{taskPaymentSummary?.escrowStatus || currentTask.escrowStatus || 'NONE'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Payment status</span>
-                  <span className="font-semibold text-slate-900">{taskPaymentSummary?.paymentStatus || currentTask.paymentStatus || 'UNPAID'}</span>
+                  <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${moneyStatusClasses(taskPaymentSummary?.paymentStatus || currentTask.paymentStatus || 'UNPAID')}`}>{taskPaymentSummary?.paymentStatus || currentTask.paymentStatus || 'UNPAID'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Escrow amount</span>
@@ -844,10 +849,16 @@ export const TaskProgressPage: React.FC = () => {
               </div>
             </Card>
 
-            {canManageProgress && (
+            {(canManageProgress || isProgressLocked) && (
               <Card className="p-6 border-0 shadow-lg">
                 <h2 className="text-lg font-bold text-slate-900 mb-4">Provider Update Panel</h2>
+                {isProgressLocked && (
+                  <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+                    This task has been published as completed. The update panel is locked.
+                  </div>
+                )}
                 <form onSubmit={handleSubmitProgress} className="space-y-4">
+                  <fieldset disabled={isProgressLocked} className={`space-y-4 ${isProgressLocked ? 'opacity-60 cursor-not-allowed' : ''}`}>
                   <div>
                     <label className="text-sm font-medium text-slate-700">Progress (%)</label>
                     <input
@@ -856,8 +867,8 @@ export const TaskProgressPage: React.FC = () => {
                       max={100}
                       value={progressPercent}
                       onChange={(e) => setProgressPercent(e.target.value)}
-                      className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="0 - 100"
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder={`Current: ${summaryProgress}%`}
                       required
                     />
                   </div>
@@ -885,18 +896,6 @@ export const TaskProgressPage: React.FC = () => {
                     />
                   </div>
 
-                  <div>
-                    <label className="text-sm font-medium text-slate-700">Estimated completion date</label>
-                    <div className="relative mt-1">
-                      <CalendarDaysIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="date"
-                        value={estimatedCompletionDate}
-                        onChange={(e) => setEstimatedCompletionDate(e.target.value)}
-                        className="w-full rounded-xl border border-slate-300 pl-9 pr-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
 
                   <div>
                     <label className="text-sm font-medium text-slate-700">Upload proof (images)</label>
@@ -931,9 +930,10 @@ export const TaskProgressPage: React.FC = () => {
                     </label>
                   </div>
 
-                  <Button type="submit" className="w-full" disabled={isSubmitting}>
-                    {isSubmitting ? 'Publishing update...' : 'Publish Progress Update'}
+                  <Button type="submit" className="w-full" disabled={isSubmitting || isProgressLocked}>
+                    {isProgressLocked ? 'Published as completed' : isSubmitting ? 'Publishing...' : 'Publish'}
                   </Button>
+                  </fieldset>
                 </form>
               </Card>
             )}

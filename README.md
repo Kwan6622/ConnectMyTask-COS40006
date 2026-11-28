@@ -52,14 +52,19 @@ npm install
 Create `.env` from `.env.example`:
 
 - macOS/Linux:
+
 ```bash
 cp .env.example .env
 ```
+
 - Windows PowerShell:
+
 ```powershell
 Copy-Item .env.example .env
 ```
+
 - Windows CMD:
+
 ```bat
 copy .env.example .env
 ```
@@ -311,21 +316,22 @@ The API will be available at `http://localhost:4000`.
 All routes are prefixed with `/api` unless noted.
 
 - **Tasks**
+
   - `POST /api/tasks` – Create a task
   - `GET /api/tasks` – List tasks (optional `status`, `category` query)
   - `GET /api/tasks/:id` – Get task details
   - `PATCH /api/tasks/:id/status` – Update task status
-
 - **Bids**
+
   - `POST /api/bids` – Create a bid
   - `GET /api/tasks/:id/bids` – List bids for a task
   - `POST /api/bids/:id/accept` – Accept a bid (assigns provider and rejects others)
-
 - **Reviews**
+
   - `POST /api/reviews` – Create a review
   - `GET /api/providers/:id/reviews` – List reviews for a provider
-
 - **Tracking (Provider GPS)**
+
   - `GET /api/tracking/tasks/:taskId/site-location` – Get requester-set coordinates for a task participant
   - `GET /api/tracking/tasks/:taskId/latest` – Get the latest in-memory provider location (expires after two minutes)
   - `GET /api/tracking/tasks/:taskId/history` – Return an empty list; journey history is not stored
@@ -356,8 +362,8 @@ Flow:
 - The provider's mobile **Verify location** action checks a fresh GPS point within 1 km of the saved task-site coordinates; escrow must be funded before verification.
 - The requester can view the provider's latest location on web or mobile. The requester marker represents the saved task location, not the requester's live device location.
 - Persisted into `TRACKING_LOGS` via Prisma.
-
 - **AI Integration**
+
   - `POST /api/ai/recommend/:taskId`
 
 Flow:
@@ -376,7 +382,6 @@ Flow:
      "budget": 150
    }
    ```
-
 3. Expect response:
 
    ```json
@@ -386,7 +391,6 @@ Flow:
      "confidenceScore": 0.92
    }
    ```
-
 4. Store in `AI_INSIGHTS` table.
 5. Return structured JSON to frontend with the same fields (`taskId`, `suggestedPrice`, `recommendedProviders`, `confidenceScore`).
 

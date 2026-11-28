@@ -22,6 +22,7 @@ export const TASK_STATUSES: TaskStatus[] = [
   TaskStatus.PAID,
   TaskStatus.DISPUTED,
   TaskStatus.CANCELLED,
+  TaskStatus.EXPIRED,
 ];
 
 export const SORT_OPTIONS: Array<{ label: string; value: TaskSortBy }> = [
@@ -35,11 +36,5 @@ export const BROWSE_STATUS_OPTIONS: Array<{ label: string; value: "ALL" | TaskSt
   { label: "All Status", value: "ALL" },
   { label: "Open", value: TaskStatus.OPEN },
   { label: "Bidding", value: TaskStatus.BIDDING },
-  { label: "Assigned", value: TaskStatus.ASSIGNED },
-  { label: "In Progress", value: TaskStatus.IN_PROGRESS },
-  { label: "Pending Confirmation", value: TaskStatus.PENDING_CONFIRMATION },
-  { label: "Completed", value: TaskStatus.COMPLETED },
-  { label: "Awaiting Payment", value: TaskStatus.AWAITING_PAYMENT },
-  { label: "Paid", value: TaskStatus.PAID },
-  { label: "Disputed", value: TaskStatus.DISPUTED },
+  // Assigned, in-progress, finished or disputed tasks are not browsable.
 ];

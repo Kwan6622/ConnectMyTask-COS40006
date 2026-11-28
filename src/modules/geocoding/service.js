@@ -1,7 +1,7 @@
-const { HO_CHI_MINH_WARD_GROUPS } = require('../../shared/hoChiMinhWards');
+const { listWards, resolveWard } = require('../../shared/administrativeUnits');
 
 const GEOCODING_URL = 'https://api.distancematrix.ai/maps/api/geocode/json';
-const DISTRICT_PREFIXES = /^(quan|huyen|district|urban district|thanh pho|tp|phuong|ward|p)\s+/i;
+const WARD_PREFIXES = /^(quan|huyen|district|urban district|thanh pho|tp|phuong|ward|p|xa|commune|dac khu)\s+/i;
 // Addresses this close together are treated as the same place (ward-border tolerance).
 const SAME_PLACE_METERS = 300;
 
@@ -14,12 +14,29 @@ const STREET_ALIASES = [
 ];
 const STREET_TYPE_PREFIX = /^(duong|d|pho|hem|ngo)\s+/;
 
-const KNOWN_WARDS = new Set(
-  HO_CHI_MINH_WARD_GROUPS.flatMap((group) => group.wards).map((ward) => normalizeText(ward))
-);
+/** Name as the geocoder knows it: "Thanh An (Can Gio)" -> "Thanh An". */
+function placeName(ward) {
+  return ward.name.replace(/\s*\(.*\)$/, '');
+}
+
+/** Normalised ward names of one city, used to tell "wrong ward" from "unknown place". */
+function knownWards(cityId) {
+  return new Set(listWards(cityId).map((ward) => normalizeText(placeName(ward))));
+}
 
 function geocodingError(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
+}
+
+/** Same text without Vietnamese accents, keeping case and punctuation. */
+function toEnglishAddress(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function normalizeText(value) {
@@ -28,7 +45,7 @@ function normalizeText(value) {
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
     .replace(/[đĐ]/g, 'd')
-    .replace(DISTRICT_PREFIXES, '')
+    .replace(WARD_PREFIXES, '')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 }
@@ -70,7 +87,7 @@ function getAddressSegments(result) {
 }
 
 function isCitySegment(segment) {
-  return /^ho chi minh( \d+)?$/.test(normalizeText(segment));
+  return /^(ho chi minh|ha noi|hanoi)( \d+)?$/.test(normalizeText(segment));
 }
 
 /**
@@ -85,7 +102,7 @@ function getResultWard(result) {
 
   const suburb = getComponentValues(result, ['suburb', 'sublocality', 'administrative_area_level_3'])[0];
   if (suburb) return normalizeText(suburb);
-  const locality = normalizeText(getComponentValues(result, ['locality'])[0]).replace(/\s*ho chi minh$/, '');
+  const locality = normalizeText(getComponentValues(result, ['locality'])[0]).replace(/\s*(ho chi minh|ha noi|hanoi)$/, '');
   return locality || '';
 }
 
@@ -183,10 +200,9 @@ function distanceMeters(a, b) {
   return 2 * 6371000 * Math.asin(Math.sqrt(h));
 }
 
-function toDisplayWard(normalizedWard) {
-  const match = HO_CHI_MINH_WARD_GROUPS.flatMap((group) => group.wards)
-    .find((ward) => normalizeText(ward) === normalizedWard);
-  return match || normalizedWard.replace(/\b\w/g, (c) => c.toUpperCase());
+function toDisplayWard(normalizedWard, cityId) {
+  const match = listWards(cityId).find((ward) => normalizeText(placeName(ward)) === normalizedWard);
+  return match ? match.name : normalizedWard.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 async function geocode(query) {
@@ -217,22 +233,25 @@ async function geocode(query) {
   return Array.isArray(payload.result) ? payload.result : [];
 }
 
-function toVerifiedAddress(result, { district, streetName }) {
+function toVerifiedAddress(result, { wardId, ward, streetName }) {
   const coordinates = getCoordinates(result);
   if (!coordinates) {
     throw geocodingError('The address was found, but its coordinates are unavailable.', 503);
   }
   return {
-    address: result.formatted_address,
+    // The app is in English: store the provider's address without accents
+    // ("Hẻm 47 Bùi Đình Túy" -> "Hem 47 Bui Dinh Tuy").
+    address: toEnglishAddress(result.formatted_address),
     placeId: result.place_id || null,
     ...coordinates,
-    district,
+    wardId,
+    ward,
     streetName,
   };
 }
 
 /**
- * Verify "<house number> <street>" really lies in the chosen ward.
+ * Verify "<house number> <street>" really lies in the chosen ward (wardId = official code).
  *
  * The provider echoes whatever ward is in the query and invents a point for it
  * (kilometres away from the real house), so the ward must not be trusted from a
@@ -241,12 +260,9 @@ function toVerifiedAddress(result, { district, streetName }) {
  * no evidence against the user: it found nothing usable, it resolved to a
  * same-named street outside the supported wards, or both answers are the same place.
  */
-async function verifyAddress({ district, streetName }) {
-  const normalizedDistrict = String(district || '').trim();
+async function verifyAddress({ wardId, streetName }) {
+  const ward = resolveWard(wardId);
   const normalizedStreet = String(streetName || '').trim().replace(/\s+/g, ' ');
-  if (normalizedDistrict.length < 2) {
-    throw geocodingError('Please select a ward in Ho Chi Minh City.');
-  }
   if (normalizedStreet.length < 3) {
     throw geocodingError('Please enter at least 3 characters for the street name.');
   }
@@ -257,18 +273,20 @@ async function verifyAddress({ district, streetName }) {
   }
 
   assertConfigured();
-  const context = { district: normalizedDistrict, streetName: normalizedStreet };
+  const known = knownWards(ward.cityId);
+  const citySuffix = `${ward.city.geocodeName}, Vietnam`;
+  const context = { wardId: ward.id, ward: ward.name, streetName: normalizedStreet };
 
-  const unhinted = (await geocodeAddress(parsed, normalizedStreet, 'Ho Chi Minh, Vietnam'))
+  const unhinted = (await geocodeAddress(parsed, normalizedStreet, citySuffix))
     .find((result) => isAddressMatch(result, parsed));
-  if (unhinted && isWardMatch(unhinted, normalizedDistrict)) {
+  if (unhinted && isWardMatch(unhinted, placeName(ward))) {
     return toVerifiedAddress(unhinted, context);
   }
 
-  const hintedResults = (await geocodeAddress(parsed, normalizedStreet, `${normalizedDistrict}, Ho Chi Minh, Vietnam`))
+  const hintedResults = (await geocodeAddress(parsed, normalizedStreet, `${placeName(ward)}, ${citySuffix}`))
     .filter((result) => isAddressMatch(result, parsed));
-  const hinted = hintedResults.find((result) => isWardMatch(result, normalizedDistrict));
-  const hintedOtherWard = hintedResults.map(getResultWard).find((ward) => KNOWN_WARDS.has(ward));
+  const hinted = hintedResults.find((result) => isWardMatch(result, placeName(ward)));
+  const hintedOtherWard = hintedResults.map(getResultWard).find((name) => known.has(name));
 
   if (unhinted) {
     const actualWard = getResultWard(unhinted);
@@ -276,12 +294,12 @@ async function verifyAddress({ district, streetName }) {
     const hintedPoint = getCoordinates(hinted);
     const samePlace = unhintedPoint && hintedPoint
       && distanceMeters(unhintedPoint, hintedPoint) <= SAME_PLACE_METERS;
-    if (hinted && (samePlace || !KNOWN_WARDS.has(actualWard))) {
+    if (hinted && (samePlace || !known.has(actualWard))) {
       return toVerifiedAddress(hinted, context);
     }
-    if (KNOWN_WARDS.has(actualWard)) {
+    if (known.has(actualWard)) {
       throw geocodingError(
-        `"${normalizedStreet}" belongs to ${toDisplayWard(actualWard)}, not ${normalizedDistrict}. Please check the ward.`
+        `"${normalizedStreet}" belongs to ${toDisplayWard(actualWard, ward.cityId)}, not ${ward.name}. Please check the ward.`
       );
     }
   }
@@ -289,12 +307,13 @@ async function verifyAddress({ district, streetName }) {
   if (hinted) return toVerifiedAddress(hinted, context);
   if (hintedOtherWard) {
     throw geocodingError(
-      `"${normalizedStreet}" belongs to ${toDisplayWard(hintedOtherWard)}, not ${normalizedDistrict}. Please check the ward.`
+      `"${normalizedStreet}" belongs to ${toDisplayWard(hintedOtherWard, ward.cityId)}, not ${ward.name}. Please check the ward.`
     );
   }
-  throw geocodingError(
-    `"${normalizedStreet}" could not be found in ${normalizedDistrict}. Please check the house number and street name.`
-  );
+  // The client uses this code to offer the "nearby address" option.
+  throw Object.assign(geocodingError(
+    `"${normalizedStreet}" could not be found in ${ward.name}. Please check the house number and street name.`
+  ), { code: 'ADDRESS_NOT_FOUND' });
 }
 
 module.exports = {
@@ -306,5 +325,6 @@ module.exports = {
   isStreetMatch,
   isHouseNumberMatch,
   toAlleyQuery,
+  toEnglishAddress,
   verifyAddress,
 };

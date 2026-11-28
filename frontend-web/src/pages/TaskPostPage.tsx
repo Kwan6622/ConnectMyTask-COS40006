@@ -8,7 +8,8 @@ import { Button } from '../components/common/Button';
 import { Input } from '../components/common/Input';
 import { Card } from '../components/common/Card';
 import { uploadImageToCloudinary } from '../utils/cloudinaryUpload';
-import { HO_CHI_MINH_WARD_GROUPS } from '../constants/hoChiMinhWards';
+import { CityWardPicker, type CityWardValue } from '../components/location/CityWardPicker';
+import { useWards } from '../utils/wards';
 import { TaskLocationPicker } from '../components/task/TaskLocationPicker';
 import toast from 'react-hot-toast';
 import {
@@ -30,7 +31,6 @@ interface TaskFormData {
   title: string;
   description: string;
   category: string;
-  location: string;
   streetName: string;
   budget?: number;
   maxBids?: number;
@@ -77,9 +77,50 @@ export const TaskPostPage: React.FC = () => {
   const [addressVerification, setAddressVerification] = useState<{
     status: 'idle' | 'verifying' | 'verified' | 'error';
     message?: string;
+    /** ADDRESS_NOT_FOUND: the geocoder has no such house, so offer the nearby-address option. */
+    code?: string;
     latitude?: number;
     longitude?: number;
   }>({ status: 'idle' });
+  // Start from the account's ward; the requester can pick another for this task.
+  const [place, setPlace] = useState<CityWardValue>({ cityId: user?.cityId ?? null, wardId: user?.locationId ?? null });
+  const { wards: placeWards } = useWards(place.cityId);
+  const placeWard = placeWards.find((ward) => ward.id === place.wardId) || null;
+  const [placeError, setPlaceError] = useState('');
+  // "Nearby address" mode: the street address only verifies the area (within 100 m)
+  // and the exact place goes in Address details, shown only to the hired provider.
+  const [isApproximateLocation, setIsApproximateLocation] = useState(false);
+  const [approxTouched, setApproxTouched] = useState(false);
+  const [hadNotFound, setHadNotFound] = useState(false);
+  const [addressDetail, setAddressDetail] = useState('');
+  const [addressDetailError, setAddressDetailError] = useState('');
+  const ADDRESS_DETAIL_MAX = 100;
+
+  // The saved session can predate the account's ward / home address; refresh it once.
+  useEffect(() => {
+    if (!user?.id) return;
+    api.users.getMe()
+      .then((response) => {
+        const fresh = response.data || {};
+        useAuthStore.getState().setUser({ ...user, ...fresh, fullName: fresh.name || user.fullName });
+        setPlace((current) => (current.wardId ? current : { cityId: fresh.cityId ?? null, wardId: fresh.locationId ?? null }));
+      })
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+  // A new ward starts a fresh address search.
+  useEffect(() => {
+    setHadNotFound(false);
+    if (!approxTouched) setIsApproximateLocation(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [place.wardId]);
+
+  // The house was not on the map and a nearby address now verifies: switch to
+  // nearby mode for the user (they can still untick it).
+  useEffect(() => {
+    if (addressVerification.status === 'verified' && hadNotFound && !approxTouched) setIsApproximateLocation(true);
+  }, [addressVerification.status, hadNotFound, approxTouched]);
+
   const minDeadlineValue = getDateTimeLocalNow();
   const categoryCounts = tasks.reduce<Record<string, number>>((acc, task) => {
     acc[task.category] = (acc[task.category] || 0) + 1;
@@ -87,12 +128,12 @@ export const TaskPostPage: React.FC = () => {
   }, {});
 
   const { control, register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<TaskFormData>();
-  const district = watch('location');
+  const wardId = place.wardId;
   const streetName = watch('streetName');
 
   useEffect(() => {
     const street = String(streetName || '').trim();
-    if (!district || street.length < 3) {
+    if (!wardId || street.length < 3) {
       setAddressVerification({ status: 'idle' });
       return;
     }
@@ -101,7 +142,7 @@ export const TaskPostPage: React.FC = () => {
     setAddressVerification({ status: 'verifying' });
     const timer = window.setTimeout(async () => {
       try {
-        const response = await api.tasks.verifyAddress({ district, streetName: street });
+        const response = await api.tasks.verifyAddress({ wardId, streetName: street });
         if (cancelled) return;
         setAddressVerification({
           status: 'verified',
@@ -114,7 +155,9 @@ export const TaskPostPage: React.FC = () => {
         setAddressVerification({
           status: 'error',
           message: error?.response?.data?.message || 'Unable to verify this address. Please enter a valid address in Vietnam.',
+          code: error?.response?.data?.code,
         });
+        if (error?.response?.data?.code === 'ADDRESS_NOT_FOUND') setHadNotFound(true);
       }
     }, 450);
 
@@ -122,7 +165,7 @@ export const TaskPostPage: React.FC = () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [district, streetName]);
+  }, [wardId, streetName]);
 
   useEffect(() => {
     if (!user) {
@@ -149,8 +192,8 @@ export const TaskPostPage: React.FC = () => {
 
   const handleGetAiBudgetSuggestion = async () => {
     const formData = watch();
-    if (!formData.category || !formData.location) {
-      toast.error('Please select category and location first');
+    if (!formData.category || !placeWard) {
+      toast.error('Please select category, city and ward first');
       return;
     }
 
@@ -161,7 +204,7 @@ export const TaskPostPage: React.FC = () => {
       const response = await api.ai.predictPrice({
         title,
         category: formData.category,
-        location: formData.location,
+        location: placeWard.name,
         budget: formData.budget,
         description: [title, description].filter(Boolean).join('. '),
         complexity: 'MEDIUM',
@@ -192,6 +235,16 @@ export const TaskPostPage: React.FC = () => {
       toast.error('Please log in to post a task');
       return;
     }
+    if (!place.wardId) {
+      setPlaceError('Choose the city, then pick the ward from the suggestions.');
+      toast.error('Choose the city and ward of the task.');
+      return;
+    }
+    if (isApproximateLocation && !addressDetail.trim()) {
+      setAddressDetailError('Write your exact address here so the provider you hire can find you.');
+      toast.error('Write your exact address in Address details.');
+      return;
+    }
     if (addressVerification.status !== 'verified'
       || !Number.isFinite(addressVerification.latitude)
       || !Number.isFinite(addressVerification.longitude)) {
@@ -202,11 +255,13 @@ export const TaskPostPage: React.FC = () => {
     try {
       const taskData = {
         ...data,
-        district: data.location,
+        wardId: place.wardId,
+        isApproximateLocation,
+        addressDetail: addressDetail.trim() || undefined,
         budget: data.budget ? Number(data.budget) : undefined,
         maxBids: data.maxBids ? Number(data.maxBids) : undefined,
         streetName: data.streetName,
-        siteAddress: `${data.streetName}, ${data.location}, Ho Chi Minh City, Vietnam`,
+        siteAddress: `${data.streetName}, ${placeWard?.name || ''}`,
         siteLatitude: addressVerification.latitude,
         siteLongitude: addressVerification.longitude,
         // Backend schema accepts number or undefined. Do not send null.
@@ -406,7 +461,10 @@ export const TaskPostPage: React.FC = () => {
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Two independent columns: the location column can grow (details, hints, map)
+                    without stretching or pushing the Category / Deadline column. */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:items-start">
+                  <div className="space-y-8">
                   {/* Category */}
                   <div className="space-y-3">
                     <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
@@ -450,83 +508,6 @@ export const TaskPostPage: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Location */}
-                  <div className="space-y-3">
-                    <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
-                      <MapPinIcon className="w-5 h-5 text-blue-600" />
-                      District *
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                        <MapPinIcon className="w-5 h-5" />
-                      </span>
-                      <select
-                        {...register('location', { required: 'District is required' })}
-                        className="w-full h-12 text-lg border border-gray-200 rounded-xl pl-11 pr-4 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        defaultValue=""
-                      >
-                        <option value="" disabled>
-                          Select district
-                        </option>
-                        {HO_CHI_MINH_WARD_GROUPS.map((group) => (
-                          <optgroup key={group.oldDistrict} label={group.oldDistrict}>
-                            {group.wards.map((ward) => (
-                              <option key={`${group.oldDistrict}-${ward}`} value={ward}>
-                                {ward}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
-                    </div>
-                    {errors.location && (
-                      <p className="text-sm text-red-600 flex items-center gap-1">
-                        <span>⚠️</span> {errors.location.message}
-                      </p>
-                    )}
-                    <Input
-                      label="Street address (with house number) *"
-                      placeholder="e.g. A35 Bach Dang"
-                      {...register('streetName', {
-                        required: 'Address is required',
-                        minLength: { value: 3, message: 'Enter at least 3 characters' },
-                      })}
-                      className="h-12 text-lg border-gray-200"
-                    />
-                    {errors.streetName && <p className="text-sm text-red-600">{errors.streetName.message}</p>}
-                    <div className="flex min-h-5 items-center gap-2 text-sm" aria-live="polite">
-                      {addressVerification.status === 'verifying' && <span className="h-4 w-4 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />}
-                      {addressVerification.status === 'verified' && <CheckCircleIcon className="h-5 w-5 text-green-600" />}
-                      {addressVerification.status === 'error' && <span className="font-bold text-red-600">✕</span>}
-                      {addressVerification.status === 'verifying' ? (
-                        <span className="text-blue-600">Verifying address...</span>
-                      ) : addressVerification.message ? (
-                        <span className={addressVerification.status === 'verified' ? 'text-green-700' : 'text-red-600'}>
-                          {addressVerification.message}
-                        </span>
-                      ) : null}
-                    </div>
-                    {addressVerification.status === 'verified'
-                      && Number.isFinite(addressVerification.latitude)
-                      && Number.isFinite(addressVerification.longitude) && (
-                      <TaskLocationPicker
-                        readOnly
-                        address={String(streetName || '')}
-                        coordinates={{ latitude: addressVerification.latitude as number, longitude: addressVerification.longitude as number }}
-                        searchRequest={0}
-                        onCoordinatesChange={() => undefined}
-                      />
-                    )}
-                    <div className="bg-green-50 rounded-lg p-3 border border-green-100">
-                      <p className="text-sm text-green-700 flex items-center gap-2">
-                        <UserGroupIcon className="w-4 h-4" />
-                        <span className="font-medium">Local providers respond faster</span>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Deadline */}
                   <div className="space-y-3">
                     <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
@@ -556,6 +537,106 @@ export const TaskPostPage: React.FC = () => {
                       <p className="text-sm text-orange-700 flex items-center gap-2">
                         <ClockIcon className="w-4 h-4" />
                         <span className="font-medium">Urgent tasks get priority</span>
+                      </p>
+                    </div>
+                  </div>
+                  </div>
+
+                  {/* Location: city, then ward, then the street address to verify */}
+                  <div className="space-y-3">
+                    <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                      <MapPinIcon className="w-5 h-5 text-blue-600" />
+                      Task location *
+                    </label>
+                    <CityWardPicker
+                      value={place}
+                      required
+                      error={placeError}
+                      onChange={(next) => { setPlace(next); setPlaceError(''); }}
+                    />
+                    <Input
+                      label="Street address (with house number) *"
+                      placeholder="e.g. A35 Bach Dang"
+                      {...register('streetName', {
+                        required: 'Address is required',
+                        minLength: { value: 3, message: 'Enter at least 3 characters' },
+                      })}
+                      className="h-12 text-lg border-gray-200"
+                    />
+                    {errors.streetName && <p className="text-sm text-red-600">{errors.streetName.message}</p>}
+                    {/* Verification result. "Not on the map" is a hint, not an error. */}
+                    <div className="flex min-h-5 items-start gap-2 text-sm" aria-live="polite">
+                      {addressVerification.status === 'verifying' && <span className="mt-0.5 h-4 w-4 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />}
+                      {addressVerification.status === 'verified' && <CheckCircleIcon className="h-5 w-5 text-green-600" />}
+                      {addressVerification.status === 'error' && addressVerification.code !== 'ADDRESS_NOT_FOUND' && <span className="font-bold text-red-600">✕</span>}
+                      {addressVerification.status === 'verifying' ? (
+                        <span className="text-blue-600">Verifying address...</span>
+                      ) : addressVerification.code === 'ADDRESS_NOT_FOUND' ? null : addressVerification.message ? (
+                        <span className={addressVerification.status === 'verified' ? 'text-green-700' : 'text-red-600'}>
+                          {addressVerification.message}
+                        </span>
+                      ) : null}
+                    </div>
+                    {addressVerification.code === 'ADDRESS_NOT_FOUND' && (
+                      <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                        <span className="font-semibold">Not found on the map.</span>{' '}
+                        Enter a nearby address within 100 m (e.g. the alley entrance) to verify, and put your exact address in Address details.
+                      </div>
+                    )}
+                    {addressVerification.status === 'verified'
+                      && Number.isFinite(addressVerification.latitude)
+                      && Number.isFinite(addressVerification.longitude) && (
+                      <TaskLocationPicker
+                        readOnly
+                        address={String(streetName || '')}
+                        coordinates={{ latitude: addressVerification.latitude as number, longitude: addressVerification.longitude as number }}
+                        searchRequest={0}
+                        onCoordinatesChange={() => undefined}
+                      />
+                    )}
+
+                    {/* Private address details (max 100 characters) */}
+                    <div>
+                      <div className="flex items-baseline justify-between gap-2">
+                        <label htmlFor="address-detail" className="text-sm font-medium text-gray-700">
+                          {isApproximateLocation ? 'Exact address *' : 'Address details (optional)'}
+                        </label>
+                        <span className={`text-xs ${addressDetail.length >= ADDRESS_DETAIL_MAX ? 'text-red-600' : 'text-gray-400'}`}>
+                          {addressDetail.length}/{ADDRESS_DETAIL_MAX}
+                        </span>
+                      </div>
+                      <textarea
+                        id="address-detail"
+                        rows={3}
+                        maxLength={ADDRESS_DETAIL_MAX}
+                        value={addressDetail}
+                        onChange={(event) => { setAddressDetail(event.target.value); setAddressDetailError(''); }}
+                        placeholder={isApproximateLocation ? 'e.g. 47/24/3 Bui Dinh Tuy, blue gate' : 'e.g. Apt 12.05, Block B, Floor 12'}
+                        aria-invalid={Boolean(addressDetailError)}
+                        aria-describedby="address-detail-help"
+                        className={`mt-1 w-full resize-none rounded-xl border px-3 py-2.5 text-base placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 ${addressDetailError ? 'border-red-400' : 'border-gray-200'}`}
+                      />
+                      <p id="address-detail-help" className={`mt-1 text-xs ${addressDetailError ? 'text-red-600' : 'text-gray-500'}`}>
+                        {addressDetailError || (isApproximateLocation
+                          ? 'Your real address, if the map cannot find it. Only the provider you hire sees this, after the escrow is funded.'
+                          : 'Apartment, floor or block, if any. Only the provider you hire sees this, after the escrow is funded.')}
+                      </p>
+                    </div>
+                    {(hadNotFound || isApproximateLocation) && (
+                      <label className="flex cursor-pointer items-start gap-3 text-sm text-gray-700">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 h-5 w-5 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                          checked={isApproximateLocation}
+                          onChange={(event) => { setIsApproximateLocation(event.target.checked); setApproxTouched(true); setAddressDetailError(''); }}
+                        />
+                        <span>The street address above is a nearby spot (within 100 m), not the exact place. Tasks posted this way show a &ldquo;Nearby address&rdquo; tag.</span>
+                      </label>
+                    )}
+                    <div className="bg-green-50 rounded-lg p-3 border border-green-100">
+                      <p className="text-sm text-green-700 flex items-center gap-2">
+                        <UserGroupIcon className="w-4 h-4" />
+                        <span className="font-medium">Local providers respond faster</span>
                       </p>
                     </div>
                   </div>

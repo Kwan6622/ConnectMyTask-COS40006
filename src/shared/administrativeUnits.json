@@ -1,0 +1,2079 @@
+{
+  "source": "https://provinces.open-api.vn/api/v2",
+  "effectiveFrom": "2025-07-01",
+  "fetchedAt": "2026-11-27",
+  "cities": [
+    {
+      "id": 79,
+      "name": "Ho Chi Minh City",
+      "geocodeName": "Ho Chi Minh",
+      "wards": [
+        {
+          "id": 25747,
+          "name": "Thu Dau Mot",
+          "type": "ward",
+          "lat": 10.96817,
+          "lng": 106.65953
+        },
+        {
+          "id": 25750,
+          "name": "Phu Loi",
+          "type": "ward",
+          "lat": 10.98761,
+          "lng": 106.67639
+        },
+        {
+          "id": 25760,
+          "name": "Binh Duong",
+          "type": "ward",
+          "lat": 11.05473,
+          "lng": 106.68803
+        },
+        {
+          "id": 25768,
+          "name": "Phu An",
+          "type": "ward",
+          "lat": 11.04846,
+          "lng": 106.60176
+        },
+        {
+          "id": 25771,
+          "name": "Chanh Hiep",
+          "type": "ward",
+          "lat": 11.01857,
+          "lng": 106.64025
+        },
+        {
+          "id": 25777,
+          "name": "Dau Tieng",
+          "type": "commune",
+          "lat": 11.33254,
+          "lng": 106.39948
+        },
+        {
+          "id": 25780,
+          "name": "Minh Thanh",
+          "type": "commune",
+          "lat": 11.44367,
+          "lng": 106.46894
+        },
+        {
+          "id": 25792,
+          "name": "Long Hoa",
+          "type": "commune",
+          "lat": 11.32761,
+          "lng": 106.51203
+        },
+        {
+          "id": 25807,
+          "name": "Thanh An (Dau Tieng)",
+          "type": "commune",
+          "lat": 11.24823,
+          "lng": 106.43196
+        },
+        {
+          "id": 25813,
+          "name": "Ben Cat",
+          "type": "ward",
+          "lat": 11.20325,
+          "lng": 106.63146
+        },
+        {
+          "id": 25819,
+          "name": "Tru Van Tho",
+          "type": "commune",
+          "lat": 11.34003,
+          "lng": 106.59424
+        },
+        {
+          "id": 25822,
+          "name": "Bau Bang",
+          "type": "commune",
+          "lat": 11.27288,
+          "lng": 106.62556
+        },
+        {
+          "id": 25837,
+          "name": "Chanh Phu Hoa",
+          "type": "ward",
+          "lat": 11.18818,
+          "lng": 106.6716
+        },
+        {
+          "id": 25840,
+          "name": "Long Nguyen",
+          "type": "ward",
+          "lat": 11.16798,
+          "lng": 106.54791
+        },
+        {
+          "id": 25843,
+          "name": "Tay Nam",
+          "type": "ward",
+          "lat": 11.13247,
+          "lng": 106.5012
+        },
+        {
+          "id": 25846,
+          "name": "Thoi Hoa",
+          "type": "ward",
+          "lat": 11.10277,
+          "lng": 106.61984
+        },
+        {
+          "id": 25849,
+          "name": "Hoa Loi",
+          "type": "ward",
+          "lat": 11.08361,
+          "lng": 106.64916
+        },
+        {
+          "id": 25858,
+          "name": "Phu Giao",
+          "type": "commune",
+          "lat": 11.30711,
+          "lng": 106.86412
+        },
+        {
+          "id": 25864,
+          "name": "Phuoc Thanh",
+          "type": "commune",
+          "lat": 11.38509,
+          "lng": 106.75647
+        },
+        {
+          "id": 25867,
+          "name": "An Long",
+          "type": "commune",
+          "lat": 11.32596,
+          "lng": 106.69213
+        },
+        {
+          "id": 25882,
+          "name": "Phuoc Hoa",
+          "type": "commune",
+          "lat": 11.25361,
+          "lng": 106.77936
+        },
+        {
+          "id": 25888,
+          "name": "Tan Uyen",
+          "type": "ward",
+          "lat": 11.09141,
+          "lng": 106.81803
+        },
+        {
+          "id": 25891,
+          "name": "Tan Khanh",
+          "type": "ward",
+          "lat": 10.99972,
+          "lng": 106.74938
+        },
+        {
+          "id": 25906,
+          "name": "Bac Tan Uyen",
+          "type": "commune",
+          "lat": 11.17115,
+          "lng": 106.86548
+        },
+        {
+          "id": 25909,
+          "name": "Thuong Tan",
+          "type": "commune",
+          "lat": 11.10484,
+          "lng": 106.90185
+        },
+        {
+          "id": 25912,
+          "name": "Vinh Tan",
+          "type": "ward",
+          "lat": 11.13793,
+          "lng": 106.72076
+        },
+        {
+          "id": 25915,
+          "name": "Binh Co",
+          "type": "ward",
+          "lat": 11.15271,
+          "lng": 106.77525
+        },
+        {
+          "id": 25920,
+          "name": "Tan Hiep",
+          "type": "ward",
+          "lat": 11.0618,
+          "lng": 106.74588
+        },
+        {
+          "id": 25942,
+          "name": "Di An",
+          "type": "ward",
+          "lat": 10.90034,
+          "lng": 106.76441
+        },
+        {
+          "id": 25945,
+          "name": "Tan Dong Hiep",
+          "type": "ward",
+          "lat": 10.94367,
+          "lng": 106.77367
+        },
+        {
+          "id": 25951,
+          "name": "Dong Hoa",
+          "type": "ward",
+          "lat": 10.89395,
+          "lng": 106.8044
+        },
+        {
+          "id": 25966,
+          "name": "Lai Thieu",
+          "type": "ward",
+          "lat": 10.90647,
+          "lng": 106.69687
+        },
+        {
+          "id": 25969,
+          "name": "Thuan Giao",
+          "type": "ward",
+          "lat": 10.9628,
+          "lng": 106.70833
+        },
+        {
+          "id": 25975,
+          "name": "An Phu",
+          "type": "ward",
+          "lat": 10.95948,
+          "lng": 106.735
+        },
+        {
+          "id": 25978,
+          "name": "Thuan An",
+          "type": "ward",
+          "lat": 10.94217,
+          "lng": 106.67862
+        },
+        {
+          "id": 25987,
+          "name": "Binh Hoa",
+          "type": "ward",
+          "lat": 10.90041,
+          "lng": 106.71833
+        },
+        {
+          "id": 26506,
+          "name": "Vung Tau",
+          "type": "ward",
+          "lat": 10.35387,
+          "lng": 107.07788
+        },
+        {
+          "id": 26526,
+          "name": "Tam Thang",
+          "type": "ward",
+          "lat": 10.36851,
+          "lng": 107.09727
+        },
+        {
+          "id": 26536,
+          "name": "Rach Dua",
+          "type": "ward",
+          "lat": 10.39099,
+          "lng": 107.10234
+        },
+        {
+          "id": 26542,
+          "name": "Phuoc Thang",
+          "type": "ward",
+          "lat": 10.42524,
+          "lng": 107.1654
+        },
+        {
+          "id": 26545,
+          "name": "Long Son",
+          "type": "commune",
+          "lat": 10.44932,
+          "lng": 107.09447
+        },
+        {
+          "id": 26560,
+          "name": "Ba Ria",
+          "type": "ward",
+          "lat": 10.49498,
+          "lng": 107.18444
+        },
+        {
+          "id": 26566,
+          "name": "Long Huong",
+          "type": "ward",
+          "lat": 10.50726,
+          "lng": 107.14898
+        },
+        {
+          "id": 26572,
+          "name": "Tam Long",
+          "type": "ward",
+          "lat": 10.52895,
+          "lng": 107.21438
+        },
+        {
+          "id": 26575,
+          "name": "Ngai Giao",
+          "type": "commune",
+          "lat": 10.62256,
+          "lng": 107.20902
+        },
+        {
+          "id": 26584,
+          "name": "Xuan Son",
+          "type": "commune",
+          "lat": 10.61738,
+          "lng": 107.33202
+        },
+        {
+          "id": 26590,
+          "name": "Binh Gia",
+          "type": "commune",
+          "lat": 10.67912,
+          "lng": 107.28259
+        },
+        {
+          "id": 26596,
+          "name": "Chau Duc",
+          "type": "commune",
+          "lat": 10.72782,
+          "lng": 107.21945
+        },
+        {
+          "id": 26608,
+          "name": "Kim Long",
+          "type": "commune",
+          "lat": 10.67404,
+          "lng": 107.21446
+        },
+        {
+          "id": 26617,
+          "name": "Nghia Thanh",
+          "type": "commune",
+          "lat": 10.58321,
+          "lng": 107.2401
+        },
+        {
+          "id": 26620,
+          "name": "Ho Tram",
+          "type": "commune",
+          "lat": 10.52223,
+          "lng": 107.39691
+        },
+        {
+          "id": 26632,
+          "name": "Xuyen Moc",
+          "type": "commune",
+          "lat": 10.55043,
+          "lng": 107.45966
+        },
+        {
+          "id": 26638,
+          "name": "Bau Lam",
+          "type": "commune",
+          "lat": 10.73717,
+          "lng": 107.42713
+        },
+        {
+          "id": 26641,
+          "name": "Hoa Hoi",
+          "type": "commune",
+          "lat": 10.62765,
+          "lng": 107.42576
+        },
+        {
+          "id": 26647,
+          "name": "Hoa Hiep",
+          "type": "commune",
+          "lat": 10.70791,
+          "lng": 107.49662
+        },
+        {
+          "id": 26656,
+          "name": "Binh Chau",
+          "type": "commune",
+          "lat": 10.57848,
+          "lng": 107.53139
+        },
+        {
+          "id": 26659,
+          "name": "Long Dien",
+          "type": "commune",
+          "lat": 10.46903,
+          "lng": 107.2163
+        },
+        {
+          "id": 26662,
+          "name": "Long Hai",
+          "type": "commune",
+          "lat": 10.4083,
+          "lng": 107.2126
+        },
+        {
+          "id": 26680,
+          "name": "Dat Do",
+          "type": "commune",
+          "lat": 10.51793,
+          "lng": 107.30848
+        },
+        {
+          "id": 26686,
+          "name": "Phuoc Hai",
+          "type": "commune",
+          "lat": 10.43894,
+          "lng": 107.31063
+        },
+        {
+          "id": 26704,
+          "name": "Phu My",
+          "type": "ward",
+          "lat": 10.60185,
+          "lng": 107.0445
+        },
+        {
+          "id": 26710,
+          "name": "Tan Hai",
+          "type": "ward",
+          "lat": 10.51448,
+          "lng": 107.09641
+        },
+        {
+          "id": 26713,
+          "name": "Tan Phuoc",
+          "type": "ward",
+          "lat": 10.52642,
+          "lng": 107.05582
+        },
+        {
+          "id": 26725,
+          "name": "Tan Thanh",
+          "type": "ward",
+          "lat": 10.66562,
+          "lng": 107.12125
+        },
+        {
+          "id": 26728,
+          "name": "Chau Pha",
+          "type": "commune",
+          "lat": 10.58077,
+          "lng": 107.12559
+        },
+        {
+          "id": 26732,
+          "name": "Con Dao",
+          "type": "special_zone",
+          "lat": 8.694,
+          "lng": 106.64031
+        },
+        {
+          "id": 26737,
+          "name": "Tan Dinh",
+          "type": "ward",
+          "lat": 10.79081,
+          "lng": 106.69416
+        },
+        {
+          "id": 26740,
+          "name": "Sai Gon",
+          "type": "ward",
+          "lat": 10.78522,
+          "lng": 106.70316
+        },
+        {
+          "id": 26743,
+          "name": "Ben Thanh",
+          "type": "ward",
+          "lat": 10.77153,
+          "lng": 106.6936
+        },
+        {
+          "id": 26758,
+          "name": "Cau Ong Lanh",
+          "type": "ward",
+          "lat": 10.76086,
+          "lng": 106.68998
+        },
+        {
+          "id": 26767,
+          "name": "An Phu Dong",
+          "type": "ward",
+          "lat": 10.86713,
+          "lng": 106.69699
+        },
+        {
+          "id": 26773,
+          "name": "Thoi An",
+          "type": "ward",
+          "lat": 10.87829,
+          "lng": 106.66799
+        },
+        {
+          "id": 26782,
+          "name": "Tan Thoi Hiep",
+          "type": "ward",
+          "lat": 10.87347,
+          "lng": 106.63784
+        },
+        {
+          "id": 26785,
+          "name": "Trung My Tay",
+          "type": "ward",
+          "lat": 10.85993,
+          "lng": 106.62242
+        },
+        {
+          "id": 26791,
+          "name": "Dong Hung Thuan",
+          "type": "ward",
+          "lat": 10.83758,
+          "lng": 106.62313
+        },
+        {
+          "id": 26800,
+          "name": "Linh Xuan",
+          "type": "ward",
+          "lat": 10.87127,
+          "lng": 106.77922
+        },
+        {
+          "id": 26803,
+          "name": "Tam Binh",
+          "type": "ward",
+          "lat": 10.87078,
+          "lng": 106.7323
+        },
+        {
+          "id": 26809,
+          "name": "Hiep Binh",
+          "type": "ward",
+          "lat": 10.8454,
+          "lng": 106.72616
+        },
+        {
+          "id": 26824,
+          "name": "Thu Duc",
+          "type": "ward",
+          "lat": 10.83697,
+          "lng": 106.75671
+        },
+        {
+          "id": 26833,
+          "name": "Long Binh",
+          "type": "ward",
+          "lat": 10.86244,
+          "lng": 106.83254
+        },
+        {
+          "id": 26842,
+          "name": "Tang Nhon Phu",
+          "type": "ward",
+          "lat": 10.84319,
+          "lng": 106.79756
+        },
+        {
+          "id": 26848,
+          "name": "Phuoc Long",
+          "type": "ward",
+          "lat": 10.81773,
+          "lng": 106.77521
+        },
+        {
+          "id": 26857,
+          "name": "Long Phuoc",
+          "type": "ward",
+          "lat": 10.80313,
+          "lng": 106.84422
+        },
+        {
+          "id": 26860,
+          "name": "Long Truong",
+          "type": "ward",
+          "lat": 10.79331,
+          "lng": 106.81321
+        },
+        {
+          "id": 26876,
+          "name": "An Nhon",
+          "type": "ward",
+          "lat": 10.83631,
+          "lng": 106.68883
+        },
+        {
+          "id": 26878,
+          "name": "An Hoi Dong",
+          "type": "ward",
+          "lat": 10.84964,
+          "lng": 106.66632
+        },
+        {
+          "id": 26882,
+          "name": "An Hoi Tay",
+          "type": "ward",
+          "lat": 10.84451,
+          "lng": 106.64451
+        },
+        {
+          "id": 26884,
+          "name": "Go Vap",
+          "type": "ward",
+          "lat": 10.83911,
+          "lng": 106.67285
+        },
+        {
+          "id": 26890,
+          "name": "Hanh Thong",
+          "type": "ward",
+          "lat": 10.82224,
+          "lng": 106.68356
+        },
+        {
+          "id": 26898,
+          "name": "Thong Tay Hoi",
+          "type": "ward",
+          "lat": 10.84108,
+          "lng": 106.65273
+        },
+        {
+          "id": 26905,
+          "name": "Binh Loi Trung",
+          "type": "ward",
+          "lat": 10.82218,
+          "lng": 106.69871
+        },
+        {
+          "id": 26911,
+          "name": "Binh Quoi",
+          "type": "ward",
+          "lat": 10.82199,
+          "lng": 106.73272
+        },
+        {
+          "id": 26929,
+          "name": "Binh Thanh",
+          "type": "ward",
+          "lat": 10.81173,
+          "lng": 106.70622
+        },
+        {
+          "id": 26944,
+          "name": "Gia Dinh",
+          "type": "ward",
+          "lat": 10.80142,
+          "lng": 106.69922
+        },
+        {
+          "id": 26956,
+          "name": "Thanh My Tay",
+          "type": "ward",
+          "lat": 10.79978,
+          "lng": 106.7169
+        },
+        {
+          "id": 26968,
+          "name": "Tan Son Nhat",
+          "type": "ward",
+          "lat": 10.80097,
+          "lng": 106.65929
+        },
+        {
+          "id": 26977,
+          "name": "Tan Son Hoa",
+          "type": "ward",
+          "lat": 10.80518,
+          "lng": 106.66769
+        },
+        {
+          "id": 26983,
+          "name": "Bay Hien",
+          "type": "ward",
+          "lat": 10.7921,
+          "lng": 106.64855
+        },
+        {
+          "id": 26995,
+          "name": "Tan Hoa",
+          "type": "ward",
+          "lat": 10.77959,
+          "lng": 106.65633
+        },
+        {
+          "id": 27004,
+          "name": "Tan Binh",
+          "type": "ward",
+          "lat": 10.79848,
+          "lng": 106.64138
+        },
+        {
+          "id": 27007,
+          "name": "Tan Son",
+          "type": "ward",
+          "lat": 10.82179,
+          "lng": 106.65327
+        },
+        {
+          "id": 27013,
+          "name": "Tay Thanh",
+          "type": "ward",
+          "lat": 10.81394,
+          "lng": 106.62148
+        },
+        {
+          "id": 27019,
+          "name": "Tan Son Nhi",
+          "type": "ward",
+          "lat": 10.80121,
+          "lng": 106.62407
+        },
+        {
+          "id": 27022,
+          "name": "Phu Tho Hoa",
+          "type": "ward",
+          "lat": 10.78837,
+          "lng": 106.62611
+        },
+        {
+          "id": 27028,
+          "name": "Phu Thanh",
+          "type": "ward",
+          "lat": 10.77149,
+          "lng": 106.62739
+        },
+        {
+          "id": 27031,
+          "name": "Tan Phu",
+          "type": "ward",
+          "lat": 10.77741,
+          "lng": 106.63972
+        },
+        {
+          "id": 27043,
+          "name": "Duc Nhuan",
+          "type": "ward",
+          "lat": 10.80666,
+          "lng": 106.67801
+        },
+        {
+          "id": 27058,
+          "name": "Cau Kieu",
+          "type": "ward",
+          "lat": 10.79826,
+          "lng": 106.68501
+        },
+        {
+          "id": 27073,
+          "name": "Phu Nhuan",
+          "type": "ward",
+          "lat": 10.79407,
+          "lng": 106.67603
+        },
+        {
+          "id": 27094,
+          "name": "An Khanh",
+          "type": "ward",
+          "lat": 10.78295,
+          "lng": 106.73653
+        },
+        {
+          "id": 27097,
+          "name": "Binh Trung",
+          "type": "ward",
+          "lat": 10.79408,
+          "lng": 106.76319
+        },
+        {
+          "id": 27112,
+          "name": "Cat Lai",
+          "type": "ward",
+          "lat": 10.76256,
+          "lng": 106.77713
+        },
+        {
+          "id": 27139,
+          "name": "Xuan Hoa",
+          "type": "ward",
+          "lat": 10.78308,
+          "lng": 106.6897
+        },
+        {
+          "id": 27142,
+          "name": "Nhieu Loc",
+          "type": "ward",
+          "lat": 10.78461,
+          "lng": 106.67438
+        },
+        {
+          "id": 27154,
+          "name": "Ban Co",
+          "type": "ward",
+          "lat": 10.77107,
+          "lng": 106.68191
+        },
+        {
+          "id": 27163,
+          "name": "Hoa Hung",
+          "type": "ward",
+          "lat": 10.7773,
+          "lng": 106.67026
+        },
+        {
+          "id": 27169,
+          "name": "Dien Hong",
+          "type": "ward",
+          "lat": 10.76959,
+          "lng": 106.66245
+        },
+        {
+          "id": 27190,
+          "name": "Vuon Lai",
+          "type": "ward",
+          "lat": 10.76887,
+          "lng": 106.67494
+        },
+        {
+          "id": 27211,
+          "name": "Hoa Binh",
+          "type": "ward",
+          "lat": 10.77029,
+          "lng": 106.64483
+        },
+        {
+          "id": 27226,
+          "name": "Phu Tho",
+          "type": "ward",
+          "lat": 10.76866,
+          "lng": 106.65322
+        },
+        {
+          "id": 27232,
+          "name": "Binh Thoi",
+          "type": "ward",
+          "lat": 10.76367,
+          "lng": 106.64271
+        },
+        {
+          "id": 27238,
+          "name": "Minh Phung",
+          "type": "ward",
+          "lat": 10.75862,
+          "lng": 106.64843
+        },
+        {
+          "id": 27259,
+          "name": "Xom Chieu",
+          "type": "ward",
+          "lat": 10.76094,
+          "lng": 106.71164
+        },
+        {
+          "id": 27265,
+          "name": "Khanh Hoi",
+          "type": "ward",
+          "lat": 10.75886,
+          "lng": 106.70404
+        },
+        {
+          "id": 27286,
+          "name": "Vinh Hoi",
+          "type": "ward",
+          "lat": 10.75677,
+          "lng": 106.69632
+        },
+        {
+          "id": 27301,
+          "name": "Cho Quan",
+          "type": "ward",
+          "lat": 10.75817,
+          "lng": 106.68103
+        },
+        {
+          "id": 27316,
+          "name": "An Dong",
+          "type": "ward",
+          "lat": 10.75499,
+          "lng": 106.67143
+        },
+        {
+          "id": 27343,
+          "name": "Cho Lon",
+          "type": "ward",
+          "lat": 10.7545,
+          "lng": 106.65834
+        },
+        {
+          "id": 27349,
+          "name": "Phu Lam",
+          "type": "ward",
+          "lat": 10.7538,
+          "lng": 106.63144
+        },
+        {
+          "id": 27364,
+          "name": "Binh Phu",
+          "type": "ward",
+          "lat": 10.73792,
+          "lng": 106.63012
+        },
+        {
+          "id": 27367,
+          "name": "Binh Tay",
+          "type": "ward",
+          "lat": 10.75069,
+          "lng": 106.6453
+        },
+        {
+          "id": 27373,
+          "name": "Binh Tien",
+          "type": "ward",
+          "lat": 10.74113,
+          "lng": 106.64447
+        },
+        {
+          "id": 27418,
+          "name": "Chanh Hung",
+          "type": "ward",
+          "lat": 10.74222,
+          "lng": 106.67721
+        },
+        {
+          "id": 27424,
+          "name": "Binh Dong",
+          "type": "ward",
+          "lat": 10.71635,
+          "lng": 106.63011
+        },
+        {
+          "id": 27427,
+          "name": "Phu Dinh",
+          "type": "ward",
+          "lat": 10.72823,
+          "lng": 106.63676
+        },
+        {
+          "id": 27439,
+          "name": "Binh Hung Hoa",
+          "type": "ward",
+          "lat": 10.80129,
+          "lng": 106.60662
+        },
+        {
+          "id": 27442,
+          "name": "Binh Tan",
+          "type": "ward",
+          "lat": 10.792,
+          "lng": 106.58551
+        },
+        {
+          "id": 27448,
+          "name": "Binh Tri Dong",
+          "type": "ward",
+          "lat": 10.76829,
+          "lng": 106.60787
+        },
+        {
+          "id": 27457,
+          "name": "Tan Tao",
+          "type": "ward",
+          "lat": 10.74376,
+          "lng": 106.58244
+        },
+        {
+          "id": 27460,
+          "name": "An Lac",
+          "type": "ward",
+          "lat": 10.73462,
+          "lng": 106.61098
+        },
+        {
+          "id": 27475,
+          "name": "Tan Hung",
+          "type": "ward",
+          "lat": 10.7358,
+          "lng": 106.70553
+        },
+        {
+          "id": 27478,
+          "name": "Tan Thuan",
+          "type": "ward",
+          "lat": 10.75754,
+          "lng": 106.73442
+        },
+        {
+          "id": 27484,
+          "name": "Phu Thuan",
+          "type": "ward",
+          "lat": 10.72415,
+          "lng": 106.75006
+        },
+        {
+          "id": 27487,
+          "name": "Tan My",
+          "type": "ward",
+          "lat": 10.71813,
+          "lng": 106.72512
+        },
+        {
+          "id": 27496,
+          "name": "Tan An Hoi",
+          "type": "commune",
+          "lat": 10.97034,
+          "lng": 106.47076
+        },
+        {
+          "id": 27508,
+          "name": "An Nhon Tay",
+          "type": "commune",
+          "lat": 11.10185,
+          "lng": 106.48548
+        },
+        {
+          "id": 27511,
+          "name": "Nhuan Duc",
+          "type": "commune",
+          "lat": 11.0305,
+          "lng": 106.49698
+        },
+        {
+          "id": 27526,
+          "name": "Thai My",
+          "type": "commune",
+          "lat": 11.03645,
+          "lng": 106.40677
+        },
+        {
+          "id": 27541,
+          "name": "Phu Hoa Dong",
+          "type": "commune",
+          "lat": 10.98877,
+          "lng": 106.57055
+        },
+        {
+          "id": 27544,
+          "name": "Binh My",
+          "type": "commune",
+          "lat": 10.98012,
+          "lng": 106.61168
+        },
+        {
+          "id": 27553,
+          "name": "Cu Chi",
+          "type": "commune",
+          "lat": 10.96156,
+          "lng": 106.53574
+        },
+        {
+          "id": 27559,
+          "name": "Hoc Mon",
+          "type": "commune",
+          "lat": 10.89657,
+          "lng": 106.5925
+        },
+        {
+          "id": 27568,
+          "name": "Dong Thanh",
+          "type": "commune",
+          "lat": 10.89804,
+          "lng": 106.6453
+        },
+        {
+          "id": 27577,
+          "name": "Xuan Thoi Son",
+          "type": "commune",
+          "lat": 10.8882,
+          "lng": 106.5509
+        },
+        {
+          "id": 27592,
+          "name": "Ba Diem",
+          "type": "commune",
+          "lat": 10.8515,
+          "lng": 106.5721
+        },
+        {
+          "id": 27595,
+          "name": "Tan Nhut",
+          "type": "commune",
+          "lat": 10.70799,
+          "lng": 106.56794
+        },
+        {
+          "id": 27601,
+          "name": "Vinh Loc",
+          "type": "commune",
+          "lat": 10.83783,
+          "lng": 106.55549
+        },
+        {
+          "id": 27604,
+          "name": "Tan Vinh Loc",
+          "type": "commune",
+          "lat": 10.79888,
+          "lng": 106.54741
+        },
+        {
+          "id": 27610,
+          "name": "Binh Loi",
+          "type": "commune",
+          "lat": 10.75232,
+          "lng": 106.51852
+        },
+        {
+          "id": 27619,
+          "name": "Binh Hung",
+          "type": "commune",
+          "lat": 10.70517,
+          "lng": 106.65843
+        },
+        {
+          "id": 27628,
+          "name": "Hung Long",
+          "type": "commune",
+          "lat": 10.65927,
+          "lng": 106.6457
+        },
+        {
+          "id": 27637,
+          "name": "Binh Chanh",
+          "type": "commune",
+          "lat": 10.673,
+          "lng": 106.58632
+        },
+        {
+          "id": 27655,
+          "name": "Nha Be",
+          "type": "commune",
+          "lat": 10.69526,
+          "lng": 106.72486
+        },
+        {
+          "id": 27658,
+          "name": "Hiep Phuoc",
+          "type": "commune",
+          "lat": 10.63498,
+          "lng": 106.73106
+        },
+        {
+          "id": 27664,
+          "name": "Can Gio",
+          "type": "commune",
+          "lat": 10.44586,
+          "lng": 106.92181
+        },
+        {
+          "id": 27667,
+          "name": "Binh Khanh",
+          "type": "commune",
+          "lat": 10.59549,
+          "lng": 106.83748
+        },
+        {
+          "id": 27673,
+          "name": "An Thoi Dong",
+          "type": "commune",
+          "lat": 10.48531,
+          "lng": 106.8075
+        },
+        {
+          "id": 27676,
+          "name": "Thanh An (Can Gio)",
+          "type": "commune",
+          "lat": 10.52589,
+          "lng": 106.97284
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "name": "Hanoi",
+      "geocodeName": "Ha Noi",
+      "wards": [
+        {
+          "id": 4,
+          "name": "Ba Dinh",
+          "type": "ward",
+          "lat": 21.03967,
+          "lng": 105.83832
+        },
+        {
+          "id": 8,
+          "name": "Ngoc Ha",
+          "type": "ward",
+          "lat": 21.03918,
+          "lng": 105.81679
+        },
+        {
+          "id": 25,
+          "name": "Giang Vo",
+          "type": "ward",
+          "lat": 21.0268,
+          "lng": 105.81572
+        },
+        {
+          "id": 70,
+          "name": "Hoan Kiem",
+          "type": "ward",
+          "lat": 21.03266,
+          "lng": 105.85129
+        },
+        {
+          "id": 82,
+          "name": "Cua Nam",
+          "type": "ward",
+          "lat": 21.0235,
+          "lng": 105.85169
+        },
+        {
+          "id": 91,
+          "name": "Phu Thuong",
+          "type": "ward",
+          "lat": 21.084,
+          "lng": 105.8034
+        },
+        {
+          "id": 97,
+          "name": "Hong Ha",
+          "type": "ward",
+          "lat": 21.048,
+          "lng": 105.84717
+        },
+        {
+          "id": 103,
+          "name": "Tay Ho",
+          "type": "ward",
+          "lat": 21.06207,
+          "lng": 105.82229
+        },
+        {
+          "id": 118,
+          "name": "Bo De",
+          "type": "ward",
+          "lat": 21.05098,
+          "lng": 105.86616
+        },
+        {
+          "id": 127,
+          "name": "Viet Hung",
+          "type": "ward",
+          "lat": 21.06277,
+          "lng": 105.90532
+        },
+        {
+          "id": 136,
+          "name": "Phuc Loi",
+          "type": "ward",
+          "lat": 21.04148,
+          "lng": 105.91641
+        },
+        {
+          "id": 145,
+          "name": "Long Bien",
+          "type": "ward",
+          "lat": 21.02265,
+          "lng": 105.89804
+        },
+        {
+          "id": 160,
+          "name": "Nghia Do",
+          "type": "ward",
+          "lat": 21.04351,
+          "lng": 105.79403
+        },
+        {
+          "id": 166,
+          "name": "Cau Giay",
+          "type": "ward",
+          "lat": 21.02973,
+          "lng": 105.78997
+        },
+        {
+          "id": 175,
+          "name": "Yen Hoa",
+          "type": "ward",
+          "lat": 21.01415,
+          "lng": 105.79646
+        },
+        {
+          "id": 190,
+          "name": "O Cho Dua",
+          "type": "ward",
+          "lat": 21.02302,
+          "lng": 105.82554
+        },
+        {
+          "id": 199,
+          "name": "Lang",
+          "type": "ward",
+          "lat": 21.02042,
+          "lng": 105.80627
+        },
+        {
+          "id": 226,
+          "name": "Van Mieu - Quoc Tu Giam",
+          "type": "ward",
+          "lat": 21.01908,
+          "lng": 105.8357
+        },
+        {
+          "id": 229,
+          "name": "Kim Lien",
+          "type": "ward",
+          "lat": 21.00604,
+          "lng": 105.83078
+        },
+        {
+          "id": 235,
+          "name": "Dong Da",
+          "type": "ward",
+          "lat": 21.01124,
+          "lng": 105.82242
+        },
+        {
+          "id": 256,
+          "name": "Hai Ba Trung",
+          "type": "ward",
+          "lat": 21.01413,
+          "lng": 105.85373
+        },
+        {
+          "id": 283,
+          "name": "Vinh Tuy",
+          "type": "ward",
+          "lat": 20.9978,
+          "lng": 105.86741
+        },
+        {
+          "id": 292,
+          "name": "Bach Mai",
+          "type": "ward",
+          "lat": 21.00217,
+          "lng": 105.85178
+        },
+        {
+          "id": 301,
+          "name": "Vinh Hung",
+          "type": "ward",
+          "lat": 20.99088,
+          "lng": 105.88198
+        },
+        {
+          "id": 316,
+          "name": "Dinh Cong",
+          "type": "ward",
+          "lat": 20.97782,
+          "lng": 105.824
+        },
+        {
+          "id": 322,
+          "name": "Tuong Mai",
+          "type": "ward",
+          "lat": 20.99069,
+          "lng": 105.85822
+        },
+        {
+          "id": 328,
+          "name": "Linh Nam",
+          "type": "ward",
+          "lat": 20.97564,
+          "lng": 105.88991
+        },
+        {
+          "id": 331,
+          "name": "Hoang Mai",
+          "type": "ward",
+          "lat": 20.97382,
+          "lng": 105.86512
+        },
+        {
+          "id": 337,
+          "name": "Hoang Liet",
+          "type": "ward",
+          "lat": 20.96112,
+          "lng": 105.82859
+        },
+        {
+          "id": 340,
+          "name": "Yen So",
+          "type": "ward",
+          "lat": 20.95476,
+          "lng": 105.85939
+        },
+        {
+          "id": 352,
+          "name": "Phuong Liet",
+          "type": "ward",
+          "lat": 20.99304,
+          "lng": 105.83147
+        },
+        {
+          "id": 364,
+          "name": "Khuong Dinh",
+          "type": "ward",
+          "lat": 20.99105,
+          "lng": 105.81412
+        },
+        {
+          "id": 367,
+          "name": "Thanh Xuan",
+          "type": "ward",
+          "lat": 20.99946,
+          "lng": 105.80415
+        },
+        {
+          "id": 376,
+          "name": "Soc Son",
+          "type": "commune",
+          "lat": 21.24542,
+          "lng": 105.84657
+        },
+        {
+          "id": 382,
+          "name": "Kim Anh",
+          "type": "commune",
+          "lat": 21.29602,
+          "lng": 105.76334
+        },
+        {
+          "id": 385,
+          "name": "Trung Gia",
+          "type": "commune",
+          "lat": 21.33132,
+          "lng": 105.8421
+        },
+        {
+          "id": 430,
+          "name": "Da Phuc",
+          "type": "commune",
+          "lat": 21.24743,
+          "lng": 105.90045
+        },
+        {
+          "id": 433,
+          "name": "Noi Bai",
+          "type": "commune",
+          "lat": 21.2361,
+          "lng": 105.78531
+        },
+        {
+          "id": 454,
+          "name": "Dong Anh",
+          "type": "commune",
+          "lat": 21.11025,
+          "lng": 105.87117
+        },
+        {
+          "id": 466,
+          "name": "Phuc Thinh",
+          "type": "commune",
+          "lat": 21.15874,
+          "lng": 105.81333
+        },
+        {
+          "id": 475,
+          "name": "Thu Lam",
+          "type": "commune",
+          "lat": 21.16306,
+          "lng": 105.88653
+        },
+        {
+          "id": 493,
+          "name": "Thien Loc",
+          "type": "commune",
+          "lat": 21.12602,
+          "lng": 105.77073
+        },
+        {
+          "id": 508,
+          "name": "Vinh Thanh",
+          "type": "commune",
+          "lat": 21.10374,
+          "lng": 105.81573
+        },
+        {
+          "id": 541,
+          "name": "Phu Dong",
+          "type": "commune",
+          "lat": 21.0793,
+          "lng": 105.94897
+        },
+        {
+          "id": 562,
+          "name": "Thuan An",
+          "type": "commune",
+          "lat": 21.03323,
+          "lng": 105.98335
+        },
+        {
+          "id": 565,
+          "name": "Gia Lam",
+          "type": "commune",
+          "lat": 21.00163,
+          "lng": 105.94772
+        },
+        {
+          "id": 577,
+          "name": "Bat Trang",
+          "type": "commune",
+          "lat": 20.96958,
+          "lng": 105.9127
+        },
+        {
+          "id": 592,
+          "name": "Tu Liem",
+          "type": "ward",
+          "lat": 21.02193,
+          "lng": 105.77306
+        },
+        {
+          "id": 598,
+          "name": "Thuong Cat",
+          "type": "ward",
+          "lat": 21.08679,
+          "lng": 105.74873
+        },
+        {
+          "id": 602,
+          "name": "Dong Ngac",
+          "type": "ward",
+          "lat": 21.0887,
+          "lng": 105.77838
+        },
+        {
+          "id": 611,
+          "name": "Xuan Dinh",
+          "type": "ward",
+          "lat": 21.06551,
+          "lng": 105.79567
+        },
+        {
+          "id": 613,
+          "name": "Tay Tuu",
+          "type": "ward",
+          "lat": 21.06509,
+          "lng": 105.74261
+        },
+        {
+          "id": 619,
+          "name": "Phu Dien",
+          "type": "ward",
+          "lat": 21.04841,
+          "lng": 105.76377
+        },
+        {
+          "id": 622,
+          "name": "Xuan Phuong",
+          "type": "ward",
+          "lat": 21.03148,
+          "lng": 105.74486
+        },
+        {
+          "id": 634,
+          "name": "Tay Mo",
+          "type": "ward",
+          "lat": 21.0001,
+          "lng": 105.74668
+        },
+        {
+          "id": 637,
+          "name": "Dai Mo",
+          "type": "ward",
+          "lat": 20.99308,
+          "lng": 105.7757
+        },
+        {
+          "id": 640,
+          "name": "Thanh Tri",
+          "type": "commune",
+          "lat": 20.93933,
+          "lng": 105.86109
+        },
+        {
+          "id": 643,
+          "name": "Thanh Liet",
+          "type": "ward",
+          "lat": 20.9705,
+          "lng": 105.80858
+        },
+        {
+          "id": 664,
+          "name": "Dai Thanh",
+          "type": "commune",
+          "lat": 20.93417,
+          "lng": 105.81695
+        },
+        {
+          "id": 679,
+          "name": "Ngoc Hoi",
+          "type": "commune",
+          "lat": 20.92182,
+          "lng": 105.85231
+        },
+        {
+          "id": 685,
+          "name": "Nam Phu",
+          "type": "commune",
+          "lat": 20.91896,
+          "lng": 105.88719
+        },
+        {
+          "id": 4930,
+          "name": "Yen Xuan",
+          "type": "commune",
+          "lat": 20.97381,
+          "lng": 105.46092
+        },
+        {
+          "id": 8974,
+          "name": "Quang Minh",
+          "type": "commune",
+          "lat": 21.19855,
+          "lng": 105.75113
+        },
+        {
+          "id": 8980,
+          "name": "Yen Lang",
+          "type": "commune",
+          "lat": 21.17164,
+          "lng": 105.65859
+        },
+        {
+          "id": 8995,
+          "name": "Tien Thang",
+          "type": "commune",
+          "lat": 21.2077,
+          "lng": 105.69151
+        },
+        {
+          "id": 9022,
+          "name": "Me Linh",
+          "type": "commune",
+          "lat": 21.14683,
+          "lng": 105.73485
+        },
+        {
+          "id": 9552,
+          "name": "Kien Hung",
+          "type": "ward",
+          "lat": 20.95408,
+          "lng": 105.77949
+        },
+        {
+          "id": 9556,
+          "name": "Ha Dong",
+          "type": "ward",
+          "lat": 20.97401,
+          "lng": 105.77638
+        },
+        {
+          "id": 9562,
+          "name": "Yen Nghia",
+          "type": "ward",
+          "lat": 20.93782,
+          "lng": 105.73281
+        },
+        {
+          "id": 9568,
+          "name": "Phu Luong",
+          "type": "ward",
+          "lat": 20.93857,
+          "lng": 105.76856
+        },
+        {
+          "id": 9574,
+          "name": "Son Tay",
+          "type": "ward",
+          "lat": 21.1422,
+          "lng": 105.48757
+        },
+        {
+          "id": 9604,
+          "name": "Tung Thien",
+          "type": "ward",
+          "lat": 21.12257,
+          "lng": 105.45963
+        },
+        {
+          "id": 9616,
+          "name": "Doai Phuong",
+          "type": "commune",
+          "lat": 21.06394,
+          "lng": 105.48817
+        },
+        {
+          "id": 9619,
+          "name": "Quang Oai",
+          "type": "commune",
+          "lat": 21.20024,
+          "lng": 105.42448
+        },
+        {
+          "id": 9634,
+          "name": "Co Do",
+          "type": "commune",
+          "lat": 21.27121,
+          "lng": 105.39896
+        },
+        {
+          "id": 9661,
+          "name": "Minh Chau",
+          "type": "commune",
+          "lat": 21.20963,
+          "lng": 105.4531
+        },
+        {
+          "id": 9664,
+          "name": "Vat Lai",
+          "type": "commune",
+          "lat": 21.21191,
+          "lng": 105.39547
+        },
+        {
+          "id": 9676,
+          "name": "Bat Bat",
+          "type": "commune",
+          "lat": 21.15902,
+          "lng": 105.33096
+        },
+        {
+          "id": 9694,
+          "name": "Suoi Hai",
+          "type": "commune",
+          "lat": 21.12445,
+          "lng": 105.3747
+        },
+        {
+          "id": 9700,
+          "name": "Ba Vi",
+          "type": "commune",
+          "lat": 21.06063,
+          "lng": 105.34042
+        },
+        {
+          "id": 9706,
+          "name": "Yen Bai",
+          "type": "commune",
+          "lat": 21.05815,
+          "lng": 105.42294
+        },
+        {
+          "id": 9715,
+          "name": "Phuc Tho",
+          "type": "commune",
+          "lat": 21.10723,
+          "lng": 105.55603
+        },
+        {
+          "id": 9739,
+          "name": "Phuc Loc",
+          "type": "commune",
+          "lat": 21.14543,
+          "lng": 105.57142
+        },
+        {
+          "id": 9772,
+          "name": "Hat Mon",
+          "type": "commune",
+          "lat": 21.08893,
+          "lng": 105.62711
+        },
+        {
+          "id": 9784,
+          "name": "Dan Phuong",
+          "type": "commune",
+          "lat": 21.09466,
+          "lng": 105.66617
+        },
+        {
+          "id": 9787,
+          "name": "Lien Minh",
+          "type": "commune",
+          "lat": 21.13127,
+          "lng": 105.64971
+        },
+        {
+          "id": 9817,
+          "name": "O Dien",
+          "type": "commune",
+          "lat": 21.10611,
+          "lng": 105.70458
+        },
+        {
+          "id": 9832,
+          "name": "Hoai Duc",
+          "type": "commune",
+          "lat": 21.06183,
+          "lng": 105.70261
+        },
+        {
+          "id": 9856,
+          "name": "Duong Hoa",
+          "type": "commune",
+          "lat": 21.04898,
+          "lng": 105.67141
+        },
+        {
+          "id": 9871,
+          "name": "Son Dong",
+          "type": "commune",
+          "lat": 21.02703,
+          "lng": 105.70111
+        },
+        {
+          "id": 9877,
+          "name": "An Khanh",
+          "type": "commune",
+          "lat": 20.98312,
+          "lng": 105.70344
+        },
+        {
+          "id": 9886,
+          "name": "Duong Noi",
+          "type": "ward",
+          "lat": 20.97481,
+          "lng": 105.74742
+        },
+        {
+          "id": 9895,
+          "name": "Quoc Oai",
+          "type": "commune",
+          "lat": 21.00834,
+          "lng": 105.64596
+        },
+        {
+          "id": 9910,
+          "name": "Kieu Phu",
+          "type": "commune",
+          "lat": 20.97353,
+          "lng": 105.60514
+        },
+        {
+          "id": 9931,
+          "name": "Hung Dao",
+          "type": "commune",
+          "lat": 20.96959,
+          "lng": 105.6783
+        },
+        {
+          "id": 9952,
+          "name": "Phu Cat",
+          "type": "commune",
+          "lat": 20.94968,
+          "lng": 105.56208
+        },
+        {
+          "id": 9955,
+          "name": "Thach That",
+          "type": "commune",
+          "lat": 21.0663,
+          "lng": 105.55857
+        },
+        {
+          "id": 9982,
+          "name": "Ha Bang",
+          "type": "commune",
+          "lat": 21.01653,
+          "lng": 105.55572
+        },
+        {
+          "id": 9988,
+          "name": "Hoa Lac",
+          "type": "commune",
+          "lat": 21.01311,
+          "lng": 105.50902
+        },
+        {
+          "id": 10003,
+          "name": "Tay Phuong",
+          "type": "commune",
+          "lat": 21.04001,
+          "lng": 105.61159
+        },
+        {
+          "id": 10015,
+          "name": "Chuong My",
+          "type": "ward",
+          "lat": 20.92511,
+          "lng": 105.69927
+        },
+        {
+          "id": 10030,
+          "name": "Phu Nghia",
+          "type": "commune",
+          "lat": 20.91819,
+          "lng": 105.63738
+        },
+        {
+          "id": 10045,
+          "name": "Xuan Mai",
+          "type": "commune",
+          "lat": 20.86106,
+          "lng": 105.5967
+        },
+        {
+          "id": 10072,
+          "name": "Quang Bi",
+          "type": "commune",
+          "lat": 20.87159,
+          "lng": 105.70111
+        },
+        {
+          "id": 10081,
+          "name": "Tran Phu",
+          "type": "commune",
+          "lat": 20.83708,
+          "lng": 105.64508
+        },
+        {
+          "id": 10096,
+          "name": "Hoa Phu",
+          "type": "commune",
+          "lat": 20.83213,
+          "lng": 105.70917
+        },
+        {
+          "id": 10114,
+          "name": "Thanh Oai",
+          "type": "commune",
+          "lat": 20.84441,
+          "lng": 105.76489
+        },
+        {
+          "id": 10126,
+          "name": "Binh Minh",
+          "type": "commune",
+          "lat": 20.90476,
+          "lng": 105.76204
+        },
+        {
+          "id": 10144,
+          "name": "Tam Hung",
+          "type": "commune",
+          "lat": 20.87837,
+          "lng": 105.79594
+        },
+        {
+          "id": 10180,
+          "name": "Dan Hoa",
+          "type": "commune",
+          "lat": 20.81067,
+          "lng": 105.78812
+        },
+        {
+          "id": 10183,
+          "name": "Thuong Tin",
+          "type": "commune",
+          "lat": 20.86998,
+          "lng": 105.84436
+        },
+        {
+          "id": 10210,
+          "name": "Hong Van",
+          "type": "commune",
+          "lat": 20.87984,
+          "lng": 105.89131
+        },
+        {
+          "id": 10231,
+          "name": "Thuong Phuc",
+          "type": "commune",
+          "lat": 20.82841,
+          "lng": 105.85881
+        },
+        {
+          "id": 10237,
+          "name": "Chuong Duong",
+          "type": "commune",
+          "lat": 20.83633,
+          "lng": 105.90192
+        },
+        {
+          "id": 10273,
+          "name": "Phu Xuyen",
+          "type": "commune",
+          "lat": 20.76447,
+          "lng": 105.91887
+        },
+        {
+          "id": 10279,
+          "name": "Phuong Duc",
+          "type": "commune",
+          "lat": 20.77201,
+          "lng": 105.8409
+        },
+        {
+          "id": 10330,
+          "name": "Chuyen My",
+          "type": "commune",
+          "lat": 20.71556,
+          "lng": 105.88339
+        },
+        {
+          "id": 10342,
+          "name": "Dai Xuyen",
+          "type": "commune",
+          "lat": 20.69701,
+          "lng": 105.95276
+        },
+        {
+          "id": 10354,
+          "name": "Van Dinh",
+          "type": "commune",
+          "lat": 20.73611,
+          "lng": 105.75839
+        },
+        {
+          "id": 10369,
+          "name": "Ung Thien",
+          "type": "commune",
+          "lat": 20.77311,
+          "lng": 105.75583
+        },
+        {
+          "id": 10402,
+          "name": "Ung Hoa",
+          "type": "commune",
+          "lat": 20.678,
+          "lng": 105.8211
+        },
+        {
+          "id": 10417,
+          "name": "Hoa Xa",
+          "type": "commune",
+          "lat": 20.66702,
+          "lng": 105.78827
+        },
+        {
+          "id": 10441,
+          "name": "My Duc",
+          "type": "commune",
+          "lat": 20.65429,
+          "lng": 105.72049
+        },
+        {
+          "id": 10459,
+          "name": "Phuc Son",
+          "type": "commune",
+          "lat": 20.78122,
+          "lng": 105.68694
+        },
+        {
+          "id": 10465,
+          "name": "Hong Son",
+          "type": "commune",
+          "lat": 20.71596,
+          "lng": 105.71589
+        },
+        {
+          "id": 10489,
+          "name": "Huong Son",
+          "type": "commune",
+          "lat": 20.61963,
+          "lng": 105.76399
+        }
+      ]
+    }
+  ]
+}

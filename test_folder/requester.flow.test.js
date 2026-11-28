@@ -23,12 +23,12 @@ describe('R1 Account and profile', () => {
 
   test('R1.2 signup requires a ward/location and rejects duplicate emails', async () => {
     const missing = await p.api('POST', '/api/auth/signup', {
-      body: { fullName: 'No Location', email: 'noloc@example.test', password: 'Secret123!', role: 'CLIENT', location: '' },
+      body: { fullName: 'No Location', email: 'noloc@example.test', password: 'Secret123!', role: 'CLIENT', wardId: 999999 },
     });
     assert.equal(missing.status, 400);
     const requester = await p.signup('CLIENT');
     const dup = await p.api('POST', '/api/auth/signup', {
-      body: { fullName: 'Duplicate', email: requester.email, password: 'Secret123!', role: 'CLIENT', location: 'Ben Thanh' },
+      body: { fullName: 'Duplicate', email: requester.email, password: 'Secret123!', role: 'CLIENT', wardId: p.BEN_THANH },
     });
     assert.equal(dup.status, 400);
   });
@@ -49,10 +49,15 @@ describe('R1 Account and profile', () => {
 
   test('R1.5 FR-B7 profile update saves phone/location and rejects protected fields', async () => {
     const requester = await p.signup('CLIENT');
-    const ok = await p.api('PATCH', '/api/users/me', { token: requester.token, body: { phone: '0901234567', location: 'Tan Dinh', bio: 'Busy parent' } });
+    const ok = await p.api('PATCH', '/api/users/me', { token: requester.token, body: { phone: '0901234567', wardId: p.ward('Tan Dinh'), streetAddress: '12/5 Tran Quang Khai', bio: 'Busy parent' } });
     assert.equal(ok.status, 200);
     assert.equal(ok.body.user.phone, '0901234567');
-    assert.equal(ok.body.user.location, 'Tan Dinh');
+    assert.equal(ok.body.user.location, 'Tan Dinh, Ho Chi Minh City');
+    assert.equal(ok.body.user.locationId, p.ward('Tan Dinh'));
+    assert.equal(ok.body.user.cityId, 79);
+    assert.equal(ok.body.user.streetAddress, '12/5 Tran Quang Khai');
+    const typed = await p.api('PATCH', '/api/users/me', { token: requester.token, body: { wardId: 123 } });
+    assert.equal(typed.status, 400, 'a ward that is not on the list cannot be saved');
     const me = await p.api('GET', '/api/users/me', { token: requester.token });
     assert.equal(me.status, 200);
     assert.equal(JSON.stringify(me.body).includes('passwordHash'), false, 'private profile never exposes the password hash');
@@ -83,7 +88,8 @@ describe('R2 Post and manage a task', () => {
     assert.equal(res.status, 201);
     assert.equal(res.body.status, 'OPEN');
     assert.equal(res.body.createdById, requester.id);
-    assert.equal(res.body.district, 'Ben Thanh');
+    assert.equal(res.body.location, 'Ben Thanh, Ho Chi Minh City');
+    assert.equal(res.body.isApproximateLocation, false);
     assert.equal(res.body.siteAddress, undefined, 'FR-B3 precise address must not be in the public task');
     assert.equal(res.body.siteLatitude, undefined);
     const stored = p.dbTask(res.body.id);
@@ -271,6 +277,9 @@ describe('R6 Confirm completion and release payment', () => {
     assert.equal(res.body.task.escrowStatus, 'RELEASED');
     const release = p.store.payments.find((x) => x.taskId === task.id && x.type === 'ESCROW_RELEASE');
     assert.ok(release, 'an ESCROW_RELEASE transaction is recorded');
+    const deposit = p.store.payments.find((x) => x.taskId === task.id && x.type === 'ESCROW_DEPOSIT');
+    assert.equal(deposit.lifecycleStatus, 'RELEASED', 'the deposit is no longer counted as held money');
+    assert.equal(deposit.escrowStatus, 'RELEASED');
     assert.equal(release.providerPayoutAmount + release.platformFeeAmount, 600000);
     const again = await p.api('POST', `/api/tasks/${task.id}/confirm-completion`, { token: requester.token });
     assert.equal(again.status, 200, 'confirmation is idempotent');
@@ -398,5 +407,95 @@ describe('R8 Notifications and ratings', () => {
     const { task } = await p.advanceTask('PAID', { requester, provider });
     const res = await p.api('POST', '/api/ratings', { token: requester.token, body: { taskId: task.id, rating: 5, comment: 'Great job' } });
     assert.equal(res.status, 201);
+  });
+});
+
+describe('R9 City and ward location (two-level units since 1 July 2025)', () => {
+  test('R9.1 the public ward lists cover Ho Chi Minh City and Ha Noi, keyed by official code', async () => {
+    const cities = await p.api('GET', '/api/locations/cities');
+    assert.equal(cities.status, 200);
+    assert.deepEqual(cities.body.cities.map((c) => c.id).sort((a, b) => a - b), [1, 79]);
+    const hcm = await p.api('GET', '/api/locations/cities/79/wards');
+    const hn = await p.api('GET', '/api/locations/cities/1/wards');
+    assert.equal(hcm.body.wards.length, 168);
+    assert.equal(hn.body.wards.length, 126);
+    assert.ok(hcm.body.wards.some((w) => w.id === p.BEN_THANH && w.name === 'Ben Thanh'));
+    assert.equal((await p.api('GET', '/api/locations/cities/48/wards')).status, 404);
+  });
+
+  test('R9.2 a task in Ha Noi shows its ward and city', async () => {
+    const requester = await p.signup('CLIENT', { wardId: p.ward('Hoan Kiem', 1) });
+    assert.equal(requester.location, 'Hoan Kiem, Hanoi');
+    assert.equal(requester.cityId, 1);
+    const res = await p.api('POST', '/api/tasks', { token: requester.token, body: p.taskPayload({ wardId: p.ward('Hoan Kiem', 1) }) });
+    assert.equal(res.status, 201);
+    assert.equal(res.body.location, 'Hoan Kiem, Hanoi');
+    assert.equal(res.body.cityId, 1);
+  });
+
+  test('R9.3 an address the geocoder cannot find returns ADDRESS_NOT_FOUND so the app can offer a nearby address', async () => {
+    const requester = await p.signup('CLIENT');
+    const res = await p.api('POST', '/api/tasks', { token: requester.token, body: p.taskPayload({ streetName: '99 Unfindable Alley' }) });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, 'ADDRESS_NOT_FOUND');
+  });
+
+  test('R9.4 posting at a nearby address requires the exact address (details or profile home address)', async () => {
+    const requester = await p.signup('CLIENT');
+    const res = await p.api('POST', '/api/tasks', { token: requester.token, body: p.taskPayload({ isApproximateLocation: true }) });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, 'EXACT_ADDRESS_REQUIRED');
+  });
+
+  test('R9.5 the real home address is tagged, hidden from the public and shown to the provider once funded', async () => {
+    const { requester, provider } = await pair();
+    await p.api('PATCH', '/api/users/me', { token: requester.token, body: { wardId: p.BEN_THANH, streetAddress: '47/24/3 Le Thanh Ton' } });
+    const open = await p.api('POST', '/api/tasks', { token: requester.token, body: p.taskPayload({ isApproximateLocation: true }) });
+    assert.equal(open.status, 201);
+    assert.equal(open.body.isApproximateLocation, true);
+    const browse = await p.api('GET', '/api/tasks');
+    assert.equal(browse.body.find((t) => t.id === open.body.id).isApproximateLocation, true, 'the tag is public');
+    const detail = await p.api('GET', `/api/tasks/${open.body.id}`);
+    assert.doesNotMatch(JSON.stringify([browse.body, detail.body, open.body]), /Le Thanh Ton/, 'the home address never appears in task data');
+
+    const { task: assigned } = await p.advanceTask('ASSIGNED', { requester, provider, payload: { isApproximateLocation: true } });
+    assert.equal((await p.api('GET', `/api/tracking/tasks/${assigned.id}/site-location`, { token: provider.token })).status, 409);
+
+    const { task: funded } = await p.advanceTask('FUNDED', { requester, provider, payload: { isApproximateLocation: true } });
+    const site = await p.api('GET', `/api/tracking/tasks/${funded.id}/site-location`, { token: provider.token });
+    assert.equal(site.status, 200, JSON.stringify(site.body));
+    assert.equal(site.body.isApproximateLocation, true);
+    assert.equal(site.body.requesterAddress, '47/24/3 Le Thanh Ton, Ben Thanh, Ho Chi Minh City');
+    assert.match(site.body.siteAddress, /Nguyen Hue/, 'GPS check still uses the findable nearby address');
+  });
+});
+
+describe('R10 Address details on a task (private, max 100 characters)', () => {
+  test('R10.1 a nearby address plus exact address details posts without a profile home address; only the funded provider sees the details', async () => {
+    const { requester, provider } = await pair();
+    const details = 'Hem 47/24, nha mau xanh, tang 3 (house is 80 m down the alley)';
+    const payload = { isApproximateLocation: true, addressDetail: details };
+    const open = await p.api('POST', '/api/tasks', { token: requester.token, body: p.taskPayload(payload) });
+    assert.equal(open.status, 201);
+    assert.equal(open.body.isApproximateLocation, true);
+    assert.equal(open.body.addressDetail, undefined, 'never in task responses');
+    const detail = await p.api('GET', `/api/tasks/${open.body.id}`, { token: provider.token });
+    assert.doesNotMatch(JSON.stringify(detail.body), /nha mau xanh/);
+
+    const { task: assigned } = await p.advanceTask('ASSIGNED', { requester, provider, payload });
+    assert.equal((await p.api('GET', `/api/tracking/tasks/${assigned.id}/site-location`, { token: provider.token })).status, 409, 'not before funding');
+    const { task: funded } = await p.advanceTask('FUNDED', { requester, provider, payload });
+    const site = await p.api('GET', `/api/tracking/tasks/${funded.id}/site-location`, { token: provider.token });
+    assert.equal(site.status, 200);
+    assert.equal(site.body.addressDetail, details);
+    assert.equal(site.body.requesterAddress, null, 'the details replace the profile fallback');
+  });
+
+  test('R10.2 address details are optional and limited to 100 characters', async () => {
+    const requester = await p.signup('CLIENT');
+    const plain = await p.api('POST', '/api/tasks', { token: requester.token, body: p.taskPayload({ addressDetail: 'Apt 12.05, Block B' }) });
+    assert.equal(plain.status, 201, 'a unit number works for any task');
+    const tooLong = await p.api('POST', '/api/tasks', { token: requester.token, body: p.taskPayload({ addressDetail: 'x'.repeat(101) }) });
+    assert.equal(tooLong.status, 400);
   });
 });

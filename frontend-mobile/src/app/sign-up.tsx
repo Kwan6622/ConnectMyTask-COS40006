@@ -7,7 +7,7 @@ import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { Input } from "@/components/Input";
-import { WardSelect } from "@/components/WardSelect";
+import { CityWardPicker, type CityWardValue } from "@/components/CityWardPicker";
 import { useAuthStore } from "@/store/authStore";
 import { useResponsiveLayout } from "@/theme/responsive";
 import { colors, radius } from "@/theme/tokens";
@@ -23,13 +23,13 @@ const accountTypeOptions: Array<{ label: string; value: AccountType }> = [
 function validateSignUp({
   fullName,
   email,
-  location,
+  wardId,
   password,
   confirmPassword,
 }: {
   fullName: string;
   email: string;
-  location: string;
+  wardId: number | null;
   password: string;
   confirmPassword: string;
 }): FieldErrors {
@@ -47,8 +47,8 @@ function validateSignUp({
     errors.email = "Enter a valid email address.";
   }
 
-  if (!location.trim()) {
-    errors.location = "Please select your district.";
+  if (!wardId) {
+    errors.location = "Choose your city, then pick your ward from the list.";
   }
 
   if (!password) {
@@ -75,7 +75,7 @@ export default function SignUpScreen(): React.ReactElement {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [location, setLocation] = useState("");
+  const [place, setPlace] = useState<CityWardValue>({ cityId: null, wardId: null });
   const [accountType, setAccountType] = useState<AccountType>("client");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -87,7 +87,7 @@ export default function SignUpScreen(): React.ReactElement {
     const validationErrors = validateSignUp({
       fullName,
       email,
-      location,
+      wardId: place.wardId,
       password,
       confirmPassword,
     });
@@ -104,7 +104,7 @@ export default function SignUpScreen(): React.ReactElement {
         fullName: fullName.trim(),
         email: email.trim().toLowerCase(),
         phoneNumber: phoneNumber.trim() || undefined,
-        location,
+        wardId: place.wardId as number,
         accountType,
         password,
       });
@@ -164,10 +164,13 @@ export default function SignUpScreen(): React.ReactElement {
                 keyboardType="phone-pad"
               />
 
-              <WardSelect
-                label="District*"
-                value={location}
-                onChange={setLocation}
+              <CityWardPicker
+                required
+                value={place}
+                onChange={(next) => {
+                  setPlace(next);
+                  setErrors((current) => ({ ...current, location: undefined }));
+                }}
                 error={errors.location}
               />
 

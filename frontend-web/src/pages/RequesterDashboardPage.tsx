@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
+import { taskStatusClasses } from '../utils/statusColors';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowPathIcon,
@@ -13,17 +14,6 @@ import { useAuthStore } from '../stores/auth.store';
 import { useTaskStore } from '../stores/task.store';
 import { formatVnd } from '../utils';
 
-const badgeStyles: Record<string, string> = {
-  OPEN: 'bg-blue-50 text-blue-700 border-blue-200',
-  BIDDING: 'bg-yellow-50 text-yellow-700 border-yellow-200',
-  ASSIGNED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  IN_PROGRESS: 'bg-indigo-50 text-indigo-700 border-indigo-200',
-  PENDING_CONFIRMATION: 'bg-amber-50 text-amber-700 border-amber-200',
-  COMPLETED: 'bg-slate-100 text-slate-700 border-slate-300',
-  AWAITING_PAYMENT: 'bg-orange-50 text-orange-700 border-orange-200',
-  PAID: 'bg-teal-50 text-teal-700 border-teal-200',
-  DISPUTED: 'bg-red-50 text-red-700 border-red-200',
-};
 
 function statusLabel(status: string) {
   return status.split('_').join(' ');
@@ -60,6 +50,10 @@ export const RequesterDashboardPage: React.FC = () => {
       totalBudget,
     };
   }, [requesterTasks]);
+
+  // Deadline passed with nobody assigned: listed apart, with edit/repost or delete.
+  const expiredTasks = requesterTasks.filter((task) => task.status === 'EXPIRED');
+  const activeTasks = requesterTasks.filter((task) => task.status !== 'EXPIRED');
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 py-8">
@@ -115,19 +109,49 @@ export const RequesterDashboardPage: React.FC = () => {
           </div>
         </div>
 
+        {expiredTasks.length > 0 && (
+          <Card className="p-5 mb-6 border border-gray-300 bg-gray-50">
+            <h2 className="text-lg font-bold text-slate-900">Expired tasks ({expiredTasks.length})</h2>
+            <p className="text-sm text-slate-600 mt-1">
+              These passed their deadline before a provider was assigned, so they were removed from browsing. Only you can see them.
+              Edit and repost them with a new deadline (raising the budget or adding photos helps), or delete them permanently.
+            </p>
+            <div className="mt-4 space-y-3">
+              {expiredTasks.map((task) => {
+                const bids = task._count?.bids ?? task.bids?.length ?? 0;
+                return (
+                  <div key={task.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-4">
+                    <div className="min-w-[220px] flex-1">
+                      <p className="font-semibold text-slate-900">{task.title}</p>
+                      <p className="text-sm text-slate-600">
+                        {task.location} · {formatVnd(Number(task.budget || 0))} · {bids > 0 ? `${bids} bid(s), nobody assigned` : 'no bids'}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button onClick={() => navigate(`/tasks/${task.id}/repost`)}>Edit &amp; repost</Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )}
+
         {isLoading ? (
           <Card className="text-center py-12">Loading your tasks...</Card>
-        ) : requesterTasks.length === 0 ? (
+        ) : activeTasks.length === 0 && expiredTasks.length === 0 ? (
           <Card className="text-center py-12">
             <p className="text-slate-700 mb-4">No posted tasks yet.</p>
             <Button onClick={() => navigate('/post-task')}>Create first task</Button>
           </Card>
         ) : (
           <div className="space-y-4">
-            {requesterTasks.map((task) => {
+            {activeTasks.map((task) => {
               const bidCount = task._count?.bids ?? task.bids?.length ?? 0;
-              const canOpenProgress = Boolean(task.assignedProviderId || ['IN_PROGRESS', 'PENDING_CONFIRMATION', 'COMPLETED', 'AWAITING_PAYMENT', 'PAID'].includes(task.status));
-              const style = badgeStyles[task.status] || 'bg-slate-100 text-slate-700 border-slate-300';
+              // A cancelled task can only be viewed.
+              const canOpenProgress = task.status !== 'CANCELLED'
+                && Boolean(task.assignedProviderId || ['IN_PROGRESS', 'PENDING_CONFIRMATION', 'COMPLETED', 'AWAITING_PAYMENT', 'PAID'].includes(task.status));
+              const style = taskStatusClasses(task.status);
 
               return (
                 <Card key={task.id} className="p-5 border-0 shadow-md hover:shadow-lg transition-shadow">

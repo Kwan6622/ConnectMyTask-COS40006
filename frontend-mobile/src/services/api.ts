@@ -1,6 +1,9 @@
+// Bump when the city/ward list changes shape or names.
+export const LOCATIONS_DATA_VERSION = "en-1";
 import axios from "axios";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
+import { useAccountLockStore } from "@/store/accountLockStore";
 
 function isLoopbackHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
@@ -95,7 +98,19 @@ apiClient.interceptors.request.use((config) => {
 
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => Promise.reject(error)
+  (error) => {
+    // 3 warnings: the account is locked; the root layout then shows the lock screen.
+    const body = error?.response?.data;
+    if (error?.response?.status === 403 && body?.code === "ACCOUNT_LOCKED") {
+      accessToken = null;
+      useAccountLockStore.getState().setLock({
+        lockedUntil: body.lockedUntil ?? null,
+        warningCount: body.warningCount ?? null,
+        reasons: Array.isArray(body.reasons) ? body.reasons : [],
+      });
+    }
+    return Promise.reject(error);
+  }
 );
 
 class ApiService {
@@ -117,7 +132,11 @@ class ApiService {
   };
 
   tasks = {
-    verifyAddress: (data: { district: string; streetName: string }) => apiClient.post("/tasks/verify-address", data),
+    // Expired tasks (requester only)
+    getRepostSuggestions: (id: string | number) => apiClient.get(`/tasks/${id}/repost-suggestions`),
+    repost: (id: string | number, data: Record<string, unknown>) => apiClient.patch(`/tasks/${id}/repost`, data),
+    deletePermanently: (id: string | number) => apiClient.delete(`/tasks/${id}/permanent`),
+    verifyAddress: (data: { wardId: number; streetName: string }) => apiClient.post("/tasks/verify-address", data),
     getAll: (filters?: any) => apiClient.get("/tasks", { params: filters }),
     getById: (id: string | number) => apiClient.get(`/tasks/${id}`),
     create: (data: any) => apiClient.post("/tasks", data),
@@ -141,7 +160,6 @@ class ApiService {
         note: string;
         attachments?: string[];
         milestoneStatus?: string;
-        estimatedCompletionDate?: string;
         markAsCompleted?: boolean;
       }
     ) => apiClient.post(`/tasks/${id}/progress`, data),
@@ -191,15 +209,22 @@ class ApiService {
     getProviderMe: () => apiClient.get("/bids/provider/me"),
   };
 
+  // Cities and wards (public; ids are official codes)
+  locations = {
+    // `v` changes the URL whenever the list format changes, so a copy cached by an
+    // older build (Vietnamese names) is never reused.
+    cities: () => apiClient.get("/locations/cities", { params: { v: LOCATIONS_DATA_VERSION } }),
+    wards: (cityId: number) => apiClient.get(`/locations/cities/${cityId}/wards`, { params: { v: LOCATIONS_DATA_VERSION } }),
+  };
+
   users = {
     getProfile: (id: string | number) => apiClient.get(`/users/${id}`),
     getMe: () => apiClient.get('/users/me'),
-    updateProfile: (data: { name?: string; phone?: string | null; location?: string; bio?: string | null; profilePhotoUrl?: string }) =>
+    updateProfile: (data: { name?: string; phone?: string | null; wardId?: number; streetAddress?: string | null; bio?: string | null; profilePhotoUrl?: string }) =>
       apiClient.patch('/users/me', data),
     updateProfilePhoto: (profilePhotoUrl: string) => apiClient.patch("/users/me", { profilePhotoUrl }),
     updateProviderProfile: (data: {
       address?: string;
-      district?: string;
       city?: string;
       specialties?: string[];
       safetyComplianceAgreed?: boolean;
@@ -260,9 +285,14 @@ class ApiService {
     getUsers: () => apiClient.get("/admin/users"),
     updateUserStatus: (userId: string | number, status: "ACTIVE" | "SUSPENDED") =>
       apiClient.patch(`/admin/users/${userId}/status`, { status }),
+    getUserWarnings: (userId: string | number) => apiClient.get(`/admin/users/${userId}/warnings`),
+    /** change: +1 adds a warning, -1 removes one; 3 warnings lock the account for 3 days */
+    changeUserWarnings: (userId: string | number, change: 1 | -1, reason: string) =>
+      apiClient.post(`/admin/users/${userId}/warnings`, { change, reason }),
     getTasks: () => apiClient.get("/admin/tasks"),
     getSuspiciousTasks: () => apiClient.get("/admin/tasks/suspicious"),
-    deleteTask: (taskId: string | number) => apiClient.delete(`/admin/tasks/${taskId}`),
+    /** Soft delete: hides and cancels the task, closes bids; the reason is sent to the requester and bidders. */
+    deleteTask: (taskId: string | number, reason: string) => apiClient.delete(`/admin/tasks/${taskId}`, { data: { reason } }),
     reviewTask: (taskId: string | number) => apiClient.patch(`/admin/tasks/${taskId}/reviewed`),
     updateTaskStatus: (taskId: string | number, data: { status: string; reason: string }) =>
       apiClient.patch(`/admin/tasks/${taskId}/status`, data),

@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from "react";
+import { getMoneyStatusVariant, variantColors } from "@/utils/taskUtils";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { MarketplaceShell } from "@/components/MarketplaceShell";
@@ -58,11 +59,9 @@ function amountLabel(transaction: PaymentTransaction): string {
 }
 
 function statusColors(status?: string): { backgroundColor: string; borderColor: string; color: string } {
-  if (status === "SUCCESS" || status === "RELEASED" || status === "HELD") return { backgroundColor: colors.success[50], borderColor: colors.success[200], color: colors.success[700] };
-  if (status === "PENDING" || status === "PENDING_DEPOSIT" || status === "FROZEN") return { backgroundColor: colors.warning[50], borderColor: colors.warning[200], color: colors.warning[600] };
-  if (status === "FAILED" || status === "CANCELED") return { backgroundColor: colors.danger[50], borderColor: colors.danger[200], color: colors.danger[700] };
-  if (status === "REFUNDED") return { backgroundColor: colors.accent[50], borderColor: colors.accent[200], color: colors.accent[700] };
-  return { backgroundColor: colors.dark[50], borderColor: colors.dark[200], color: colors.dark[700] };
+  // Same scheme as web: yellow = pending, green = held/paid, red = failed/cancelled.
+  if (String(status || "").toUpperCase() === "REFUNDED") return { backgroundColor: colors.accent[50], borderColor: colors.accent[200], color: colors.accent[700] };
+  return variantColors(getMoneyStatusVariant(status));
 }
 
 export default function TransactionHistoryScreen(): React.ReactElement {

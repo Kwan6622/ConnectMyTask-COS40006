@@ -35,6 +35,12 @@ async function createBid(taskId, payload, currentUser) {
     throw err;
   }
 
+  if (task.dueDate && new Date(task.dueDate).getTime() < Date.now()) {
+    const err = new Error('This task has passed its deadline and no longer accepts bids.');
+    err.statusCode = 400;
+    throw err;
+  }
+
   if (task.status === 'BIDDING' && task.biddingEndsAt) {
     const endsAt = new Date(task.biddingEndsAt).getTime();
     if (!Number.isNaN(endsAt) && Date.now() > endsAt) {

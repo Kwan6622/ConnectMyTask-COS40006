@@ -6,11 +6,14 @@ import { Card } from "@/components/Card";
 import { useAuthStore } from "@/store/authStore";
 import { colors, radius } from "@/theme/tokens";
 import {
-  extractDistrict,
+  extractWardLocation,
+  formatDistance,
   formatCategoryLabel,
   formatCurrency,
   formatDate,
   formatTaskStatusLabel,
+  getStatusVariant,
+  variantColors,
   getBidCount,
   getCategoryIcon,
   getDisplayName,
@@ -67,7 +70,10 @@ export function TaskCard({
               {task.title}
             </Text>
             <Text style={styles.metaLine}>
-              {formatCategoryLabel(task.category)} · {formatTaskStatusLabel(task.status)}
+              {formatCategoryLabel(task.category)} ·{" "}
+              <Text style={{ color: variantColors(getStatusVariant(task.status)).color, fontWeight: "700" }}>
+                {formatTaskStatusLabel(task.status)}
+              </Text>
             </Text>
           </View>
         </View>
@@ -88,7 +94,11 @@ export function TaskCard({
       </Text>
 
       <View style={styles.factList}>
-        <FactRow label="District" value={extractDistrict(task.location)} />
+        <FactRow label="Location" value={extractWardLocation(task.location)} />
+        {task.distanceKm != null ? <FactRow label="Distance" value={formatDistance(task.distanceKm)} /> : null}
+        {task.isApproximateLocation ? (
+          <FactRow label="Address" value="Nearby address (within 100 m)" />
+        ) : null}
         <FactRow label="Due date" value={dueDate ? formatDate(dueDate) : "Flexible"} />
         <FactRow label="Bids" value={String(getBidCount(task))} />
         <FactRow label="Posted by" value={postedBy} />
@@ -97,7 +107,7 @@ export function TaskCard({
 
       {task.isSuspicious && canSeeSuspiciousRisk ? (
         <View style={styles.warningBanner}>
-          <Text style={styles.warningTitle}>Potential scam risk</Text>
+          <Text style={styles.warningTitle}>{task.riskLevel === "HIGH" ? "HIGH RISK · Proceed with caution" : "Potential scam risk"}</Text>
           <Text style={styles.warningBody} numberOfLines={2}>
             {task.suspiciousReason || "Budget is unusually low for this type of job"}
           </Text>

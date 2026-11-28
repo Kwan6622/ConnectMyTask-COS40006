@@ -4,10 +4,14 @@ const paymentService = require('../payments/service');
 const trackingService = require('../tracking/service');
 const { evaluateTaskRisk } = require('./riskEvaluator');
 const { generateSuggestedSubtasks } = require('./subtaskTemplates');
-const { isSameDistrict, isNearbyDistrict } = require('./districtAdjacency');
 const { verifyAddress } = require('../geocoding/service');
+const { getWard, resolveWard, formatWardLocation } = require('../../shared/administrativeUnits');
+const nearby = require('./nearby');
+const expiry = require('./expiry');
 
 const GLOBAL_MAX_BIDS = 100;
+// Statuses that appear when browsing tasks (open for bids).
+const BROWSABLE_STATUSES = ['OPEN', 'BIDDING'];
 const DEFAULT_MAX_BIDS = 30;
 const BIDDING_WINDOW_HOURS = 24;
 let autoAssignRunning = false;
@@ -51,18 +55,21 @@ function toPublicTask(task, viewer) {
     siteLatitude: _siteLatitude,
     siteLongitude: _siteLongitude,
     siteVersion: _siteVersion,
+    addressDetail: _addressDetail,
     trackingLogs: _trackingLogs,
     locationVerifications: _locationVerifications,
     ...safe
   } = task;
-  // Legacy location may contain a precise address; never expose it as a public fallback.
-  const district = task.district || 'District not provided';
+  // Public location is the ward and city only, built from the ward id so an old
+  // free-text location (which may hold a precise address) is never shown.
+  const ward = getWard(task.locationId);
+  const location = formatWardLocation(ward) || 'Location not provided';
   if (!canViewRisk(viewer)) {
     delete safe.isSuspicious;
     delete safe.suspiciousReason;
     delete safe.riskLevel;
   }
-  return { ...safe, district, location: district };
+  return { ...safe, location, cityId: ward?.cityId ?? null };
 }
 
 function isRequesterRole(role) {
@@ -230,16 +237,6 @@ function scoreSpecialtyMatch(taskCategory, specialties) {
   return 0;
 }
 
-function scoreDistrictMatch(providerDistrict, taskLocation) {
-  if (!providerDistrict || !taskLocation) return 0;
-  if (isSameDistrict(providerDistrict, taskLocation)) {
-    return 50;
-  }
-  if (isNearbyDistrict(providerDistrict, taskLocation)) {
-    return 25;
-  }
-  return 0;
-}
 
 function scoreStatusPriority(task) {
   const status = String(task?.status || '').toUpperCase();
@@ -451,19 +448,110 @@ async function getTaskById(id) {
   };
 }
 
+/** EXPIRED tasks are private to their requester (and admins). */
+function assertCanSeeTask(task, viewer) {
+  if (task.status !== 'EXPIRED') return;
+  if (viewer && (viewer.id === task.createdById || isAdminRole(viewer.role))) return;
+  throw Object.assign(new Error('Task not found'), { statusCode: 404 });
+}
+
 async function getPublicTaskById(id) {
-  return toPublicTask(await getTaskById(id));
+  await expiry.runExpiry(logActivity);
+  const task = await getTaskById(id);
+  assertCanSeeTask(task, null);
+  return toPublicTask(task);
 }
 
 async function getTaskForViewer(id, viewer) {
-  return toPublicTask(await getTaskById(id), viewer);
+  await expiry.runExpiry(logActivity);
+  const task = await getTaskById(id);
+  assertCanSeeTask(task, viewer);
+  return toPublicTask(task, viewer);
+}
+
+function assertOwnExpiredTask(task, currentUser) {
+  if (task.createdById !== currentUser?.id) {
+    throw Object.assign(new Error('Only the requester who posted this task can change it'), { statusCode: 403 });
+  }
+  if (task.status !== 'EXPIRED') {
+    throw Object.assign(new Error('Only expired tasks can be reposted or permanently deleted'), { statusCode: 409 });
+  }
+}
+
+/** Tips for making an expired task attractive to providers before reposting it. */
+async function getRepostSuggestions(id, currentUser) {
+  assertRequesterRole(currentUser);
+  const task = await getTaskById(id);
+  assertOwnExpiredTask(task, currentUser);
+  return {
+    task: toPublicTask(task, currentUser),
+    bidCount: Number(task._count?.bids || 0),
+    suggestions: expiry.buildRepostSuggestions(task, { bidCount: Number(task._count?.bids || 0) }),
+  };
+}
+
+/** Edit an expired task and put it back on the market (status OPEN, new deadline). */
+async function repostTask(id, payload, currentUser) {
+  assertRequesterRole(currentUser);
+  const task = await getTaskById(id);
+  assertOwnExpiredTask(task, currentUser);
+  validateImageUrls(payload.imageUrls);
+  const dueDate = parseDueDate(payload.dueDate);
+  if (!dueDate) throw Object.assign(new Error('Choose a new deadline in the future'), { statusCode: 400 });
+
+  const next = {
+    title: payload.title ?? task.title,
+    description: payload.description ?? task.description,
+    category: payload.category ?? task.category,
+    budget: payload.budget ?? task.budget,
+  };
+  const risk = evaluateTaskRisk(next);
+  const updated = await taskRepository.repostTask(task.id, {
+    ...next,
+    dueDate,
+    ...(payload.maxBids != null ? { maxBids: parseMaxBids(payload.maxBids) } : {}),
+    ...(payload.imageUrls ? { imageUrls: payload.imageUrls } : {}),
+    isSuspicious: risk.isSuspicious,
+    suspiciousReason: risk.suspiciousReason,
+    riskLevel: risk.riskLevel,
+  });
+  if (!updated) throw Object.assign(new Error('This task is no longer expired'), { statusCode: 409 });
+  await logActivity(task.id, currentUser.id, 'TASK_REPOSTED', 'Requester edited and reposted the expired task.', {
+    budget: next.budget,
+    dueDate,
+    riskLevel: risk.riskLevel,
+  });
+  return toPublicTask(await getTaskById(task.id), currentUser);
+}
+
+/** Remove an expired task and its bids, subtasks and history from the database. */
+async function deleteTaskPermanently(id, currentUser) {
+  assertRequesterRole(currentUser);
+  const task = await getTaskById(id);
+  assertOwnExpiredTask(task, currentUser);
+  const deleted = await taskRepository.deleteTaskPermanently(task.id);
+  if (!deleted) throw Object.assign(new Error('This task is no longer expired'), { statusCode: 409 });
+  return { id: task.id, deleted: true };
 }
 
 async function createTask(payload, currentUser) {
   assertRequesterRole(currentUser);
   validateImageUrls(payload.imageUrls);
+  const ward = resolveWard(payload.wardId);
+  const isApproximateLocation = Boolean(payload.isApproximateLocation);
+  const addressDetail = String(payload.addressDetail || '').trim().slice(0, 100) || null;
+  if (isApproximateLocation && !addressDetail) {
+    // The hired provider needs the real place: the address details, or else the profile home address.
+    const homeAddress = await taskRepository.getUserHomeAddress(currentUser.id);
+    if (!homeAddress?.streetAddress || !homeAddress?.locationId) {
+      throw Object.assign(
+        new Error('The street address is a nearby spot, so write your exact address in Address details.'),
+        { statusCode: 400, code: 'EXACT_ADDRESS_REQUIRED' }
+      );
+    }
+  }
   const verifiedAddress = await verifyAddress({
-    district: payload.district,
+    wardId: ward.id,
     streetName: payload.streetName || payload.siteAddress,
   });
 
@@ -482,8 +570,10 @@ async function createTask(payload, currentUser) {
     category: payload.category,
     budget: payload.budget,
     maxBids: parseMaxBids(payload.maxBids),
-    location: payload.district,
-    district: payload.district,
+    location: ward.location,
+    locationId: ward.id,
+    isApproximateLocation,
+    addressDetail,
     siteAddress: verifiedAddress.address,
     siteLatitude: verifiedAddress.latitude,
     siteLongitude: verifiedAddress.longitude,
@@ -517,13 +607,18 @@ async function createTask(payload, currentUser) {
 
 async function listTasks(filters, viewer) {
   triggerAutoAssignExpiredBiddingTasks();
+  await expiry.runExpiry(logActivity);
+  // Browsing only shows tasks providers can still bid on. Assigned, in-progress,
+  // finished, disputed, cancelled and expired tasks are reachable only by the
+  // people involved (their own lists) and admins.
+  const requestedStatus = String(filters?.status || '').toUpperCase();
+  if (requestedStatus && !BROWSABLE_STATUSES.includes(requestedStatus)) return [];
   const tasks = await taskRepository.listTasks(filters);
   const hydratedTasks = await hydrateTaskListWithOverdue(tasks);
   const browseEligibleTasks = hydratedTasks.filter((task) => {
     const status = String(task?.status || '').toUpperCase();
-    const isAssigned = status === 'ASSIGNED';
     const isOverdueUnassigned = Boolean(task?.isOverdue) && !task?.assignedProviderId;
-    return !isAssigned && !isOverdueUnassigned;
+    return BROWSABLE_STATUSES.includes(status) && !task?.assignedProviderId && !isOverdueUnassigned;
   });
   return [...browseEligibleTasks].sort(compareTasksForBrowse).map((task) => toPublicTask(task, viewer));
 }
@@ -608,23 +703,28 @@ async function updateTask(id, payload, currentUser) {
 
   validateImageUrls(payload.imageUrls);
 
-  const editable = ['title', 'description', 'category', 'budget', 'location', 'district', 'siteAddress', 'siteLatitude', 'siteLongitude', 'dueDate', 'deadline', 'maxBids', 'imageUrls'];
+  const editable = ['title', 'description', 'category', 'budget', 'wardId', 'siteAddress', 'siteLatitude', 'siteLongitude', 'addressDetail', 'dueDate', 'deadline', 'maxBids', 'imageUrls'];
   if (Object.keys(payload).some(key => !editable.includes(key))) throw Object.assign(new Error('Protected task fields cannot be edited'), { statusCode: 400 });
   if (!['OPEN', 'BIDDING'].includes(task.status)) throw Object.assign(new Error('Assigned task terms cannot be edited'), { statusCode: 409 });
   const updatePayload = { ...payload };
-  const siteKeys = ['location', 'district', 'siteAddress', 'siteLatitude', 'siteLongitude'];
+  delete updatePayload.wardId;
+  const siteKeys = ['wardId', 'siteAddress', 'siteLatitude', 'siteLongitude'];
   const siteChanged = siteKeys.some(key => Object.prototype.hasOwnProperty.call(payload, key));
   if (siteChanged) {
+    const ward = resolveWard(payload.wardId ?? task.locationId);
     const nextSite = {
-      district: payload.district ?? payload.location ?? task.district ?? task.location,
       siteAddress: payload.siteAddress ?? task.siteAddress,
       siteLatitude: payload.siteLatitude ?? task.siteLatitude,
       siteLongitude: payload.siteLongitude ?? task.siteLongitude,
     };
-    if (!nextSite.district || !nextSite.siteAddress || !Number.isFinite(nextSite.siteLatitude) || !Number.isFinite(nextSite.siteLongitude)) {
+    if (!nextSite.siteAddress || !Number.isFinite(nextSite.siteLatitude) || !Number.isFinite(nextSite.siteLongitude)) {
       throw Object.assign(new Error('Complete task address and coordinates are required'), { statusCode: 400 });
     }
-    Object.assign(updatePayload, nextSite, { location: nextSite.district, siteVersion: Number(task.siteVersion || 1) + 1 });
+    Object.assign(updatePayload, nextSite, {
+      location: ward.location,
+      locationId: ward.id,
+      siteVersion: Number(task.siteVersion || 1) + 1,
+    });
   }
   if (Object.prototype.hasOwnProperty.call(payload, 'dueDate') || Object.prototype.hasOwnProperty.call(payload, 'deadline')) {
     updatePayload.dueDate = parseDueDate(payload.dueDate || payload.deadline);
@@ -735,6 +835,7 @@ async function listRequesterTasks(userId, currentUser) {
     err.statusCode = 403;
     throw err;
   }
+  await expiry.runExpiry(logActivity);
   const tasks = await taskRepository.listTasksByRequester(userId);
   return hydrateTaskListWithOverdue(tasks);
 }
@@ -755,10 +856,11 @@ async function listAssignedTasks(userId, currentUser) {
 async function listSuggestedTasksForProvider(currentUser) {
   triggerAutoAssignExpiredBiddingTasks();
   assertProviderRole(currentUser);
+  await expiry.runExpiry(logActivity);
   const profile = await taskRepository.getProviderProfileByUserId(currentUser.id);
   const specialties = profile?.specialties || (currentUser?.skills ? [currentUser.skills] : []);
-  // Fall back to the ward chosen at signup/profile when the provider profile has no district.
-  const providerDistrict = profile?.district || await taskRepository.getUserLocationById(currentUser.id);
+  // Provider's home point (or ward centre) vs each task's site point (or ward centre).
+  const providerAt = nearby.providerPoint(await taskRepository.getUserHomeAddress(currentUser.id));
 
   const tasks = await taskRepository.listTasks({});
   const hydratedTasks = await hydrateTaskListWithOverdue(tasks);
@@ -772,20 +874,27 @@ async function listSuggestedTasksForProvider(currentUser) {
   return candidateTasks
     .map((task) => {
       const specialtyScore = scoreSpecialtyMatch(task.category, specialties);
-      const districtScore = scoreDistrictMatch(providerDistrict, task.location);
+      const km = nearby.distanceKm(providerAt, nearby.taskPoint(task));
+      const locationScore = nearby.locationScore(km);
       const statusScore = scoreStatusPriority(task);
-      const total = specialtyScore + districtScore + statusScore;
+      const total = specialtyScore + locationScore + statusScore;
       return {
         ...toPublicTask(task),
         suggestionScore: total,
+        // Rounded to 0.5 km so the exact site stays private until the provider is hired.
+        distanceKm: nearby.displayDistanceKm(km),
+        sortKm: km,
       };
     })
     .sort((a, b) => {
       if (b.suggestionScore !== a.suggestionScore) {
         return b.suggestionScore - a.suggestionScore;
       }
+      // Equal scores: the closer task first, then the usual browse order.
+      if (a.sortKm != null && b.sortKm != null && a.sortKm !== b.sortKm) return a.sortKm - b.sortKm;
       return compareTasksForBrowse(a, b);
-    });
+    })
+    .map(({ sortKm: _sortKm, ...task }) => task);
 }
 
 async function getTaskProgress(taskId, currentUser) {
@@ -827,7 +936,6 @@ async function getTaskProgress(taskId, currentUser) {
       completedSubtasks: subtasks.filter((item) => item.status === 'DONE').length,
       totalSubtasks: subtasks.length,
       latestNote: latestUpdate?.note || null,
-      estimatedCompletionDate: latestUpdate?.estimatedCompletionDate || null,
       milestoneStatus: latestUpdate?.milestoneStatus || null,
       attachmentsCount: updates.reduce((count, item) => count + (item.attachments?.length || 0), 0),
       hasOpenDispute: disputes.some((item) => ['OPEN', 'UNDER_REVIEW'].includes(item.status)),
@@ -844,9 +952,10 @@ async function updateTaskSubtaskStatus(taskId, subtaskId, payload, currentUser) 
     err.statusCode = 403;
     throw err;
   }
+  assertProgressNotLocked(task);
   if (task.escrowStatus !== 'HELD') throw Object.assign(new Error('Requester must fund escrow before progress updates'), { statusCode: 409 });
   await trackingService.requireValidVerification(task, currentUser.id);
-  if (!['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION'].includes(task.status)) {
+  if (!['ASSIGNED', 'IN_PROGRESS'].includes(task.status)) {
     const err = new Error('Subtask updates are only allowed for active assigned tasks');
     err.statusCode = 400;
     throw err;
@@ -857,6 +966,12 @@ async function updateTaskSubtaskStatus(taskId, subtaskId, payload, currentUser) 
     const err = new Error('Subtask not found');
     err.statusCode = 404;
     throw err;
+  }
+  if (existingSubtask.status === 'DONE') {
+    if (payload.status === 'DONE') {
+      return { task: await getTaskById(taskId), subtasks: await taskRepository.listSubtasksForTask(taskId), alreadyDone: true };
+    }
+    throw Object.assign(new Error('This subtask is already completed and cannot be reopened'), { statusCode: 409 });
   }
 
   const result = await taskRepository.updateSubtaskStatus(taskId, subtaskId, payload.status);
@@ -888,6 +1003,39 @@ async function updateTaskSubtaskStatus(taskId, subtaskId, payload, currentUser) 
   };
 }
 
+/**
+ * Mark every unfinished subtask whose checkpoint (progressPercent) is at or below
+ * the reported progress as DONE, logging each one. Returns the completed subtasks.
+ */
+async function completeSubtasksCoveredByProgress(taskId, progressPercent, currentUser) {
+  const reported = Number(progressPercent);
+  if (!Number.isFinite(reported)) return [];
+  const subtasks = await taskRepository.listSubtasksForTask(taskId);
+  const covered = subtasks.filter((subtask) => subtask.status !== 'DONE'
+    && Number.isFinite(Number(subtask.progressPercent))
+    && Number(subtask.progressPercent) <= reported);
+  for (const subtask of covered) {
+    await taskRepository.updateSubtaskStatus(taskId, subtask.id, 'DONE');
+    await logActivity(
+      taskId,
+      currentUser.id,
+      'SUBTASK_STATUS_UPDATED',
+      `Subtask "${subtask.title}" was completed automatically by the ${reported}% progress update.`,
+      { subtaskId: subtask.id, status: 'DONE', previousStatus: subtask.status, automatic: true, progressPercent: reported }
+    );
+  }
+  return covered.map((subtask) => ({ ...subtask, status: 'DONE' }));
+}
+
+// Once the provider has published the task as completed, the progress panel is read-only.
+function assertProgressNotLocked(task) {
+  if (['PENDING_CONFIRMATION', 'COMPLETED', 'AWAITING_PAYMENT'].includes(task.status)) {
+    const err = new Error('This task has already been published as completed. Progress can no longer be changed.');
+    err.statusCode = 409;
+    throw err;
+  }
+}
+
 async function createTaskProgressUpdate(taskId, payload, currentUser) {
   assertProviderRole(currentUser);
   const task = await getTaskById(taskId);
@@ -897,6 +1045,8 @@ async function createTaskProgressUpdate(taskId, payload, currentUser) {
     err.statusCode = 403;
     throw err;
   }
+
+  assertProgressNotLocked(task);
 
   if (task.status === 'DISPUTED') {
     const err = new Error('Task is in dispute. Progress updates are frozen until resolved');
@@ -911,7 +1061,7 @@ async function createTaskProgressUpdate(taskId, payload, currentUser) {
   }
   await trackingService.requireValidVerification(task, currentUser.id);
 
-  if (!['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION'].includes(task.status)) {
+  if (!['ASSIGNED', 'IN_PROGRESS'].includes(task.status)) {
     const err = new Error('Task progress can only be updated for active assigned tasks');
     err.statusCode = 400;
     throw err;
@@ -931,9 +1081,6 @@ async function createTaskProgressUpdate(taskId, payload, currentUser) {
     note: payload.note,
     attachments: payload.attachments || [],
     milestoneStatus: payload.milestoneStatus || null,
-    estimatedCompletionDate: payload.estimatedCompletionDate
-      ? new Date(payload.estimatedCompletionDate)
-      : null,
   });
 
   let nextStatus = task.status;
@@ -947,6 +1094,9 @@ async function createTaskProgressUpdate(taskId, payload, currentUser) {
     await taskRepository.updateTaskStatus(taskId, nextStatus);
   }
 
+  // A progress update at X% also completes every checkpoint at or below X%.
+  const autoCompletedSubtasks = await completeSubtasksCoveredByProgress(taskId, payload.progressPercent, currentUser);
+
   await logActivity(
     taskId,
     currentUser.id,
@@ -957,7 +1107,6 @@ async function createTaskProgressUpdate(taskId, payload, currentUser) {
     {
       progressPercent: payload.progressPercent,
       milestoneStatus: payload.milestoneStatus || null,
-      estimatedCompletionDate: payload.estimatedCompletionDate || null,
       markAsCompleted,
     }
   );
@@ -982,6 +1131,7 @@ async function createTaskProgressUpdate(taskId, payload, currentUser) {
   return {
     task: updatedTask,
     progressUpdate,
+    autoCompletedSubtasks,
   };
 }
 
@@ -1256,6 +1406,9 @@ async function listAllDisputesForAdmin(currentUser) {
 }
 
 module.exports = {
+  getRepostSuggestions,
+  repostTask,
+  deleteTaskPermanently,
   createTask,
   listTasks,
   getTaskById,

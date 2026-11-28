@@ -7,7 +7,9 @@ import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { Input } from "@/components/Input";
-import { WardSelect } from "@/components/WardSelect";
+import { CityWardPicker, type CityWardValue } from "@/components/CityWardPicker";
+import { WarningsPanel } from "@/components/WarningsPanel";
+import { UserWarning } from "@/types";
 import { api } from "@/services/api";
 import { useAuthStore } from "@/store/authStore";
 import { useTaskStore } from "@/store/taskStore";
@@ -45,6 +47,12 @@ export default function ProfilePage(): React.ReactElement {
   const [email, setEmail] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [location, setLocation] = useState("");
+  const [place, setPlace] = useState<CityWardValue>({ cityId: null, wardId: null });
+  const [placeError, setPlaceError] = useState("");
+  const [streetAddress, setStreetAddress] = useState("");
+  const [warningCount, setWarningCount] = useState(0);
+  const [warningLimit, setWarningLimit] = useState(3);
+  const [warnings, setWarnings] = useState<UserWarning[]>([]);
   const [bio, setBio] = useState("");
 
   const [providerProfile, setProviderProfile] = useState<ProviderProfile>(emptyProviderProfile);
@@ -66,6 +74,8 @@ export default function ProfilePage(): React.ReactElement {
     setEmail(user?.email || "");
     setPhoneNumber(user?.phoneNumber || user?.phone || "");
     setLocation(user?.location || "");
+    setPlace({ cityId: user?.cityId ?? null, wardId: user?.locationId ?? null });
+    setStreetAddress(user?.streetAddress || "");
     setBio(user?.bio || "");
   }, [user]);
 
@@ -81,6 +91,13 @@ export default function ProfilePage(): React.ReactElement {
         const profile = payload.providerProfile || emptyProviderProfile;
 
         if (!mounted) return;
+        // The saved session can predate the account ward / home address.
+        setLocation(payload.location || "");
+        setPlace({ cityId: payload.cityId ?? null, wardId: payload.locationId ?? null });
+        setStreetAddress(payload.streetAddress || "");
+        setWarningCount(Number(payload.warningCount || 0));
+        setWarningLimit(Number(payload.warningLimit || 3));
+        setWarnings(Array.isArray(payload.warnings) ? payload.warnings : []);
         setProviderProfile({
           ...emptyProviderProfile,
           ...profile,
@@ -169,8 +186,13 @@ export default function ProfilePage(): React.ReactElement {
   };
 
   const handleSaveProfile = async (): Promise<void> => {
-    if (!location.trim()) {
-      Alert.alert("Missing district", "Please select your district.");
+    if (!place.wardId) {
+      setPlaceError("Choose your city, then pick your ward from the list.");
+      return;
+    }
+    const trimmedStreet = streetAddress.trim();
+    if (trimmedStreet && trimmedStreet.length < 3) {
+      Alert.alert("Home address", "Enter at least 3 characters, or leave it empty.");
       return;
     }
     try {
@@ -179,7 +201,8 @@ export default function ProfilePage(): React.ReactElement {
         name: fullName.trim(),
         phone: phoneNumber.trim(),
         phoneNumber: phoneNumber.trim(),
-        location,
+        locationId: place.wardId,
+        streetAddress: trimmedStreet,
         bio: bio.trim(),
       });
       setIsEditing(false);
@@ -192,9 +215,6 @@ export default function ProfilePage(): React.ReactElement {
   const handleSaveProviderTrust = async (): Promise<void> => {
     try {
       const response = await api.users.updateProviderProfile({
-        address: providerProfile.address || "",
-        district: providerProfile.district || "",
-        city: providerProfile.city || "",
         specialties: providerProfile.specialties || [],
         safetyComplianceAgreed: Boolean(providerProfile.safetyComplianceAgreed),
         shortBio: providerProfile.shortBio || "",
@@ -327,21 +347,6 @@ export default function ProfilePage(): React.ReactElement {
               }
             />
             <Input
-              label="Address"
-              value={providerProfile.address || ""}
-              onChangeText={(value) => setProviderProfile((prev) => ({ ...prev, address: value }))}
-            />
-            <Input
-              label="District"
-              value={providerProfile.district || ""}
-              onChangeText={(value) => setProviderProfile((prev) => ({ ...prev, district: value }))}
-            />
-            <Input
-              label="City"
-              value={providerProfile.city || ""}
-              onChangeText={(value) => setProviderProfile((prev) => ({ ...prev, city: value }))}
-            />
-            <Input
               label="Short Bio"
               value={providerProfile.shortBio || ""}
               onChangeText={(value) => setProviderProfile((prev) => ({ ...prev, shortBio: value }))}
@@ -420,7 +425,19 @@ export default function ProfilePage(): React.ReactElement {
             <Input label="Full Name" value={fullName} onChangeText={setFullName} />
             <InfoRow label="Email" value={email || "-"} />
             <Input label="Phone Number" value={phoneNumber} onChangeText={setPhoneNumber} />
-            <WardSelect label="District*" value={location} onChange={setLocation} />
+            <CityWardPicker
+              required
+              value={place}
+              error={placeError}
+              onChange={(next) => { setPlace(next); setPlaceError(""); }}
+            />
+            <Input
+              label="Home address (private)"
+              placeholder="e.g. A35 Bach Dang"
+              value={streetAddress}
+              onChangeText={setStreetAddress}
+              helperText="Never shown publicly. If your house is not on the map when you post a task, only the provider you hire sees this address."
+            />
             <Input label="Bio" value={bio} onChangeText={setBio} multiline numberOfLines={4} />
             <Button title="Save Changes" onPress={() => void handleSaveProfile()} />
           </View>
@@ -429,10 +446,12 @@ export default function ProfilePage(): React.ReactElement {
             <InfoRow label="Full Name" value={fullName || "-"} />
             <InfoRow label="Email" value={email || "-"} />
             <InfoRow label="Phone Number" value={phoneNumber || "-"} />
-            <InfoRow label="District" value={location || "-"} />
+            <InfoRow label="City and ward" value={location || "Not set yet. Tap Edit to choose your ward."} />
+            <InfoRow label="Home address (private)" value={streetAddress || "-"} />
             <InfoRow label="Bio" value={bio || "No bio added yet."} multiline />
           </View>
         )}
+        <WarningsPanel count={warningCount} limit={warningLimit} warnings={warnings} />
       </Card>
     </MarketplaceShell>
   );

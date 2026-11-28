@@ -26,7 +26,7 @@ async function getPublicUserById(id) {
       id: true, name: true, role: true, profilePhotoUrl: true, rating: true, bio: true,
       providerProfile: {
         select: {
-          specialties: true, district: true, city: true, safetyComplianceAgreed: true, shortBio: true,
+          specialties: true, city: true, safetyComplianceAgreed: true, shortBio: true,
           certificates: {
             where: { verificationStatus: 'VERIFIED' },
             select: { id: true, title: true, certificateType: true, verificationStatus: true, uploadedAt: true, verifiedAt: true },

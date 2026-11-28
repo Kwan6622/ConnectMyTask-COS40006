@@ -6,8 +6,12 @@ const createTaskSchema = z.object({
   category: z.string().min(1),
   budget: z.number().positive(),
   maxBids: z.number().int().min(1).max(100).optional(),
-  location: z.string().min(1),
-  district: z.string().trim().min(2).max(120),
+  // Official ward code picked from the city's ward list (see /api/locations).
+  wardId: z.number().int().positive(),
+  // The address below is a findable place within 100 m; the real one is the requester's profile address.
+  isApproximateLocation: z.boolean().optional(),
+  // Private: unit / floor / block, or the exact address when the street address is a nearby spot.
+  addressDetail: z.string().trim().max(100, 'Address details can be at most 100 characters').optional(),
   streetName: z.string().trim().min(3).max(200).optional(),
   siteAddress: z.string().trim().min(5).max(500),
   siteLatitude: z.number().finite().min(-90).max(90).optional(),
@@ -55,12 +59,6 @@ const createTaskProgressUpdateSchema = z.object({
   note: z.string().min(1).max(2000),
   attachments: z.array(z.string().url()).max(10).optional(),
   milestoneStatus: z.string().max(120).optional(),
-  estimatedCompletionDate: z
-    .string()
-    .refine((value) => !Number.isNaN(new Date(value).getTime()), {
-      message: 'Invalid estimated completion date',
-    })
-    .optional(),
   markAsCompleted: z.boolean().optional(),
 });
 
@@ -99,14 +97,25 @@ const adminReviewDisputeSchema = z.object({
   action: z.enum(['NONE', 'REFUND_ESCROW', 'RELEASE_ESCROW', 'FORCE_CANCEL']).optional(),
 });
 
+// Editing an EXPIRED task before reposting it; a new future deadline is required.
+const repostTaskSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  description: z.string().trim().min(1).max(5000).optional(),
+  category: z.string().min(1).optional(),
+  budget: z.number().positive().optional(),
+  maxBids: z.number().int().min(1).max(100).optional(),
+  dueDate: z.string().min(1),
+  imageUrls: z.array(z.string().url()).max(3, 'Max 3 images per task').optional(),
+}).strict();
+
 const updateTaskSchema = z
   .object({
     // Keep this focused on image integration while allowing other task fields.
     imageUrls: z.array(z.string().url()).max(3, 'Max 3 images per task').optional(),
     dueDate: z.string().optional(),
     maxBids: z.number().int().min(1).max(100).optional(),
-    location: z.string().trim().min(2).max(120).optional(),
-    district: z.string().trim().min(2).max(120).optional(),
+    wardId: z.number().int().positive().optional(),
+    addressDetail: z.string().trim().max(100, 'Address details can be at most 100 characters').optional(),
     siteAddress: z.string().trim().min(5).max(500).optional(),
     siteLatitude: z.number().finite().min(-90).max(90).optional(),
     siteLongitude: z.number().finite().min(-180).max(180).optional(),
@@ -127,5 +136,6 @@ module.exports = {
   disputeIdParamsSchema,
   adminReviewDisputeSchema,
   updateTaskSchema,
+  repostTaskSchema,
   taskSubtaskParamsSchema,
 };

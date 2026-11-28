@@ -215,6 +215,9 @@ test('tracking and requester address are available to participants only after es
       siteLatitude: task.siteLatitude,
       siteLongitude: task.siteLongitude,
       available: true,
+      isApproximateLocation: false,
+      addressDetail: null,
+      requesterAddress: null,
     });
   }
   task.siteLatitude = null;
@@ -224,6 +227,9 @@ test('tracking and requester address are available to participants only after es
     siteLatitude: null,
     siteLongitude: null,
     available: false,
+    isApproximateLocation: false,
+    addressDetail: null,
+    requesterAddress: null,
   });
   await assert.rejects(service.getTaskSiteLocation(task.id, { id: 3, role: 'PROVIDER' }), {
     statusCode: 403,

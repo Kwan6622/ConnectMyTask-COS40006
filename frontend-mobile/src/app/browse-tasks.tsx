@@ -15,6 +15,7 @@ import { MarketplaceShell } from "@/components/MarketplaceShell";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { TaskCard } from "@/components/TaskCard";
+import { CityWardPicker, type CityWardValue } from "@/components/CityWardPicker";
 import { BROWSE_STATUS_OPTIONS, TASK_CATEGORIES } from "@/constants/tasks";
 import { useAuthStore } from "@/store/authStore";
 import { useTaskStore } from "@/store/taskStore";
@@ -66,6 +67,9 @@ export default function BrowseTasksScreen(): React.ReactElement {
   const [appliedStatus, setAppliedStatus] = useState<"ALL" | TaskStatus>("ALL");
   const [appliedBudget, setAppliedBudget] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<"ALL" | string>("ALL");
+  // City, then optionally a ward (same filter as web Browse).
+  const [draftPlace, setDraftPlace] = useState<CityWardValue>({ cityId: null, wardId: null });
+  const [appliedPlace, setAppliedPlace] = useState<CityWardValue>({ cityId: null, wardId: null });
   const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
@@ -110,10 +114,12 @@ export default function BrowseTasksScreen(): React.ReactElement {
       const matchesCategory = categoryFilter === "ALL" || task.category === categoryFilter;
       const matchesBudget =
         !ceiling || Number.isNaN(ceiling) || ceiling <= 0 ? true : budget <= ceiling;
+      const matchesPlace = !appliedPlace.cityId
+        || (appliedPlace.wardId ? Number(task.locationId) === appliedPlace.wardId : Number(task.cityId) === appliedPlace.cityId);
 
-      return matchesSearch && matchesStatus && matchesCategory && matchesBudget;
+      return matchesSearch && matchesStatus && matchesCategory && matchesBudget && matchesPlace;
     });
-  }, [appliedBudget, appliedSearch, appliedStatus, browseVisibleTasks, categoryFilter]);
+  }, [appliedBudget, appliedPlace, appliedSearch, appliedStatus, browseVisibleTasks, categoryFilter]);
 
   const pageCount = Math.max(1, Math.ceil(filteredTasks.length / itemsPerPage));
   const safePage = Math.min(currentPage, pageCount);
@@ -125,6 +131,7 @@ export default function BrowseTasksScreen(): React.ReactElement {
     setAppliedSearch(draftSearch);
     setAppliedStatus(draftStatus);
     setAppliedBudget(draftBudget);
+    setAppliedPlace(draftPlace);
     setCurrentPage(1);
     setStatusMenuOpen(false);
   };
@@ -136,6 +143,8 @@ export default function BrowseTasksScreen(): React.ReactElement {
     setAppliedSearch("");
     setAppliedStatus("ALL");
     setAppliedBudget("");
+    setDraftPlace({ cityId: null, wardId: null });
+    setAppliedPlace({ cityId: null, wardId: null });
     setCategoryFilter("ALL");
     setCurrentPage(1);
     setStatusMenuOpen(false);
@@ -247,6 +256,10 @@ export default function BrowseTasksScreen(): React.ReactElement {
             </View>
           </View>
 
+          <View style={styles.placeFilter}>
+            <CityWardPicker value={draftPlace} onChange={(next) => setDraftPlace(next)} />
+          </View>
+
           <Button title="Apply" size="sm" onPress={applyFilters} style={styles.ctaButton} />
           <Button title="Reset" size="sm" variant="outline" onPress={resetFilters} style={styles.ctaButton} />
         </View>
@@ -339,6 +352,7 @@ export default function BrowseTasksScreen(): React.ReactElement {
           <Button
             title="Previous"
             size="sm"
+            style={styles.pageButton}
             variant="outline"
             disabled={safePage <= 1}
             onPress={() => setCurrentPage((page) => Math.max(1, page - 1))}
@@ -365,6 +379,7 @@ export default function BrowseTasksScreen(): React.ReactElement {
           <Button
             title="Next"
             size="sm"
+            style={styles.pageButton}
             variant="outline"
             disabled={safePage >= pageCount}
             onPress={() => setCurrentPage((page) => Math.min(pageCount, page + 1))}
@@ -413,6 +428,7 @@ function CategoryChip({
 }
 
 const styles = StyleSheet.create({
+  placeFilter: { width: "100%" },
   heroCard: {
     borderRadius: radius.xl,
     backgroundColor: "#123b88",
@@ -687,6 +703,8 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     textAlign: "center",
   },
+  // Previous and Next share one width.
+  pageButton: { minWidth: 96 },
   paginationRow: {
     marginTop: 16,
     flexDirection: "row",

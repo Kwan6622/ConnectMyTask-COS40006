@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
+import { taskStatusClasses } from '../utils/statusColors';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowPathIcon,
@@ -14,15 +15,6 @@ import { useAuthStore } from '../stores/auth.store';
 import { useTaskStore } from '../stores/task.store';
 import { formatVnd } from '../utils';
 
-const badgeStyles: Record<string, string> = {
-  ASSIGNED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  IN_PROGRESS: 'bg-indigo-50 text-indigo-700 border-indigo-200',
-  PENDING_CONFIRMATION: 'bg-amber-50 text-amber-700 border-amber-200',
-  COMPLETED: 'bg-slate-100 text-slate-700 border-slate-300',
-  AWAITING_PAYMENT: 'bg-orange-50 text-orange-700 border-orange-200',
-  DISPUTED: 'bg-red-50 text-red-700 border-red-200',
-  PAID: 'bg-teal-50 text-teal-700 border-teal-200',
-};
 
 function statusLabel(status: string) {
   return status.split('_').join(' ');
@@ -155,8 +147,9 @@ export const ProviderDashboardPage: React.FC = () => {
             ) : (
               <div className="space-y-3">
                 {assignedTasks.map((task) => {
-                  const style = badgeStyles[task.status] || 'bg-slate-100 text-slate-700 border-slate-300';
-                  const isFinishedTask = ['COMPLETED', 'PAID'].includes(String(task.status || '').toUpperCase());
+                  const style = taskStatusClasses(task.status);
+                  // Finished, cancelled or expired tasks can only be viewed, not updated.
+                  const isFinishedTask = ['COMPLETED', 'PAID', 'CANCELLED', 'EXPIRED'].includes(String(task.status || '').toUpperCase());
                   return (
                     <div key={task.id} className="rounded-xl border border-slate-200 p-4 hover:border-indigo-200 transition-colors">
                       <div className="flex items-start justify-between gap-3">

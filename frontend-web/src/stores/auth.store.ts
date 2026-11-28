@@ -18,7 +18,8 @@ interface AuthState {
     fullName: string;
     role: 'CLIENT' | 'PROVIDER';
     phone?: string;
-    location: string;
+    /** Official ward code picked from the city's ward list */
+    wardId: number;
   }) => Promise<void>;
   logout: () => void;
   setUser: (user: User | null) => void;
@@ -101,7 +102,8 @@ export const useAuthStore = create<AuthState>()(
           const response = await api.users.updateProfile({
             name: data.fullName || data.name,
             phone: data.phone,
-            location: data.location,
+            ...(data.locationId ? { wardId: Number(data.locationId) } : {}),
+            ...(data.streetAddress !== undefined ? { streetAddress: data.streetAddress } : {}),
             bio: data.bio,
           });
           set((state) => ({

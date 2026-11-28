@@ -101,6 +101,30 @@ async function assignProvider(req, res, next) {
   }
 }
 
+async function getRepostSuggestions(req, res, next) {
+  try {
+    return res.json(await taskService.getRepostSuggestions(Number(req.params.id), req.user));
+  } catch (err) {
+    return next(err);
+  }
+}
+
+async function repostTask(req, res, next) {
+  try {
+    return res.json(await taskService.repostTask(Number(req.params.id), req.body, req.user));
+  } catch (err) {
+    return next(err);
+  }
+}
+
+async function deleteTaskPermanently(req, res, next) {
+  try {
+    return res.json(await taskService.deleteTaskPermanently(Number(req.params.id), req.user));
+  } catch (err) {
+    return next(err);
+  }
+}
+
 async function listRequesterTasks(req, res, next) {
   try {
     const userId = req.user?.id;
@@ -238,6 +262,9 @@ async function listAllDisputesForAdmin(req, res, next) {
 }
 
 module.exports = {
+  getRepostSuggestions,
+  repostTask,
+  deleteTaskPermanently,
   createTask,
   listTasks,
   getTaskById,

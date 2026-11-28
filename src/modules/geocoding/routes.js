@@ -7,7 +7,7 @@ const router = express.Router();
 router.post('/verify-address', authenticate, requireRoles('REQUESTER', 'CLIENT'), async (req, res, next) => {
   try {
     const result = await verifyAddress({
-      district: req.body?.district,
+      wardId: req.body?.wardId,
       streetName: req.body?.streetName,
     });
     return res.json(result);

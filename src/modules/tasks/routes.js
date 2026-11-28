@@ -17,6 +17,7 @@ const {
   adminReviewDisputeSchema,
   updateTaskSchema,
   taskSubtaskParamsSchema,
+  repostTaskSchema,
 } = require('./validation');
 const taskController = require('./controller');
 
@@ -122,6 +123,26 @@ router.patch(
     body: updateTaskSubtaskStatusSchema,
   }),
   taskController.updateTaskSubtaskStatus
+);
+
+// Expired tasks (requester only): tips, edit + repost, permanent delete
+router.get(
+  '/:id/repost-suggestions',
+  authenticate,
+  createValidationMiddleware({ params: taskIdParamsSchema }),
+  taskController.getRepostSuggestions
+);
+router.patch(
+  '/:id/repost',
+  authenticate,
+  createValidationMiddleware({ params: taskIdParamsSchema, body: repostTaskSchema }),
+  taskController.repostTask
+);
+router.delete(
+  '/:id/permanent',
+  authenticate,
+  createValidationMiddleware({ params: taskIdParamsSchema }),
+  taskController.deleteTaskPermanently
 );
 
 // POST /tasks/:id/confirm-completion

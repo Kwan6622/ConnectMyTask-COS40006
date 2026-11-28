@@ -7,26 +7,26 @@ import { Button } from '../components/common/Button';
 import { Input } from '../components/common/Input';
 import { Card } from '../components/common/Card';
 import { TaskCategory, TaskStatus } from '../types';
-import { HO_CHI_MINH_WARD_GROUPS } from '../constants/hoChiMinhWards';
+import { CityWardPicker, type CityWardValue } from '../components/location/CityWardPicker';
 
-const normalizeLocation = (value: string) => value.trim().toLowerCase();
-
-// A filter can be a ward ("Ben Thanh") or a former district ("District 1").
-// Older tasks store a former district; new tasks store a ward.
-const matchesLocationFilter = (taskLocation: string, filter: string) => {
-  const task = normalizeLocation(taskLocation || '');
-  const wanted = normalizeLocation(filter);
-  if (!wanted) return true;
-  if (task.includes(wanted)) return true;
-  const group = HO_CHI_MINH_WARD_GROUPS.find((item) => normalizeLocation(item.oldDistrict) === wanted);
-  return Boolean(group?.wards.some((ward) => normalizeLocation(ward) === task));
+// The location filter is stored as "<cityId>" or "<cityId>:<wardId>" (official codes).
+const encodeLocationFilter = ({ cityId, wardId }: CityWardValue) =>
+  (cityId ? (wardId ? `${cityId}:${wardId}` : String(cityId)) : '');
+const decodeLocationFilter = (filter?: string): CityWardValue => {
+  const [city, ward] = String(filter || '').split(':').map(Number);
+  return { cityId: Number.isFinite(city) && city > 0 ? city : null, wardId: Number.isFinite(ward) && ward > 0 ? ward : null };
+};
+const matchesLocationFilter = (task: { cityId?: number | null; locationId?: number | null }, filter: string) => {
+  const { cityId, wardId } = decodeLocationFilter(filter);
+  if (!cityId) return true;
+  if (wardId) return Number(task.locationId) === wardId;
+  return Number(task.cityId) === cityId;
 };
 import {
   MagnifyingGlassIcon,
   FunnelIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  MapPinIcon,
   ArrowPathIcon,
   ClockIcon,
   CurrencyDollarIcon,
@@ -74,14 +74,13 @@ export const TaskBrowsePage: React.FC = () => {
   const { tasks, filters, isLoading, fetchTasks, setFilters, clearFilters } = useTaskStore();
   const { user } = useAuthStore();
   const [searchQuery, setSearchQuery] = useState('');
-  const [locationQuery, setLocationQuery] = useState('');
+  const [locationQuery, setLocationQuery] = useState<CityWardValue>({ cityId: null, wardId: null });
   const [isSearchDraftDirty, setIsSearchDraftDirty] = useState(false);
   const [sortBy, setSortBy] = useState('opportunity');
   const [currentPage, setCurrentPage] = useState(1);
   const [browseMode, setBrowseMode] = useState<'all' | 'suggested'>('all');
   const [isFiltersOpen, setIsFiltersOpen] = useState(true);
   const [suggestedTasks, setSuggestedTasks] = useState<any[]>([]);
-  // Ward list grouped by former district; see matchesLocationFilter for how both forms match.
 
   useEffect(() => {
     fetchTasks();
@@ -113,7 +112,7 @@ export const TaskBrowsePage: React.FC = () => {
   );
 
   const effectiveSearch = isSearchDraftDirty ? searchQuery : (filters.search || '');
-  const effectiveLocation = isSearchDraftDirty ? locationQuery : (filters.location || '');
+  const effectiveLocation = isSearchDraftDirty ? locationQuery : decodeLocationFilter(filters.location);
 
   const applyFilterUpdate = (nextFilters: Partial<typeof filters>) => {
     setCurrentPage(1);
@@ -125,7 +124,7 @@ export const TaskBrowsePage: React.FC = () => {
     setCurrentPage(1);
     setFilters({
       search: effectiveSearch,
-      location: effectiveLocation,
+      location: encodeLocationFilter(effectiveLocation),
     });
     setIsSearchDraftDirty(false);
   };
@@ -144,7 +143,7 @@ export const TaskBrowsePage: React.FC = () => {
 
   const handleReset = () => {
     setSearchQuery('');
-    setLocationQuery('');
+    setLocationQuery({ cityId: null, wardId: null });
     setIsSearchDraftDirty(false);
     setCurrentPage(1);
     clearFilters();
@@ -166,14 +165,8 @@ export const TaskBrowsePage: React.FC = () => {
 
   const statuses: Array<{ value: TaskStatus; label: string; color: string }> = [
     { value: TaskStatus.OPEN, label: 'Open', color: 'bg-blue-100 text-blue-700 border-blue-200' },
-    { value: TaskStatus.BIDDING, label: 'Bidding', color: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
-    { value: TaskStatus.ASSIGNED, label: 'Assigned', color: 'bg-green-100 text-green-700 border-green-200' },
-    { value: TaskStatus.IN_PROGRESS, label: 'In Progress', color: 'bg-purple-100 text-purple-700 border-purple-200' },
-    { value: TaskStatus.PENDING_CONFIRMATION, label: 'Pending Confirmation', color: 'bg-amber-100 text-amber-700 border-amber-200' },
-    { value: TaskStatus.COMPLETED, label: 'Completed', color: 'bg-dark-100 text-dark-700 border-dark-200' },
-    { value: TaskStatus.AWAITING_PAYMENT, label: 'Awaiting Payment', color: 'bg-orange-100 text-orange-700 border-orange-200' },
-    { value: TaskStatus.PAID, label: 'Paid', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
-    { value: TaskStatus.DISPUTED, label: 'Disputed', color: 'bg-red-100 text-red-700 border-red-200' },
+    { value: TaskStatus.BIDDING, label: 'Bidding', color: 'bg-sky-100 text-sky-700 border-sky-200' },
+    // Assigned, in-progress, finished or disputed tasks are not browsable.
   ];
 
   const filteredTasks = useMemo(() => browseVisibleTasks.filter((task) => {
@@ -191,7 +184,7 @@ export const TaskBrowsePage: React.FC = () => {
       return false;
     }
 
-    if (filters.location && !matchesLocationFilter(task.location, filters.location)) {
+    if (filters.location && !matchesLocationFilter(task, filters.location)) {
       return false;
     }
 
@@ -209,6 +202,8 @@ export const TaskBrowsePage: React.FC = () => {
 
     return true;
   }).sort((a, b) => {
+    // Suggestions arrive ranked by specialty, distance and status: keep that order.
+    if (browseMode === 'suggested') return 0;
     const budgetA = a.budget ?? a.aiSuggestedPrice ?? 0;
     const budgetB = b.budget ?? b.aiSuggestedPrice ?? 0;
     const dateA = new Date(a.createdAt).getTime();
@@ -357,29 +352,15 @@ export const TaskBrowsePage: React.FC = () => {
                     className="h-10 border-gray-200 focus:ring-2 focus:ring-blue-500"
                     leftIcon={<MagnifyingGlassIcon className="w-4 h-4 text-gray-400" />}
                   />
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                      <MapPinIcon className="w-4 h-4" />
-                    </span>
-                    <select
-                      value={effectiveLocation}
-                      onChange={(e) => {
-                        setLocationQuery(e.target.value);
-                        setIsSearchDraftDirty(true);
-                      }}
-                      className="w-full h-10 rounded-lg border border-gray-200 bg-white pl-10 pr-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="">All locations</option>
-                      {HO_CHI_MINH_WARD_GROUPS.map((group) => (
-                        <optgroup key={group.oldDistrict} label={group.oldDistrict}>
-                          <option value={group.oldDistrict}>All of {group.oldDistrict}</option>
-                          {group.wards.map((ward) => (
-                            <option key={`${group.oldDistrict}-${ward}`} value={ward}>{ward}</option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
-                  </div>
+                  <CityWardPicker
+                    stacked
+                    cityPlaceholder="All cities"
+                    value={effectiveLocation}
+                    onChange={(next) => {
+                      setLocationQuery(next);
+                      setIsSearchDraftDirty(true);
+                    }}
+                  />
                   <Button type="submit" className="w-full">
                     Apply Search
                   </Button>
@@ -498,7 +479,7 @@ export const TaskBrowsePage: React.FC = () => {
                 </h2>
                 <p className="text-gray-600 mt-1">
                   {browseMode === 'suggested'
-                    ? 'Suggested for you based on your specialties and district'
+                    ? 'Suggested for you: matching specialties first, then the closest to your home'
                     : (filters.category || filters.status || filters.search || filters.location || filters.minBudget != null || filters.maxBudget != null
                     ? 'Matching your filters'
                     : 'Showing all available tasks')}
@@ -561,7 +542,8 @@ export const TaskBrowsePage: React.FC = () => {
               </div>
             ) : filteredTasks.length > 0 ? (
               <>
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {/* Same layout as the home page list. */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   {paginatedTasks.map((task) => (
                     <TaskCard
                       key={task.id}
@@ -579,7 +561,7 @@ export const TaskBrowsePage: React.FC = () => {
                       size="sm"
                       disabled={safePage <= 1}
                       onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                      className="border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-28 justify-center border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Previous
                     </Button>
@@ -609,7 +591,7 @@ export const TaskBrowsePage: React.FC = () => {
                       size="sm"
                       disabled={safePage >= totalPages}
                       onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                      className="border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-28 justify-center border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Next
                     </Button>

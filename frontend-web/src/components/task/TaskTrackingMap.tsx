@@ -49,6 +49,11 @@ export const TaskTrackingMap: React.FC<TaskTrackingMapProps> = ({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [siteLocationError, setSiteLocationError] = useState<string | null>(null);
   const [siteAddress, setSiteAddress] = useState<string | null>(null);
+  // Set when the task was posted at a nearby address: the requester's real home address.
+  const [requesterAddress, setRequesterAddress] = useState<string | null>(null);
+  // Private address details from the requester (unit / floor, or the exact address).
+  const [addressDetail, setAddressDetail] = useState<string | null>(null);
+  const [isNearbySite, setIsNearbySite] = useState(false);
   const [isLoadingSiteLocation, setIsLoadingSiteLocation] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [taskCoordinates, setTaskCoordinates] = useState<Coordinates | null>(() => getTaskCoordinates(task));
@@ -57,6 +62,9 @@ export const TaskTrackingMap: React.FC<TaskTrackingMapProps> = ({
     let mounted = true;
     setTaskCoordinates(getTaskCoordinates(task));
     setSiteAddress(null);
+    setRequesterAddress(null);
+    setAddressDetail(null);
+    setIsNearbySite(false);
     setSiteLocationError(null);
     setIsLoadingSiteLocation(true);
     api.tracking.getTaskSiteLocation(String(task.id))
@@ -66,6 +74,9 @@ export const TaskTrackingMap: React.FC<TaskTrackingMapProps> = ({
         const coordinates = getTaskCoordinates({ ...task, ...location });
         setTaskCoordinates(coordinates);
         setSiteAddress(typeof location.siteAddress === 'string' ? location.siteAddress : null);
+        setRequesterAddress(typeof location.requesterAddress === 'string' ? location.requesterAddress : null);
+        setAddressDetail(typeof location.addressDetail === 'string' ? location.addressDetail : null);
+        setIsNearbySite(Boolean(location.isApproximateLocation));
         setSiteLocationError(coordinates
           ? null
           : 'This task has no saved requester pin. Update the task location and confirm its map pin.');
@@ -135,9 +146,27 @@ export const TaskTrackingMap: React.FC<TaskTrackingMapProps> = ({
               : 'Provider location refreshes automatically. You can view it on any device.'}
           </p>
         </div>
+        {isProvider && addressDetail && (
+          <div className={`mb-3 rounded-lg border px-3 py-2 text-sm ${isNearbySite ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-blue-100 bg-blue-50 text-blue-900'}`}>
+            <p>
+              <span className="font-semibold">{isNearbySite ? 'Exact address (job location):' : 'Address details:'}</span> {addressDetail}
+            </p>
+            {isNearbySite && (
+              <p className="mt-1 text-xs">The map pin below is a nearby address within 100 m; location check uses that pin.</p>
+            )}
+          </div>
+        )}
+        {isProvider && requesterAddress && (
+          <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <p><span className="font-semibold">Requester's home (job location):</span> {requesterAddress}</p>
+            <p className="mt-1 text-xs">
+              The map pin below is a nearby address within 100 m; GPS check-in uses that pin.
+            </p>
+          </div>
+        )}
         {isProvider && siteAddress && (
           <p className="mb-3 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-900">
-            <span className="font-semibold">Requester task address:</span> {siteAddress}
+            <span className="font-semibold">{requesterAddress || isNearbySite ? 'Nearby address on the map:' : 'Requester task address:'}</span> {siteAddress}
           </p>
         )}
         {latest?.timestamp && (

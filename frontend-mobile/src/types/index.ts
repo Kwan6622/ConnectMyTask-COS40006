@@ -21,6 +21,8 @@ export enum TaskStatus {
   PAID = "PAID",
   DISPUTED = "DISPUTED",
   CANCELLED = "CANCELLED",
+  /** Deadline passed with nobody assigned; only the requester sees it */
+  EXPIRED = "EXPIRED",
 }
 
 export type TaskSortBy = "most_recent" | "budget_low_to_high" | "budget_high_to_low" | "deadline";
@@ -55,6 +57,14 @@ export interface User {
   phone?: string;
   phoneNumber?: string;
   location?: string;
+  /** Official ward code of the account location */
+  locationId?: number | null;
+  cityId?: number | null;
+  /** Private home address; only shown to the provider of a nearby-address task. */
+  streetAddress?: string | null;
+  warningCount?: number;
+  warningLimit?: number;
+  lockedUntil?: string | null;
   rating?: number;
   ratingCount?: number;
   completedTasks?: number;
@@ -64,6 +74,22 @@ export interface User {
   isVerified?: boolean;
   bio?: string;
   createdAt?: string;
+}
+
+export interface UserWarning {
+  id: number;
+  change: number;
+  countAfter: number;
+  reason: string;
+  taskId?: number | null;
+  createdAt: string;
+  createdBy?: { id: number; name: string } | null;
+}
+
+export interface RepostSuggestion {
+  field: "budget" | "dueDate" | "description" | "title" | "imageUrls" | "maxBids" | "assign";
+  message: string;
+  suggestedValue?: number | string;
 }
 
 export interface ProviderCertificate {
@@ -81,7 +107,6 @@ export interface ProviderProfile {
   id?: string | number;
   userId?: string | number;
   address?: string;
-  district?: string;
   city?: string;
   specialties: string[];
   safetyComplianceAgreed: boolean;
@@ -125,7 +150,12 @@ export interface Task {
   category: TaskCategory | string;
   status: TaskStatus | string;
   location: string;
-  district?: string;
+  locationId?: number | null;
+  cityId?: number | null;
+  /** The site address is a findable spot within 100 m of the requester's home. */
+  isApproximateLocation?: boolean;
+  /** Suggestions only: distance from the provider, rounded to 0.5 km. */
+  distanceKm?: number | null;
   siteAddress?: string;
   siteLatitude?: number;
   siteLongitude?: number;
@@ -189,7 +219,6 @@ export interface TaskProgressUpdate {
   note: string;
   attachments?: string[];
   milestoneStatus?: string | null;
-  estimatedCompletionDate?: string | null;
   provider?: User;
   createdAt: string;
   updatedAt: string;
@@ -208,9 +237,10 @@ export interface TaskSubtask {
 export interface TaskProgressSummary {
   progressPercent: number;
   latestNote?: string | null;
-  estimatedCompletionDate?: string | null;
   milestoneStatus?: string | null;
   attachmentsCount: number;
+  completedSubtasks?: number;
+  totalSubtasks?: number;
 }
 
 export interface PaymentTransaction {
@@ -290,7 +320,8 @@ export interface SignUpInput {
   fullName: string;
   email: string;
   phoneNumber?: string;
-  location: string;
+  /** Official ward code picked from the city's ward list */
+  wardId: number;
   accountType: AccountType;
   password: string;
 }

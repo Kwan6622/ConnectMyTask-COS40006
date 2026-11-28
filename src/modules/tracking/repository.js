@@ -9,6 +9,12 @@ const getLatestVerification = (taskId, providerId) =>
     orderBy: [{ verifiedAt: 'desc' }, { id: 'desc' }],
   });
 const createVerification = data => prisma.taskLocationVerification.create({ data });
+// Private home address of the task's requester (approximate-location tasks only).
+const getRequesterHomeAddress = taskId =>
+  prisma.task.findUnique({
+    where: { id: taskId },
+    select: { createdBy: { select: { streetAddress: true, locationId: true } } },
+  }).then(row => row?.createdBy || null);
 const revokeTaskVerifications = (taskId, reason, revokedAt = new Date()) =>
   prisma.taskLocationVerification.updateMany({
     where: { taskId, revokedAt: null },
@@ -17,6 +23,7 @@ const revokeTaskVerifications = (taskId, reason, revokedAt = new Date()) =>
 
 module.exports = {
   getTaskById,
+  getRequesterHomeAddress,
   getVerificationByRequestId,
   getLatestVerification,
   createVerification,

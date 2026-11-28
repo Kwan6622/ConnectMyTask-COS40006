@@ -19,13 +19,14 @@ import {
   UserCircleIcon,
 } from '@heroicons/react/24/outline';
 import type { ProviderCertificate, ProviderProfile, ProviderRatingSummary } from '../types';
-import { HO_CHI_MINH_WARD_GROUPS } from '../constants/hoChiMinhWards';
+import { CityWardPicker, type CityWardValue } from '../components/location/CityWardPicker';
+import { WarningsPanel } from '../components/profile/WarningsPanel';
 
 interface ProfileFormData {
   fullName: string;
   email: string;
   phone?: string;
-  location?: string;
+  streetAddress?: string;
   bio?: string;
 }
 
@@ -50,13 +51,20 @@ export const ProfilePage: React.FC = () => {
   const [providerProfile, setProviderProfile] = useState<ProviderProfile>(emptyProviderProfile);
   const [providerCertificates, setProviderCertificates] = useState<ProviderCertificate[]>([]);
   const [certificateForm, setCertificateForm] = useState({ title: '', certificateType: '', fileUrl: '' });
+  const [place, setPlace] = useState<CityWardValue>({ cityId: user?.cityId ?? null, wardId: user?.locationId ?? null });
+  const [placeError, setPlaceError] = useState('');
+
+  // Keep the picker in step with the saved account location (it loads after the page).
+  useEffect(() => {
+    if (!isEditing) setPlace({ cityId: user?.cityId ?? null, wardId: user?.locationId ?? null });
+  }, [user?.cityId, user?.locationId, isEditing]);
 
   const { register, handleSubmit, formState: { errors }, reset } = useForm<ProfileFormData>({
     defaultValues: {
       fullName: user?.fullName || user?.name || '',
       email: user?.email || '',
       phone: user?.phone || '',
-      location: user?.location || '',
+      streetAddress: user?.streetAddress || '',
       bio: user?.bio || '',
     },
   });
@@ -143,16 +151,22 @@ export const ProfilePage: React.FC = () => {
   const onSubmit = async (data: ProfileFormData) => {
     setIsLoading(true);
     try {
-      if (!data.location) {
-        toast.error('Please select your district');
+      if (!place.wardId) {
+        setPlaceError('Choose your city, then pick your ward from the suggestions.');
         return;
       }
-      await updateProfile({ fullName: data.fullName.trim(), phone: data.phone?.trim(), location: data.location, bio: data.bio?.trim() });
+      await updateProfile({
+        fullName: data.fullName.trim(),
+        phone: data.phone?.trim(),
+        locationId: place.wardId,
+        streetAddress: data.streetAddress?.trim() || '',
+        bio: data.bio?.trim(),
+      });
       toast.success('Profile updated successfully');
       setIsEditing(false);
       reset({ ...data, fullName: data.fullName.trim(), phone: data.phone?.trim(), bio: data.bio?.trim() });
     } catch (error: any) {
-      toast.error(error.message || 'Failed to update profile');
+      toast.error(error?.response?.data?.message || error.message || 'Failed to update profile');
     } finally {
       setIsLoading(false);
     }
@@ -161,9 +175,6 @@ export const ProfilePage: React.FC = () => {
   const saveProviderTrustProfile = async () => {
     try {
       const response = await api.users.updateProviderProfile({
-        address: providerProfile.address || '',
-        district: providerProfile.district || '',
-        city: providerProfile.city || '',
         specialties: providerProfile.specialties || [],
         safetyComplianceAgreed: Boolean(providerProfile.safetyComplianceAgreed),
         shortBio: providerProfile.shortBio || '',
@@ -305,10 +316,10 @@ export const ProfilePage: React.FC = () => {
                   <span className="text-sm">{user.phone}</span>
                 </div>
               )}
-              {providerProfile?.district && (
+              {user.location && (
                 <div className="flex items-center gap-3 text-dark-600">
                   <MapPinIcon className="w-5 h-5 text-accent-600" />
-                  <span className="text-sm">{providerProfile.district}{providerProfile.city ? `, ${providerProfile.city}` : ''}</span>
+                  <span className="text-sm">{user.location}</span>
                 </div>
               )}
             </Card>
@@ -335,7 +346,20 @@ export const ProfilePage: React.FC = () => {
                   <h2 className="text-xl font-bold text-dark-900">Profile Information</h2>
                 </div>
                 {!isEditing && (
-                  <Button variant="outline" onClick={() => setIsEditing(true)}>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      // The profile loads after the form is created, so refill it from the latest values.
+                      reset({
+                        fullName: user.fullName || user.name || '',
+                        email: user.email || '',
+                        phone: user.phone || '',
+                        streetAddress: user.streetAddress || '',
+                        bio: user.bio || '',
+                      });
+                      setIsEditing(true);
+                    }}
+                  >
                     <PencilSquareIcon className="w-5 h-5 mr-2" />
                     Edit
                   </Button>
@@ -347,29 +371,33 @@ export const ProfilePage: React.FC = () => {
                   <Input {...register('fullName', { required: 'Full name is required' })} label="Full Name" error={errors.fullName?.message} />
                   <Input {...register('email', { required: 'Email is required' })} type="email" label="Email" disabled error={errors.email?.message} />
                   <Input {...register('phone')} label="Phone Number" placeholder="+84 9xx xxx xxx" error={errors.phone?.message} />
-                  <label className="block">
-                    <span className="block text-sm font-medium text-dark-700 mb-2">District *</span>
-                    <select
-                      {...register('location', { required: 'Please select your district' })}
-                      className="w-full h-12 rounded-xl border border-dark-200 bg-white px-4 text-dark-900 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    >
-                      <option value="" disabled>Select district</option>
-                      {HO_CHI_MINH_WARD_GROUPS.map((group) => (
-                        <optgroup key={group.oldDistrict} label={group.oldDistrict}>
-                          {group.wards.map((ward) => (
-                            <option key={`${group.oldDistrict}-${ward}`} value={ward}>{ward}</option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
-                    {errors.location && <p className="text-sm text-danger-600 mt-2">{errors.location.message}</p>}
-                  </label>
+                  <div className="space-y-3">
+                    <p className="text-sm font-semibold text-dark-800">Your location</p>
+                    <CityWardPicker
+                      value={place}
+                      required
+                      error={placeError}
+                      onChange={(next) => { setPlace(next); setPlaceError(''); }}
+                    />
+                    <Input
+                      {...register('streetAddress', {
+                        validate: (value) => !value || value.trim().length >= 3 || 'Enter at least 3 characters, or leave it empty',
+                      })}
+                      label="Home address (private)"
+                      placeholder="e.g. A35 Bach Dang"
+                      error={errors.streetAddress?.message}
+                    />
+                    <p className="text-xs text-dark-500">
+                      Never shown publicly. If your house cannot be found on the map when you post a task, you can post a nearby
+                      address instead, and only the provider you hire sees this address.
+                    </p>
+                  </div>
                   <label className="block">
                     <span className="block text-sm font-medium text-dark-700 mb-2">Bio</span>
                     <textarea {...register('bio')} rows={4} className="w-full rounded-xl border border-dark-200 px-4 py-3" />
                   </label>
                   <div className="flex gap-4 pt-6 border-t border-dark-100">
-                    <Button type="button" variant="outline" onClick={() => { setIsEditing(false); reset(); }} className="flex-1">Cancel</Button>
+                    <Button type="button" variant="outline" onClick={() => { setIsEditing(false); setPlaceError(''); reset(); }} className="flex-1">Cancel</Button>
                     <Button type="submit" disabled={isLoading} className="flex-1">{isLoading ? 'Saving...' : 'Save Changes'}</Button>
                   </div>
                 </form>
@@ -388,8 +416,12 @@ export const ProfilePage: React.FC = () => {
                     <p className="font-semibold text-dark-900">{user.phone || '-'}</p>
                   </div>
                   <div className="p-4 bg-dark-50 rounded-xl">
-                    <p className="text-sm text-dark-500">District</p>
-                    <p className="font-semibold text-dark-900">{user.location || '-'}</p>
+                    <p className="text-sm text-dark-500">City and ward</p>
+                    <p className="font-semibold text-dark-900">{user.location || 'Not set yet. Edit your profile to choose your ward.'}</p>
+                  </div>
+                  <div className="p-4 bg-dark-50 rounded-xl">
+                    <p className="text-sm text-dark-500">Home address (private)</p>
+                    <p className="font-semibold text-dark-900">{user.streetAddress || '-'}</p>
                   </div>
                   <div className="p-4 bg-dark-50 rounded-xl">
                     <p className="text-sm text-dark-500">Bio</p>
@@ -398,41 +430,14 @@ export const ProfilePage: React.FC = () => {
                 </div>
               )}
 
+              <div className="mt-6">
+                <WarningsPanel count={Number(user.warningCount || 0)} limit={user.warningLimit || 3} warnings={user.warnings || []} />
+              </div>
+
               {isProvider && (
                 <div className="mt-8 border-t border-dark-100 pt-6">
                   <h3 className="text-lg font-semibold text-dark-900 mb-4">Provider Trust & Verification</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <Input
-                      label="Address"
-                      value={providerProfile.address || ''}
-                      onChange={(e) => setProviderProfile((prev) => ({ ...prev, address: e.target.value }))}
-                    />
-                    <label className="block">
-                      <span className="block text-sm font-medium text-dark-700 mb-2">Service district (used for task suggestions)</span>
-                      <select
-                        value={providerProfile.district || ''}
-                        onChange={(e) => setProviderProfile((prev) => ({ ...prev, district: e.target.value }))}
-                        className="w-full h-12 rounded-xl border border-dark-200 bg-white px-4 text-dark-900 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                      >
-                        <option value="">Same as my ward ({user?.location || 'not set'})</option>
-                        {providerProfile.district
-                          && !HO_CHI_MINH_WARD_GROUPS.some((group) => group.oldDistrict === providerProfile.district || group.wards.includes(providerProfile.district as string))
-                          && <option value={providerProfile.district}>{providerProfile.district}</option>}
-                        {HO_CHI_MINH_WARD_GROUPS.map((group) => (
-                          <optgroup key={group.oldDistrict} label={group.oldDistrict}>
-                            <option value={group.oldDistrict}>All of {group.oldDistrict}</option>
-                            {group.wards.map((ward) => (
-                              <option key={`${group.oldDistrict}-${ward}`} value={ward}>{ward}</option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
-                    </label>
-                    <Input
-                      label="City"
-                      value={providerProfile.city || ''}
-                      onChange={(e) => setProviderProfile((prev) => ({ ...prev, city: e.target.value }))}
-                    />
                     <Input
                       label="Specialties (comma separated)"
                       value={(providerProfile.specialties || []).join(', ')}
@@ -495,7 +500,7 @@ export const ProfilePage: React.FC = () => {
                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                 : cert.verificationStatus === 'REJECTED'
                                   ? 'bg-red-50 text-red-700 border-red-200'
-                                  : 'bg-amber-50 text-amber-700 border-amber-200'
+                                  : 'bg-yellow-50 text-yellow-800 border-yellow-300'
                             }`}>
                               {cert.verificationStatus}
                             </span>

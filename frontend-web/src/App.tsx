@@ -20,6 +20,8 @@ const SupportPage = lazy(() => import('./pages/SupportPage').then((module) => ({
 const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage').then((module) => ({ default: module.PrivacyPolicyPage })));
 const TermsOfServicePage = lazy(() => import('./pages/TermsOfServicePage').then((module) => ({ default: module.TermsOfServicePage })));
 const AboutPage = lazy(() => import('./pages/AboutPage').then((module) => ({ default: module.AboutPage })));
+const AccountLockedPage = lazy(() => import('./pages/AccountLockedPage').then((module) => ({ default: module.AccountLockedPage })));
+const RepostTaskPage = lazy(() => import('./pages/RepostTaskPage').then((module) => ({ default: module.RepostTaskPage })));
 const TransactionHistoryPage = lazy(() => import('./pages/TransactionHistoryPage').then((module) => ({ default: module.TransactionHistoryPage })));
 import { ChatWidget } from './components/chat/ChatWidget';
 import { useAuthStore } from './stores/auth.store';
@@ -27,7 +29,8 @@ import { useAuthStore } from './stores/auth.store';
 function App() {
   const location = useLocation();
   const user = useAuthStore((state) => state.user);
-  const isAuthRoute = location.pathname === '/login' || location.pathname === '/register';
+  // The lock page has no header, footer or chat: logging out is the only action.
+  const isAuthRoute = location.pathname === '/login' || location.pathname === '/register' || location.pathname === '/account-locked';
 
   return (
     <div className="app-container">
@@ -40,6 +43,8 @@ function App() {
             <Route path="/home" element={<HomePage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
+            <Route path="/account-locked" element={<AccountLockedPage />} />
+            <Route path="/tasks/:id/repost" element={user ? <RepostTaskPage /> : <Navigate to="/login" replace />} />
             <Route
               path="/my-tasks"
               element={

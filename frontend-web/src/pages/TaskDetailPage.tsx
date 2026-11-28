@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { moneyStatusClasses, taskStatusTone } from '../utils/statusColors';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
@@ -224,7 +225,8 @@ export const TaskDetailPage: React.FC = () => {
       !isBidLimitReached
   );
   const canAssignProvider = Boolean(isOwner && ['OPEN', 'BIDDING'].includes(task.status));
-  const canViewProgress = Boolean(task.assignedProviderId && (isOwner || isAssignedProvider));
+  // A cancelled task can only be viewed: no progress tracking.
+  const canViewProgress = Boolean(task.assignedProviderId && (isOwner || isAssignedProvider) && task.status !== 'CANCELLED');
   const canManageProgressBase = Boolean(
     isProvider && isAssignedProvider && task.escrowStatus === 'HELD' && ['ASSIGNED', 'IN_PROGRESS', 'PENDING_CONFIRMATION'].includes(task.status)
   );
@@ -258,19 +260,7 @@ export const TaskDetailPage: React.FC = () => {
       ['COMPLETED', 'AWAITING_PAYMENT', 'PAID'].includes(task.status)
   );
 
-  const statusColors: Record<string, { bg: string; text: string; border: string }> = {
-    OPEN: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
-    BIDDING: { bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200' },
-    ASSIGNED: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200' },
-    IN_PROGRESS: { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
-    PENDING_CONFIRMATION: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
-    COMPLETED: { bg: 'bg-dark-50', text: 'text-dark-700', border: 'border-dark-200' },
-    AWAITING_PAYMENT: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' },
-    PAID: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
-    DISPUTED: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' },
-    CANCELLED: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' },
-  };
-  const statusStyle = statusColors[task.status] || statusColors.OPEN;
+  const statusStyle = taskStatusTone(task.status);
 
   const handleSubmitBid = async () => {
     if (!canBid) {
@@ -471,23 +461,25 @@ export const TaskDetailPage: React.FC = () => {
           </div>
         </div>
 
+        {/* Providers and admins only: the server never sends risk fields to anyone else. */}
         {task.isSuspicious && canSeeSuspiciousRisk && (
-          <Card className="mb-6 border-amber-200 bg-amber-50">
+          <Card role="alert" className={`mb-6 ${task.riskLevel === 'HIGH' ? 'border-red-300 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
             <div className="flex items-start gap-3">
-              <ExclamationTriangleIcon className="w-6 h-6 text-amber-600 mt-0.5" />
-              <div>
-                <h2 className="text-base font-bold text-amber-800">Potential scam risk</h2>
-                <p className="text-sm text-amber-700 mt-1">
-                  Warning: This task may be suspicious because the offered budget is unusually low for this type of work.
+              <ExclamationTriangleIcon className={`w-6 h-6 mt-0.5 ${task.riskLevel === 'HIGH' ? 'text-red-600' : 'text-amber-600'}`} />
+              <div className={task.riskLevel === 'HIGH' ? 'text-red-800' : 'text-amber-800'}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base font-bold">Proceed with caution</h2>
+                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide ${task.riskLevel === 'HIGH' ? 'bg-red-600 text-white' : 'bg-amber-200 text-amber-900'}`}>
+                    {task.riskLevel === 'HIGH' ? 'High risk' : 'Medium risk'}
+                  </span>
+                </div>
+                <p className="text-sm mt-1">
+                  This task may be a scam: the offered budget is unusually low for this type of work. Check the details and
+                  talk to the requester before you bid, and never pay anything up front.
                 </p>
-                <p className="text-sm text-amber-700 mt-1 font-medium">
+                <p className="text-sm mt-1 font-medium">
                   Reason: {task.suspiciousReason || 'Budget is unusually low for this type of job'}
                 </p>
-                {task.riskLevel && (
-                  <p className="text-xs text-amber-800 mt-1 uppercase tracking-wide">
-                    Risk level: {task.riskLevel}
-                  </p>
-                )}
               </div>
             </div>
           </Card>
@@ -512,6 +504,14 @@ export const TaskDetailPage: React.FC = () => {
             )}
 
             <Card>
+              {task.status === 'EXPIRED' && String(task.createdById) === String(user?.id) && (
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-300 bg-gray-50 p-4">
+                  <p className="text-sm text-gray-700 flex-1 min-w-[14rem]">
+                    This task expired before a provider was assigned. Only you can see it. Edit and repost it with a new deadline, or delete it.
+                  </p>
+                  <Button onClick={() => navigate(`/tasks/${task.id}/repost`)}>Edit &amp; repost</Button>
+                </div>
+              )}
               <h2 className="text-xl font-bold text-dark-900 mb-4">Description</h2>
               <p className="text-dark-700 whitespace-pre-line">{task.description}</p>
             </Card>
@@ -526,6 +526,14 @@ export const TaskDetailPage: React.FC = () => {
                   <div>
                     <p className="text-sm text-dark-500">Location</p>
                     <p className="font-semibold text-dark-900">{task.location}</p>
+                    {task.isApproximateLocation && (
+                      <span
+                        title="The posted address is a findable spot within 100 m. The provider you hire sees the exact home address."
+                        className="mt-1 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800"
+                      >
+                        Nearby address (within 100 m)
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -693,11 +701,11 @@ export const TaskDetailPage: React.FC = () => {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-dark-600">Escrow</span>
-                  <span className="font-semibold text-dark-900">{task.escrowStatus || 'NONE'}</span>
+                  <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${moneyStatusClasses(task.escrowStatus || 'NONE')}`}>{task.escrowStatus || 'NONE'}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-dark-600">Payment</span>
-                  <span className="font-semibold text-dark-900">{task.paymentStatus || 'UNPAID'}</span>
+                  <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${moneyStatusClasses(task.paymentStatus || 'UNPAID')}`}>{task.paymentStatus || 'UNPAID'}</span>
                 </div>
                 {task.assignedProvider && (
                   <div className="flex justify-between text-sm">
@@ -711,14 +719,6 @@ export const TaskDetailPage: React.FC = () => {
                     {latestProgressUpdate?.progressPercent ?? 0}%
                   </span>
                 </div>
-                {latestProgressUpdate?.estimatedCompletionDate && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-dark-600">Estimated completion</span>
-                    <span className="font-semibold text-dark-900">
-                      {new Date(latestProgressUpdate.estimatedCompletionDate).toLocaleDateString()}
-                    </span>
-                  </div>
-                )}
               </div>
             </Card>
 
@@ -755,7 +755,7 @@ export const TaskDetailPage: React.FC = () => {
                               ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                               : cert.verificationStatus === 'REJECTED'
                                 ? 'bg-red-50 text-red-700 border-red-200'
-                                : 'bg-amber-50 text-amber-700 border-amber-200'
+                                : 'bg-yellow-50 text-yellow-800 border-yellow-300'
                           }`}>
                             {cert.verificationStatus}
                           </span>

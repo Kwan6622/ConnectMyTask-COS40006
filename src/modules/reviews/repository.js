@@ -11,9 +11,10 @@ async function getReviewsForProvider(providerId) {
         assignedProviderId: providerId,
       },
     },
+    // Public endpoint: never return whole rows (password hash, home or site address).
     include: {
-      task: true,
-      reviewer: true,
+      task: { select: { id: true, title: true, category: true } },
+      reviewer: { select: { id: true, name: true, profilePhotoUrl: true } },
     },
     orderBy: { createdAt: 'desc' },
   });

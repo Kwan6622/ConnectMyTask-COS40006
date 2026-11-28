@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
@@ -19,6 +19,9 @@ import {
   formatDate,
   formatDateTime,
   formatTaskStatusLabel,
+  getStatusVariant,
+  isViewOnlyTask,
+  variantColors,
   getDisplayName,
   isProvider,
   isRequester,
@@ -66,9 +69,9 @@ export default function TaskProgressPage(): React.ReactElement {
   }));
 
   const [progressPercent, setProgressPercent] = useState("");
+  const [isPublishing, setIsPublishing] = useState(false);
   const [note, setNote] = useState("");
   const [milestoneStatus, setMilestoneStatus] = useState("");
-  const [estimatedCompletionDate, setEstimatedCompletionDate] = useState("");
   const [proofImages, setProofImages] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [markAsCompleted, setMarkAsCompleted] = useState(false);
   const [disputeReason, setDisputeReason] = useState("QUALITY_ISSUE");
@@ -87,19 +90,25 @@ export default function TaskProgressPage(): React.ReactElement {
     }
   }, [fetchAssignedTasks, fetchRequesterTasks, isAuthenticated, user]);
 
-  useEffect(() => {
-    if (!taskProgressSummary) return;
-    setProgressPercent(String(taskProgressSummary.progressPercent || 0));
-    setMilestoneStatus(taskProgressSummary.milestoneStatus || "");
-    setEstimatedCompletionDate(taskProgressSummary.estimatedCompletionDate || "");
-  }, [taskProgressSummary]);
-
   const trackableTasks = useMemo(
-    () => (isProvider(user) ? assignedTasks : requesterTasks),
+    // Cancelled or expired tasks can only be viewed from their task page.
+    () => (isProvider(user) ? assignedTasks : requesterTasks).filter((task) => !isViewOnlyTask(task.status)),
     [assignedTasks, requesterTasks, user]
   );
 
   const selectedTaskId = typeof params.taskId === "string" ? params.taskId : undefined;
+
+  // The progress summary is refetched often (focus, polling). Prefill the optional
+  // fields once per task only, so a refetch never overwrites what the provider is
+  // typing. The progress field itself stays empty and shows the current value as a hint.
+  const prefilledTaskIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!taskProgressSummary || !selectedTaskId) return;
+    if (prefilledTaskIdRef.current === String(selectedTaskId)) return;
+    prefilledTaskIdRef.current = String(selectedTaskId);
+    setProgressPercent("");
+    setMilestoneStatus(taskProgressSummary.milestoneStatus || "");
+  }, [selectedTaskId, taskProgressSummary]);
   const isRequesterView = isRequester(user);
   const isProviderView = isProvider(user);
   const isOwner = currentTask ? String(currentTask.createdById) === String(user?.id) : false;
@@ -111,7 +120,13 @@ export default function TaskProgressPage(): React.ReactElement {
     currentTask != null &&
     currentTask.escrowStatus === 'HELD' &&
     locationVerified &&
-    ["ASSIGNED", "IN_PROGRESS", "PENDING_CONFIRMATION"].includes(String(currentTask.status));
+    ["ASSIGNED", "IN_PROGRESS"].includes(String(currentTask.status));
+  // Once the provider publishes the task as completed, the update panel is read-only.
+  const isProgressLocked =
+    isProviderView &&
+    isAssignedProvider &&
+    currentTask != null &&
+    ["PENDING_CONFIRMATION", "COMPLETED", "AWAITING_PAYMENT"].includes(String(currentTask.status));
   const canConfirm =
     isRequesterView &&
     isOwner &&
@@ -192,12 +207,18 @@ export default function TaskProgressPage(): React.ReactElement {
       return;
     }
 
+    if (!progressPercent.trim()) {
+      Alert.alert("Progress required", "Enter the new progress percent (0-100).");
+      return;
+    }
     const parsedProgress = Number(progressPercent);
     if (!Number.isFinite(parsedProgress) || parsedProgress < 0 || parsedProgress > 100) {
       Alert.alert("Invalid progress", "Progress percent must be between 0 and 100.");
       return;
     }
 
+    if (isPublishing) return;
+    setIsPublishing(true);
     try {
       const attachmentUrls = await Promise.all(
         proofImages.map((asset) =>
@@ -214,17 +235,19 @@ export default function TaskProgressPage(): React.ReactElement {
         note: note.trim(),
         attachments: attachmentUrls,
         milestoneStatus: milestoneStatus.trim() || undefined,
-        estimatedCompletionDate: estimatedCompletionDate.trim() || undefined,
         markAsCompleted,
       });
 
       setNote("");
+      setProgressPercent("");
       setProofImages([]);
       setMarkAsCompleted(false);
       Alert.alert("Progress updated", "The task timeline has been refreshed from the shared backend.");
     } catch (error: any) {
       const message = error?.response?.data?.message || error?.message || "Failed to update progress.";
       Alert.alert("Update failed", message);
+    } finally {
+      setIsPublishing(false);
     }
   };
 
@@ -303,7 +326,7 @@ export default function TaskProgressPage(): React.ReactElement {
 
   if (!isAuthenticated || !user) {
     return (
-      <MarketplaceShell activeRoute="progress">
+      <MarketplaceShell activeRoute={isProvider(user) ? "tracking" : "progress"}>
         <Card>
           <View style={styles.promptBox}>
             <Text style={styles.promptTitle}>Sign in to manage task progress</Text>
@@ -318,7 +341,7 @@ export default function TaskProgressPage(): React.ReactElement {
   }
 
   return (
-    <MarketplaceShell activeRoute="progress">
+    <MarketplaceShell activeRoute={isProvider(user) ? "tracking" : "progress"}>
       <View style={styles.headerCopy}>
         <Text style={styles.pageTitle}>{isProviderView ? "My Assigned Tasks" : "Task Progress"}</Text>
         <Text style={styles.pageSubtitle}>
@@ -373,8 +396,8 @@ export default function TaskProgressPage(): React.ReactElement {
                 {currentTask.escrowAmount != null ? <Text style={styles.currentTaskBody}>Agreed price: {formatCurrency(Number(currentTask.escrowAmount))}</Text> : null}
                 <Text>{currentTask.escrowStatus === 'HELD' ? 'Escrow FUNDED' : 'Awaiting requester deposit'}</Text>
               </View>
-              <View style={styles.summaryBadge}>
-                <Text style={styles.summaryBadgeText}>{formatTaskStatusLabel(currentTask.status)}</Text>
+              <View style={[styles.summaryBadge, variantColors(getStatusVariant(currentTask.status))]}>
+                <Text style={[styles.summaryBadgeText, { color: variantColors(getStatusVariant(currentTask.status)).color }]}>{formatTaskStatusLabel(currentTask.status)}</Text>
               </View>
             </View>
 
@@ -385,8 +408,8 @@ export default function TaskProgressPage(): React.ReactElement {
                 value={taskProgressSummary?.milestoneStatus || "No milestone yet"}
               />
               <SummaryMetric
-                label="Estimated Completion"
-                value={taskProgressSummary?.estimatedCompletionDate ? formatDate(taskProgressSummary.estimatedCompletionDate) : "Not set"}
+                label="Subtasks Done"
+                value={`${taskProgressSummary?.completedSubtasks ?? 0}/${taskProgressSummary?.totalSubtasks ?? 0}`}
               />
             </View>
 
@@ -431,33 +454,44 @@ export default function TaskProgressPage(): React.ReactElement {
                 <Text style={styles.subtaskSummary}>
                   Completed: {doneSubtasks}/{totalSubtasks}
                 </Text>
-                {taskSubtasks.map((subtask) => (
-                  <View key={String(subtask.id)} style={styles.subtaskItem}>
-                    <View style={styles.subtaskCopy}>
-                      <Text style={styles.subtaskTitle}>{subtask.title}</Text>
-                      <Text style={styles.subtaskMeta}>
-                        {subtask.progressPercent ? `${subtask.progressPercent}%` : "Checkpoint"} · {subtask.status}
-                      </Text>
-                    </View>
-                    {canManageProgress ? (
-                      <View style={styles.subtaskActions}>
-                        <Button
-                          title="Start"
-                          size="sm"
-                          variant="outline"
-                          onPress={() => void handleUpdateSubtask(subtask.id, "IN_PROGRESS")}
-                          loading={updatingSubtaskId === subtask.id}
-                        />
-                        <Button
-                          title="Done"
-                          size="sm"
-                          onPress={() => void handleUpdateSubtask(subtask.id, "DONE")}
-                          loading={updatingSubtaskId === subtask.id}
-                        />
+                {taskSubtasks.map((subtask) => {
+                  const isDone = subtask.status === "DONE";
+                  return (
+                    <View
+                      key={String(subtask.id)}
+                      style={[styles.subtaskItem, isDone && styles.subtaskItemDone]}
+                      accessibilityState={{ disabled: isDone }}
+                    >
+                      <View style={styles.subtaskCopy}>
+                        <Text style={[styles.subtaskTitle, isDone && styles.subtaskTitleDone]}>
+                          {isDone ? "✓ " : ""}{subtask.title}
+                        </Text>
+                        <Text style={styles.subtaskMeta}>
+                          {subtask.progressPercent ? `${subtask.progressPercent}%` : "Checkpoint"} · {isDone ? "Completed" : subtask.status}
+                        </Text>
                       </View>
-                    ) : null}
-                  </View>
-                ))}
+                      {canManageProgress && !isDone ? (
+                        <View style={styles.subtaskActions}>
+                          {subtask.status !== "IN_PROGRESS" ? (
+                            <Button
+                              title="Start"
+                              size="sm"
+                              variant="outline"
+                              onPress={() => void handleUpdateSubtask(subtask.id, "IN_PROGRESS")}
+                              loading={updatingSubtaskId === subtask.id}
+                            />
+                          ) : null}
+                          <Button
+                            title="Done"
+                            size="sm"
+                            onPress={() => void handleUpdateSubtask(subtask.id, "DONE")}
+                            loading={updatingSubtaskId === subtask.id}
+                          />
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })}
               </View>
             )}
           </Card>
@@ -484,28 +518,38 @@ export default function TaskProgressPage(): React.ReactElement {
             </Card>
           ) : null}
 
-          {canManageProgress ? (
+          {canManageProgress || isProgressLocked ? (
             <Card title="Provider Update Panel">
-              <View style={styles.form}>
+              {isProgressLocked ? (
+                <Text style={styles.lockedNotice}>
+                  This task has been published as completed. The update panel is locked.
+                </Text>
+              ) : null}
+              <View
+                style={[styles.form, isProgressLocked ? styles.formLocked : null]}
+                pointerEvents={isProgressLocked ? "none" : "auto"}
+              >
                 <Input
                   label="Progress (%)"
                   keyboardType="numeric"
                   value={progressPercent}
-                  onChangeText={setProgressPercent}
+                  onChangeText={(text) => setProgressPercent(text.replace(/[^\d]/g, "").slice(0, 3))}
+                  placeholder={`Current: ${summaryProgress}%`}
+                  editable={!isProgressLocked}
                 />
                 <Input
                   label="Work Summary Note"
                   value={note}
                   onChangeText={setNote}
+                  editable={!isProgressLocked}
                   multiline
                   numberOfLines={4}
                 />
-                <Input label="Milestone Status" value={milestoneStatus} onChangeText={setMilestoneStatus} />
                 <Input
-                  label="Estimated Completion Date"
-                  value={estimatedCompletionDate}
-                  onChangeText={setEstimatedCompletionDate}
-                  helperText="Use an ISO date/time string to mirror web data formatting."
+                  label="Milestone Status"
+                  value={milestoneStatus}
+                  onChangeText={setMilestoneStatus}
+                  editable={!isProgressLocked}
                 />
 
                 <View style={styles.imageUploadBox}>
@@ -529,7 +573,8 @@ export default function TaskProgressPage(): React.ReactElement {
                 </Pressable>
 
                 <Button
-                  title={isLoading ? "Publishing..." : "Publish Progress Update"}
+                  title={isProgressLocked ? "Published as completed" : isPublishing ? "Publishing..." : "Publish"}
+                  disabled={isPublishing || isProgressLocked}
                   onPress={() => void publishProgressUpdate()}
                 />
               </View>
@@ -826,8 +871,17 @@ const styles = StyleSheet.create({
     padding: 10,
     gap: 10,
   },
+  subtaskItemDone: {
+    backgroundColor: colors.dark[100],
+    borderColor: colors.dark[200],
+    opacity: 0.6,
+  },
   subtaskCopy: {
     gap: 2,
+  },
+  subtaskTitleDone: {
+    color: colors.dark[500],
+    textDecorationLine: "line-through",
   },
   subtaskTitle: {
     color: colors.dark[900],
@@ -846,6 +900,19 @@ const styles = StyleSheet.create({
   },
   form: {
     gap: 12,
+  },
+  formLocked: {
+    opacity: 0.5,
+  },
+  lockedNotice: {
+    marginBottom: 12,
+    padding: 10,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.success[200],
+    backgroundColor: colors.success[50],
+    color: colors.success[700],
+    fontSize: 13,
   },
   imageUploadBox: {
     gap: 8,

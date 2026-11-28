@@ -9,6 +9,8 @@ router.use(authenticate, requireRoles('ADMIN'));
 router.get('/stats', adminController.getStats);
 router.get('/users', adminController.getUsers);
 router.patch('/users/:id/status', adminController.updateUserStatus);
+router.get('/users/:id/warnings', adminController.getUserWarnings);
+router.post('/users/:id/warnings', adminController.changeUserWarnings);
 router.get('/tasks', adminController.getTasks);
 router.get('/tasks/suspicious', adminController.getSuspiciousTasks);
 router.delete('/tasks/:id', adminController.deleteTask);

@@ -7,7 +7,7 @@ import { Input } from '../components/common/Input';
 import { Card } from '../components/common/Card';
 import toast from 'react-hot-toast';
 import { EnvelopeIcon, LockClosedIcon } from '@heroicons/react/24/outline';
-import { HO_CHI_MINH_WARD_GROUPS } from '../constants/hoChiMinhWards';
+import { CityWardPicker, type CityWardValue } from '../components/location/CityWardPicker';
 
 interface LoginFormData {
   email: string;
@@ -18,7 +18,6 @@ interface SignupFormData extends LoginFormData {
   fullName: string;
   confirmPassword: string;
   role: 'CLIENT' | 'PROVIDER';
-  location: string;
 }
 
 export const LoginPage: React.FC = () => {
@@ -28,6 +27,8 @@ export const LoginPage: React.FC = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [place, setPlace] = useState<CityWardValue>({ cityId: null, wardId: null });
+  const [placeError, setPlaceError] = useState('');
 
   const loginForm = useForm<LoginFormData>();
   const signupForm = useForm<SignupFormData>();
@@ -57,6 +58,10 @@ export const LoginPage: React.FC = () => {
       toast.error('Passwords do not match');
       return;
     }
+    if (!place.wardId) {
+      setPlaceError('Choose your city, then pick your ward from the suggestions.');
+      return;
+    }
 
     setIsLoading(true);
     try {
@@ -65,11 +70,12 @@ export const LoginPage: React.FC = () => {
         password: data.password,
         fullName: data.fullName,
         role: data.role,
-        location: data.location,
+        wardId: place.wardId,
       });
       toast.success('Account created successfully! Please log in.');
       setIsLogin(true);
       signupForm.reset();
+      setPlace({ cityId: null, wardId: null });
     } catch (error: any) {
       const backendMessage =
         error?.response?.data?.message ||
@@ -200,28 +206,12 @@ export const LoginPage: React.FC = () => {
                 error={signupForm.formState.errors.email?.message}
               />
 
-              <div>
-                <label htmlFor="signup-location" className="block text-sm font-medium text-dark-700 mb-2">
-                  District *
-                </label>
-                <select
-                  id="signup-location"
-                  {...signupForm.register('location', { required: 'Please select your district' })}
-                  className="w-full h-12 rounded-xl border border-dark-200 bg-white px-4 text-dark-900 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="" disabled>Select district</option>
-                  {HO_CHI_MINH_WARD_GROUPS.map((group) => (
-                    <optgroup key={group.oldDistrict} label={group.oldDistrict}>
-                      {group.wards.map((ward) => (
-                        <option key={`${group.oldDistrict}-${ward}`} value={ward}>{ward}</option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-                {signupForm.formState.errors.location && (
-                  <p className="text-sm text-danger-600 mt-2">{signupForm.formState.errors.location.message}</p>
-                )}
-              </div>
+              <CityWardPicker
+                value={place}
+                required
+                error={placeError}
+                onChange={(next) => { setPlace(next); setPlaceError(''); }}
+              />
 
               <div>
                 <label className="block text-sm font-medium text-dark-700 mb-3">
@@ -300,6 +290,7 @@ export const LoginPage: React.FC = () => {
                   onClick={() => {
                     setIsLogin(true);
                     signupForm.reset();
+      setPlace({ cityId: null, wardId: null });
                   }}
                   className="text-primary-600 font-semibold hover:text-primary-700 transition-colors"
                 >

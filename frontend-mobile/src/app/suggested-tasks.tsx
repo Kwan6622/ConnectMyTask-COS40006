@@ -50,7 +50,7 @@ export default function SuggestedTasksScreen(): React.ReactElement {
         <View style={styles.headerRow}>
           <View>
             <Text style={styles.title}>Suggested Tasks</Text>
-            <Text style={styles.body}>Ranked by specialty, district proximity, and open bidding opportunities.</Text>
+            <Text style={styles.body}>Ranked by matching specialty first, then distance from your home address, then open bidding.</Text>
           </View>
           <Button title={isLoading ? "Refreshing..." : "Refresh"} size="sm" variant="outline" onPress={() => void fetchSuggestedTasks()} />
         </View>
@@ -60,7 +60,7 @@ export default function SuggestedTasksScreen(): React.ReactElement {
         <Card>
           <View style={styles.centerBox}>
             <Text style={styles.title}>No suggestions yet</Text>
-            <Text style={styles.body}>Complete your provider profile specialties and district to improve suggestions.</Text>
+            <Text style={styles.body}>Add your specialties and your home address on your profile to get the closest tasks first.</Text>
           </View>
         </Card>
       ) : (
