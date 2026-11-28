@@ -32,6 +32,7 @@ import {
   CurrencyDollarIcon,
   StarIcon,
   UserGroupIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline';
 import { api } from '../services/api';
 
@@ -202,8 +203,8 @@ export const TaskBrowsePage: React.FC = () => {
 
     return true;
   }).sort((a, b) => {
-    // Suggestions arrive ranked by specialty, distance and status: keep that order.
-    if (browseMode === 'suggested') return 0;
+    // "Best match" keeps the server's suggestion ranking (specialty, distance, status).
+    if (sortBy === 'bestMatch') return 0;
     const budgetA = a.budget ?? a.aiSuggestedPrice ?? 0;
     const budgetB = b.budget ?? b.aiSuggestedPrice ?? 0;
     const dateA = new Date(a.createdAt).getTime();
@@ -241,7 +242,7 @@ export const TaskBrowsePage: React.FC = () => {
       default:
         return dateB - dateA;
     }
-  }), [browseVisibleTasks, filters, sortBy]);
+  }), [browseVisibleTasks, filters, sortBy, browseMode]);
 
   const totalPages = Math.max(1, Math.ceil(filteredTasks.length / ITEMS_PER_PAGE));
   const safePage = Math.min(currentPage, totalPages);
@@ -493,6 +494,7 @@ export const TaskBrowsePage: React.FC = () => {
                     <button
                       onClick={() => {
                         setBrowseMode('all');
+                        if (sortBy === 'bestMatch') setSortBy('opportunity');
                         setCurrentPage(1);
                       }}
                       className={`px-3 py-1.5 text-sm rounded-md ${
@@ -504,6 +506,7 @@ export const TaskBrowsePage: React.FC = () => {
                     <button
                       onClick={() => {
                         setBrowseMode('suggested');
+                        setSortBy('bestMatch');
                         setCurrentPage(1);
                       }}
                       className={`px-3 py-1.5 text-sm rounded-md ${
@@ -523,6 +526,7 @@ export const TaskBrowsePage: React.FC = () => {
                   }}
                   className="px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
                 >
+                  {browseMode === 'suggested' && <option value="bestMatch">Best match for you</option>}
                   <option value="opportunity">Best Opportunities</option>
                   <option value="recent">Most Recent</option>
                   <option value="priceLow">Budget: Low to High</option>
@@ -544,13 +548,27 @@ export const TaskBrowsePage: React.FC = () => {
               <>
                 {/* Same layout as the home page list. */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {paginatedTasks.map((task) => (
-                    <TaskCard
-                      key={task.id}
-                      task={task}
-                      onClick={() => navigate(`/tasks/${task.id}`)}
-                    />
-                  ))}
+                  {paginatedTasks.map((task) => {
+                    const reasons: string[] = browseMode === 'suggested' && Array.isArray(task.suggestionReasons) ? task.suggestionReasons : [];
+                    if (reasons.length === 0) {
+                      return <TaskCard key={task.id} task={task} onClick={() => navigate(`/tasks/${task.id}`)} />;
+                    }
+                    // Suggested: outlined card with a small label on the top-left edge saying why.
+                    return (
+                      <div key={task.id} className="relative h-full pt-3">
+                        <span
+                          className="absolute left-5 top-0 z-10 inline-flex max-w-[85%] items-center gap-1 truncate rounded-full bg-indigo-600 px-3 py-1 text-xs font-semibold text-white shadow"
+                          title={reasons.join(' · ')}
+                        >
+                          <SparklesIcon className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">{reasons.slice(0, 2).join(' · ')}</span>
+                        </span>
+                        <div className="h-full rounded-2xl ring-2 ring-indigo-400 ring-offset-2 ring-offset-transparent">
+                          <TaskCard task={task} onClick={() => navigate(`/tasks/${task.id}`)} />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
                 
                 {/* Pagination */}

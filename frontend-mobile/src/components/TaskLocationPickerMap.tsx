@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import WebView, { type WebViewMessageEvent } from "react-native-webview";
 import { colors, radius } from "@/theme/tokens";
+import { useMapTouchLock } from "@/components/ScrollLock";
 
 export type TaskCoordinates = {
   latitude: number;
@@ -42,6 +43,7 @@ export function TaskLocationPickerMap({
   readOnly = false,
 }: TaskLocationPickerMapProps): React.ReactElement {
   const mapRef = useRef<WebView<object> | null>(null);
+  const mapTouchLock = useMapTouchLock();
   const [mapError, setMapError] = useState(false);
   const [html] = useState(() => createMapHtml(coordinates, readOnly));
 
@@ -82,8 +84,10 @@ export function TaskLocationPickerMap({
           ? "Location from the verified address. This pin is used for provider check-in."
           : "Check the pin. Tap the map or drag the pin to correct the exact task location."}
       </Text>
-      <View style={styles.mapFrame}>
+      {/* While touched, the page stops scrolling so the drag pans the map. */}
+      <View style={styles.mapFrame} {...mapTouchLock}>
         <WebView
+          nestedScrollEnabled
           ref={mapRef}
           source={{ html }}
           style={styles.map}

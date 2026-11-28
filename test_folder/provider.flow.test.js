@@ -236,7 +236,10 @@ describe('P5 FR-B2 Mobile location verification gate', () => {
     const future = new Date(Date.now() + 10 * 60 * 1000).toISOString();
     assert.equal((await p.api('POST', `/api/tracking/tasks/${task.id}/verify`, { token: provider.token, body: p.gpsFix(site, { timestamp: stale }) })).status, 409);
     assert.equal((await p.api('POST', `/api/tracking/tasks/${task.id}/verify`, { token: provider.token, body: p.gpsFix(site, { timestamp: future }) })).status, 409);
-    assert.equal((await p.api('POST', `/api/tracking/tasks/${task.id}/verify`, { token: provider.token, body: p.gpsFix(site, { accuracy: 500 }) })).status, 409);
+    // Accuracy worse than 100 m is refused by input validation (400) since main's tracking update.
+    assert.equal((await p.api('POST', `/api/tracking/tasks/${task.id}/verify`, { token: provider.token, body: p.gpsFix(site, { accuracy: 500 }) })).status, 400);
+    // MERGE keeps 100 m as the arrival-check accuracy limit (main uses 20 m).
+    assert.equal((await p.api('POST', `/api/tracking/tasks/${task.id}/verify`, { token: provider.token, body: p.gpsFix(site, { accuracy: 100 }) })).status, 201);
   });
 
   test('P5.4 only the assigned provider can verify, and a request ID cannot be replayed', async () => {

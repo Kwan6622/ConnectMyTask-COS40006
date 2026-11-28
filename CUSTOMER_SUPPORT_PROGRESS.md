@@ -10,7 +10,7 @@
 ## Changed files
 - `database/prisma/schema.prisma`
 - `database/prisma/migrations/20261017000000_customer_support/migration.sql`
-- `src/app.js`; `src/modules/support/routes.js`; `src/modules/support/routes.test.js`
+- `src/app.js`; `src/modules/support/routes.js`; `tests/backend/routes.test.js`
 - `frontend-web/src/App.tsx`; `frontend-web/src/components/layout/Header.tsx`; `frontend-web/src/services/api.ts`; `frontend-web/src/pages/SupportPage.tsx`
 - `frontend-mobile/src/components/MarketplaceHeader.tsx`; `frontend-mobile/src/services/api.ts`; `frontend-mobile/src/app/support.tsx`
 

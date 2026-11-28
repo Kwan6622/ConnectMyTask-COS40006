@@ -34,6 +34,27 @@ Thay đổi escrow:
 
 Có 3 file bị sửa ở cả hai phía và đã giữ được thay đổi của cả hai: `src/modules/tasks/service.js`, `frontend-mobile/src/store/taskStore.ts`, `frontend-mobile/src/types/index.ts`.
 
+## 2b. Ghép từ `main` mới (`5211175..ed5edb0`, 2026-11-29)
+
+2 commit của Kinz04 về bản đồ theo dõi: `c97cd7b` (GPS road routing) và `ed5edb0` (giữ zoom bản đồ).
+
+**Đã nhận**
+- `GET /api/tracking/tasks/:taskId/route`: tuyến đường xe từ vị trí mới nhất của provider tới ghim task, qua dịch vụ công khai OSRM (cache 30 giây, không tính kẹt xe). Web và mobile vẽ tuyến màu xanh và hiện "Road route: x km, about y min".
+- Vị trí gửi lên có `source: GPS | DEMO`; production từ chối DEMO. (Nút DEMO không có trong repo, theo README nằm trong file zip riêng.)
+- Mobile lấy GPS mỗi 5 giây nhưng chỉ gửi khi qua 20 giây hoặc đi 20 m (`utils/locationSharing.ts`).
+- Bản đồ không tự kéo zoom về sau mỗi lần cập nhật.
+- Nâng phiên bản Expo / React Native trên mobile (chạy `npm install` trong `frontend-mobile`). Privacy Policy, README, TRACKING_GUIDE cập nhật về OSRM.
+
+**Không nhận / giữ theo MERGE**
+- `main` xóa 10 file test (tracking, escrow, admin, bids, chat, platformFee, support, profile, auth, mobile locationVerification): **giữ lại toàn bộ**. README sửa lại câu "workspace không có test".
+- Độ chính xác GPS khi xác minh đến nơi: `main` 20 m → **giữ 100 m** (`MAX_VERIFICATION_ACCURACY_METERS` ở backend, validation và mobile; README, TRACKING_GUIDE cập nhật theo).
+- Thông báo khi ở xa: giữ "You are not at the job site yet…" (không nêu khoảng cách), nhưng dùng cách so sánh khoảng cách có sai số của `main`.
+- `.env.example` của mobile: không nhận IP LAN thật, giữ chỗ trống mẫu.
+
+**Gộp tay**: `TaskTrackingMap` mobile giữ cả hai bên (vị trí "You are here", hộp địa chỉ, tải không chớp, nút không ghi khoảng cách + tuyến đường, giữ zoom: bản đồ chỉ tự căn khi một điểm hoặc tuyến xuất hiện lần đầu). Test P5.3 sửa: độ chính xác 500 m giờ bị từ chối ở bước kiểm tra đầu vào (400), thêm trường hợp 100 m được chấp nhận.
+
+**Kéo bản đồ trên mobile (2026-11-29)**: trước đây kéo bản đồ thì cả trang cuộn theo. `MarketplaceShell` giờ tạm dừng cuộn trang khi ngón tay đặt trên bản đồ (`components/ScrollLock.tsx`, `useMapTouchLock`), áp dụng cho bản đồ theo dõi và bản đồ chọn vị trí khi đăng task; nhấc tay ra thì trang cuộn lại bình thường.
+
 ## 3. Tính năng lấy từ TEST_CMT
 
 **Backend**
@@ -244,6 +265,16 @@ Không cần train AI: mỗi task đã có tọa độ chính xác, mỗi phư�
 - **Riêng tư**: `addressDetail` bị bỏ khỏi mọi phản hồi task và danh sách admin; chỉ provider được giao thấy trong `GET /api/tracking/tasks/:id/site-location` sau khi nạp escrow ("Exact address (job location)" hoặc "Address details" trên bản đồ theo dõi web và mobile).
 - **Bố cục web**: cột trái (Category, Deadline) và cột phải (Task location) độc lập, nên phần địa chỉ dài ra không kéo giãn cột Category hay đẩy Deadline xuống.
 - Test: R10.1, R10.2, R9.4 (cập nhật).
+
+### 4.5j Lý do gợi ý và Sort by ở chế độ Suggested (2026-11-29)
+
+- **Sửa lỗi Sort by**: ở chế độ Suggested, trang Browse Tasks trước đây luôn giữ thứ tự của server, nên Sort by không có tác dụng. Giờ có thêm lựa chọn "Best match for you" (mặc định khi bấm Suggested, giữ thứ tự xếp hạng); các lựa chọn khác (Best Opportunities, Recent, giá, deadline) sắp xếp lại danh sách gợi ý như bình thường. Quay về All thì Sort by trở lại "Best Opportunities".
+- **Lý do gợi ý**: `GET /api/tasks/suggested` trả thêm `suggestionReasons` (theo thứ tự quan trọng):
+  - "Assigned to you"
+  - "Matches your specialty"
+  - "Under 1 km from you" hoặc "Close to you (about N km)" (≤ 5 km)
+  - nếu không có lý do nào ở trên: "Open for bids" / "Taking bids now"
+- **Giao diện**: thẻ gợi ý có viền màu chàm và một nhãn nhỏ nằm trên cạnh trên bên trái, ghi tối đa 2 lý do. Có trên web (Browse Tasks → Suggested) và mobile (màn Suggested tasks).
 
 ### 4.5 Test cờ fraud (2026-11-27)
 

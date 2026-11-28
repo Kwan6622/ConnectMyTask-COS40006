@@ -219,6 +219,22 @@ function assertProviderRole(user) {
   }
 }
 
+/** Why a task is suggested to this provider, in the order the ranking weighs them. */
+function buildSuggestionReasons({ task, currentUser, specialtyScore, km }) {
+  const reasons = [];
+  if (task.assignedProviderId && task.assignedProviderId === currentUser?.id) reasons.push('Assigned to you');
+  if (specialtyScore > 0) reasons.push('Matches your specialty');
+  if (km != null) {
+    if (km < 1) reasons.push('Under 1 km from you');
+    else if (km <= 5) reasons.push(`Close to you (about ${nearby.displayDistanceKm(km)} km)`);
+  }
+  if (reasons.length === 0) {
+    const status = String(task.status || '').toUpperCase();
+    reasons.push(status === 'BIDDING' ? 'Taking bids now' : 'Open for bids');
+  }
+  return reasons;
+}
+
 function scoreSpecialtyMatch(taskCategory, specialties) {
   const normalizedTaskCategory = String(taskCategory || '').toUpperCase();
   const normalizedSpecialties = (Array.isArray(specialties) ? specialties : [])
@@ -881,6 +897,8 @@ async function listSuggestedTasksForProvider(currentUser) {
       return {
         ...toPublicTask(task),
         suggestionScore: total,
+        // Plain-language reasons, most important first, shown on the suggested card.
+        suggestionReasons: buildSuggestionReasons({ task, currentUser, specialtyScore, km }),
         // Rounded to 0.5 km so the exact site stays private until the provider is hired.
         distanceKm: nearby.displayDistanceKm(km),
         sortKm: km,

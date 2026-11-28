@@ -97,6 +97,8 @@ export interface Task {
   isApproximateLocation?: boolean;
   /** Suggestions only: distance from the provider, rounded to 0.5 km. */
   distanceKm?: number | null;
+  /** Suggestions only: why this task was suggested, most important first. */
+  suggestionReasons?: string[];
   siteAddress?: string;
   siteLatitude?: number;
   siteLongitude?: number;
@@ -206,6 +208,7 @@ export interface TrackingLog {
   lat: number;
   lng: number;
   accuracy?: number | null;
+  source?: 'GPS' | 'DEMO';
   timestamp: string;
   receivedAt?: string;
 }

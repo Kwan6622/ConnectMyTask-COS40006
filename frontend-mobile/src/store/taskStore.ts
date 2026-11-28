@@ -170,6 +170,7 @@ function normalizeTask(raw: any): Task {
     cityId: raw?.cityId ?? null,
     isApproximateLocation: Boolean(raw?.isApproximateLocation),
     distanceKm: raw?.distanceKm != null ? toNumber(raw.distanceKm) : null,
+    suggestionReasons: Array.isArray(raw?.suggestionReasons) ? raw.suggestionReasons.map(String) : undefined,
     siteAddress: raw?.siteAddress || undefined,
     siteLatitude: raw?.siteLatitude != null ? toNumber(raw.siteLatitude) : undefined,
     siteLongitude: raw?.siteLongitude != null ? toNumber(raw.siteLongitude) : undefined,

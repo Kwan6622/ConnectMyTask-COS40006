@@ -196,9 +196,12 @@ class ApiService {
       lng: number;
       accuracy: number;
       timestamp: string;
+      source?: "GPS" | "DEMO";
     }) => apiClient.post('/tracking/update', data),
     latest: (taskId: string | number) =>
       apiClient.get(`/tracking/tasks/${taskId}/latest`),
+    route: (taskId: string | number) =>
+      apiClient.get(`/tracking/tasks/${taskId}/route`),
     history: (taskId: string | number) =>
       apiClient.get(`/tracking/tasks/${taskId}/history`),
   };

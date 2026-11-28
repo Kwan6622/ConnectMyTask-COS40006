@@ -71,6 +71,7 @@ export default function SuggestedTasksScreen(): React.ReactElement {
               key={String(task.id)}
               task={task}
               isSaved={isSaved}
+              suggestionReasons={task.suggestionReasons}
               onToggleSave={() => {
                 if (isSaved) {
                   void unsaveTask(task.id);

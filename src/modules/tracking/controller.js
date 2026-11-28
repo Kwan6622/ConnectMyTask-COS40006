@@ -18,6 +18,9 @@ module.exports = {
   verify,
   verification,
   siteLocation,
+  route: async (req, res, next) => {
+    try { res.json(await trackingService.getDrivingRoute(req.params.taskId, req.user)); } catch (err) { next(err); }
+  },
   latest: async (req, res, next) => {
     try { res.json(await trackingService.getLatestLocation(req.params.taskId, req.user)); } catch (err) { next(err); }
   },

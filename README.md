@@ -205,6 +205,10 @@ If register/login fails on another machine, 90% of cases are:
 - Web `.env` still points to wrong API port
 - Backend is not running on `4000`
 
+### Automated tests
+
+This workspace keeps its automated tests: `npm run test:unit` (module tests in `src/**/*.test.js`) and `npm run test:flows` (offline requester, provider, fraud and warning flows in `test_folder/`). The separate `ConnectMyTask-GPS-Demo-Test.zip` bundle from main also contains a GPS demo setup.
+
 ### Tech Stack
 
 - **Runtime**: Node.js (CommonJS)
@@ -334,12 +338,19 @@ All routes are prefixed with `/api` unless noted.
 
   - `GET /api/tracking/tasks/:taskId/site-location` – Get requester-set coordinates for a task participant
   - `GET /api/tracking/tasks/:taskId/latest` – Get the latest in-memory provider location (expires after two minutes)
+  - `GET /api/tracking/tasks/:taskId/route` – Get the driving route from the latest provider point to the saved task pin
   - `GET /api/tracking/tasks/:taskId/history` – Return an empty list; journey history is not stored
   - `GET /api/tracking/tasks/:taskId/verification` – Get arrival-verification status
-  - `POST /api/tracking/tasks/:taskId/verify` – Verify the assigned provider is within 1 km of the task site after escrow funding
+  - `POST /api/tracking/tasks/:taskId/verify` – Verify the assigned provider is within 100 m of the task site after escrow funding
   - `POST /api/tracking/update`
 
-All tracking routes require authentication. Location writes are accepted only from the provider assigned to an active task. The provider identity is taken from the authenticated account; `providerId` is optional and, if supplied, must match it. Journey updates replace one temporary latest point in API memory; they are not written to the `TRACKING_LOGS` database table. The latest point expires after two minutes and is lost on API restart. Location-verification evidence is persisted separately to enforce verification and expiry gates.
+Tracking rules:
+
+- Only task participants can view tracking. The assigned provider can share GPS while the task is active and escrow is funded.
+- The mobile app samples GPS every five seconds and uploads after 20 seconds or 20 metres of movement. Sharing accuracy must be 100 metres or better.
+- Arrival verification requires GPS accuracy of 100 metres or better and a distance within 100 metres of the task site. It expires after one hour.
+- The latest journey point stays in API memory for two minutes and is not saved as history. Verification evidence is stored separately.
+- Development mobile builds include labeled DEMO controls that start from the provider's current GPS fix and simulate 50 m moves; the API draws a driving route from the latest provider location to the saved requester pin using public OSRM. OSRM receives both coordinates, and its ETA does not include traffic. Production APIs reject DEMO updates.
 
 Example update body:
 
@@ -355,13 +366,8 @@ Example update body:
 
 Use a current UTC timestamp when sending an update; the backend rejects stale GPS samples.
 
-Flow:
+The requester and assigned provider can view the task map on web or mobile. The task marker shows the saved task location, not the requester's live location.
 
-- Task maps are available to the requester and assigned provider for that task.
-- The assigned provider can opt in to foreground GPS sharing from the mobile app after requester escrow funding is confirmed. GPS tracking and precise task-address access are unavailable before funding.
-- The provider's mobile **Verify location** action checks a fresh GPS point within 1 km of the saved task-site coordinates; escrow must be funded before verification.
-- The requester can view the provider's latest location on web or mobile. The requester marker represents the saved task location, not the requester's live device location.
-- Persisted into `TRACKING_LOGS` via Prisma.
 - **AI Integration**
 
   - `POST /api/ai/recommend/:taskId`

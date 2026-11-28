@@ -29,6 +29,8 @@ interface TaskCardProps {
   onBid?: () => void;
   onToggleSave?: () => void;
   isSaved?: boolean;
+  /** Suggested list only: outline the card and show why it was suggested. */
+  suggestionReasons?: string[];
 }
 
 function getTaskCardImageUrl(imageUrl: string): string {
@@ -49,6 +51,7 @@ export function TaskCard({
   onBid,
   onToggleSave,
   isSaved = false,
+  suggestionReasons,
 }: TaskCardProps): React.ReactElement {
   const user = useAuthStore((state) => state.user);
   const { width } = useWindowDimensions();
@@ -58,8 +61,9 @@ export function TaskCard({
   const budget = getTaskDisplayBudget(task);
   const canSeeSuspiciousRisk = isProvider(user) || isAdmin(user);
 
-  return (
-    <Card style={styles.card} contentStyle={styles.content}>
+  const reasons = suggestionReasons?.filter(Boolean) ?? [];
+  const card = (
+    <Card style={[styles.card, reasons.length ? styles.cardSuggested : null]} contentStyle={styles.content}>
       <View style={styles.headerRow}>
         <View style={styles.headerLeft}>
           <View style={styles.iconWrap}>
@@ -125,6 +129,19 @@ export function TaskCard({
       </View>
     </Card>
   );
+
+  if (reasons.length === 0) return card;
+  // Suggested: outlined card with a small label sitting on the top-left edge saying why.
+  return (
+    <View style={styles.suggestedWrap}>
+      {card}
+      <View style={styles.reasonBadge} pointerEvents="none">
+        <Text style={styles.reasonBadgeText} numberOfLines={1}>
+          ✨ {reasons.slice(0, 2).join(" · ")}
+        </Text>
+      </View>
+    </View>
+  );
 }
 
 function FactRow({ label, value }: { label: string; value: string }): React.ReactElement {
@@ -141,6 +158,31 @@ function FactRow({ label, value }: { label: string; value: string }): React.Reac
 const styles = StyleSheet.create({
   card: {
     borderColor: "#d8e2f4",
+  },
+  cardSuggested: {
+    borderColor: "#818cf8",
+    borderWidth: 2,
+  },
+  suggestedWrap: {
+    position: "relative",
+    paddingTop: 10,
+  },
+  reasonBadge: {
+    position: "absolute",
+    top: 0,
+    left: 16,
+    maxWidth: "85%",
+    zIndex: 2,
+    elevation: 3,
+    borderRadius: 999,
+    backgroundColor: "#4f46e5",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  reasonBadgeText: {
+    color: "#ffffff",
+    fontSize: 11,
+    fontWeight: "700",
   },
   content: {
     gap: 12,

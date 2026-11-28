@@ -1,9 +1,10 @@
-import React from "react";
+import React, { useState } from "react";
 import { ScrollView, ScrollViewProps, StyleProp, StyleSheet, View, ViewStyle, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MarketplaceFooter } from "@/components/MarketplaceFooter";
 import { AIAssistantButton } from "@/components/AIAssistantButton";
 import { MarketplaceHeader, MarketplaceRouteKey } from "@/components/MarketplaceHeader";
+import { ScrollLockProvider } from "@/components/ScrollLock";
 
 interface MarketplaceShellProps extends Pick<ScrollViewProps, "refreshControl"> {
   activeRoute: MarketplaceRouteKey;
@@ -19,6 +20,8 @@ export function MarketplaceShell({
 }: MarketplaceShellProps): React.ReactElement {
   const { width } = useWindowDimensions();
   const horizontalPadding = width >= 768 ? 24 : width < 390 ? 12 : 16;
+  // Paused while a finger is on an embedded map, so dragging moves the map, not the page.
+  const [scrollLocked, setScrollLocked] = useState(false);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -33,10 +36,13 @@ export function MarketplaceShell({
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           refreshControl={refreshControl}
+          scrollEnabled={!scrollLocked}
         >
-          <MarketplaceHeader activeRoute={activeRoute} />
-          {children}
-          <MarketplaceFooter />
+          <ScrollLockProvider onChange={setScrollLocked}>
+            <MarketplaceHeader activeRoute={activeRoute} />
+            {children}
+            <MarketplaceFooter />
+          </ScrollLockProvider>
         </ScrollView>
         <AIAssistantButton />
       </View>
